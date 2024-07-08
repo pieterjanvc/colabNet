@@ -1,0 +1,30 @@
+Package: colabNet
+Title: Visualising and exploring academic collaborations
+Version: 0.0.0.9000
+Authors@R: 
+    person("PJ", "Van Camp", , "pieterjanvc@hotmail.com", role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0003-0675-2011"))
+    person("Lorenzo", "Gesuita", , "lorenzo_gesuita@hms.harvard.edu", role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0002-0052-1901"))
+Description: This package contains a Shiny app that will help visualise and 
+  explore academic collaboarations by analysing data from NCBI PUBMED based on
+  a list of provided researchers.
+License: `use_mit_license()`
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.1
+Suggests: 
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
+Depends: 
+    R (>= 4.00)
+LazyData: true
+Imports: 
+    dplyr,
+    DT,
+    rentrez,
+    shiny,
+    stringi,
+    stringr,
+    visNetwork,
+    xml2
