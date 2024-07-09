@@ -22,9 +22,11 @@ LazyData: true
 Imports: 
     dplyr,
     DT,
+    purrr,
     rentrez,
     shiny,
     stringi,
     stringr,
+    tidyr,
     visNetwork,
     xml2

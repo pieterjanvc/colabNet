@@ -1,9 +1,12 @@
-library(shiny)
-library(dplyr)
-library(stringr)
-library(visNetwork)
-library(DT)
 
+
+#' Run the colabNet Shiny App
+#'
+#' @import shiny dplyr stringr tidyr purrr visNetwork DT
+#'
+#' @return Start the Shiny app
+#' @export
+#'
 colabNet <- function() {
 
   #////////////////
@@ -115,7 +118,7 @@ colabNet <- function() {
 
     lvl1Key = keywords %>% filter(lvl == 1) %>% select(`Macro Area` = keyword)
 
-    output$lvl1Key = renderDataTable({
+    output$lvl1Key = renderDT({
       datatable(lvl1Key,  options = list(dom = 't'),
                 rownames = F, selection = "single") %>%
         formatStyle(0, target = "row",
@@ -132,7 +135,7 @@ colabNet <- function() {
         distinct() %>% arrange(keyword)
     })
 
-    output$lvl2Key = renderDataTable({
+    output$lvl2Key = renderDT({
       datatable(lvl2Key() %>% select(`Broad Area` = keyword),
                 options = list(dom = 't', pageLength = nrow(keywords),
                                language = list(emptyTable = "No matching keywords")),
@@ -152,7 +155,7 @@ colabNet <- function() {
         select(keyword, parent) %>% distinct() %>% arrange(keyword)
     })
 
-    output$lvl3Key = renderDataTable({
+    output$lvl3Key = renderDT({
       req(input$lvl2Key_rows_selected)
       datatable(lvl3Key() %>% select(`Specific Area` = keyword),
                 options = list(dom = 't', pageLength = nrow(keywords),
