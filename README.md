@@ -1,4 +1,4 @@
-# ColabNet - Visualising academic collborations using NCBI
+# ColabNet - Visualising academic collaborations using NCBI
 
 ## About
 This project aims to create an interactive web application (R Shiny app) which
@@ -7,13 +7,21 @@ will have two tabs
 ### Collaburation Network Exploration
 
 This tab allows users (aimed at students) to see what type of research and 
-collaborations are going on in a department with the ability to filter on a 
-specific topic, by researcher or collaborations between researchers.
+collaborations are going on in a research group (e.g. department) with the 
+ability to filter on a specific topic, by researcher or collaborations between
+researchers.
 
 ### Collaburation Network Analysis
 
-This tab is geared towards admins and will allows more detailed analysis and 
-statistics on the level of researcher collaborations within a department.
+_Not yet implemented_
+
+This tab is geared towards admins who can specify the list of researchers the
+network should focus on and will allow more detailed analysis and 
+statistics on the level of researcher collaborations within the group.
+
+## Check the online demo
+
+_Currently not available_
 
 ## Running the app locally in R
 
@@ -44,7 +52,7 @@ source using the GitHub repo_
 ### As a developer
 
 1) Clone the [colabNet GitHub repo](https://github.com/pieterjanvc/colabNet.git) 
-and open the R project in your IDE (organised an R package).
+and open the R project in your IDE (organised as an R package).
 2) Load all functions devtools::load_all() 
-(or R Studio: Build -> Load All or Ctrl/Cmd + Shift + L)
+(or in R Studio: Build -> Load All or Ctrl/Cmd + Shift + L)
 3) Run the app with `colabNet()`
