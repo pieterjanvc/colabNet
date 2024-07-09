@@ -53,6 +53,6 @@ source using the GitHub repo_
 
 1) Clone the [colabNet GitHub repo](https://github.com/pieterjanvc/colabNet.git) 
 and open the R project in your IDE (organised as an R package).
-2) Load all functions devtools::load_all() 
+2) Load all functions `devtools::load_all()` 
 (or in R Studio: Build -> Load All or Ctrl/Cmd + Shift + L)
 3) Run the app with `colabNet()`
