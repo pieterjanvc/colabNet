@@ -1,19 +1,5 @@
 
 
-#' Simplify special characters in text for easier comparisons
-#'
-#' @param text
-#'
-#' @importFrom stringi stri_trans_nfd
-#' @importFrom stringr str_replace_all
-#'
-#' @return simplified text
-#' @export
-#'
-simpleText = function(text){
-  str_replace_all(stri_trans_nfd(text), "\\p{Mn}", "")
-}
-
 #' Get the best matching Pubmed author name
 #'
 #' @param first First name
@@ -25,7 +11,7 @@ simpleText = function(text){
 #' @return Author name as string "lastName Initials" as used in Pubmed
 #' @export
 #'
-getAuthor = function(first, last){
+ncbi_author = function(first, last){
   result = entrez_search("pubmed", term = sprintf("%s %s[Author]", last, first), retmax = 1)
 
   if(length(result$ids) == 0) {
@@ -58,13 +44,13 @@ getAuthor = function(first, last){
 #'
 #' @export
 #'
-authorPublicationInfo = function(firstName, lastName, n = -1){
+ncbi_authorPublicationInfo = function(firstName, lastName, n = -1){
 
   # Max 10000 papers (PubMed limit)
   n = ifelse(n == -1, 10000, n)
 
   # Get the best matching author name form PubMed
-  author = getAuthor(first = firstName, lastName)
+  author = ncbi_author(first = firstName, lastName)
 
   # Search for all their publication PMIDs (up to n)
   PMIDs = entrez_search("pubmed", term = sprintf("%s[Author]", author),
@@ -220,5 +206,73 @@ authorPublicationInfo = function(firstName, lastName, n = -1){
   return(list(author = author, articles = articleInfo, coAuthors = authors,
               affiliations = affiliations,
               meshDescriptors = descriptors, meshQualifiers = qualifiers))
+
+}
+
+#' Get detailed MeSH info based on MeSH IDs or terms
+#'
+#' You should only use one parameter:
+#' @param terms vector of MeSH descriptor IDs, tree numbers, or other terms
+#' @param uid MeSH uid (integer values)
+#'
+#' @importFrom rentrez entrez_search entrez_summary
+#' @importFrom purrr map_df
+#'
+#' @return a list with two elements: meshTerms and meshTree
+#' @export
+#'
+ncbi_meshInfo = function(terms = NULL, uid = NULL) {
+
+  if(is.null(terms) & is.null(terms)){
+    stop("You need at least one MeSH term / descriptor or one MeSH Entrez uid")
+  }
+
+  if(!is.null(terms) & !is.null(uid)){
+    stop("You can only search by MeSH term OR MeSH Entrez uid, not both")
+  }
+
+  if(!is.null(terms)){
+
+    # Make sure pasting together multiple terms is not exceeding the URL limit
+    group = (nchar(terms) %>% cumsum()) %/% 2000 + 1
+
+    # Search the mesh database for the uid of each term
+    uid = lapply(seq(1, max(group)), function(i){
+      entrez_search("mesh", paste(terms[group == i], collapse = " OR "),
+                             retmax = 500)$ids
+    })
+
+    uid = unlist(uid)
+  }
+
+  # Get the MeSH data from NCBI
+  meshInfo = sapply(seq(1, length(uid), by = 250), function(i){
+    getui = uid[i:min(i+249, length(uid))]
+    entrez_summary("mesh", id = getui)
+  })
+
+  if(max(group) > 1){
+    meshInfo = do.call(c, meshInfo)
+  }
+
+
+  # Extract the mesh terms
+  meshTerms = map_df(meshInfo, function(x){
+    data.frame(
+      meshui = x$ds_meshui,
+      meshterm = x$ds_meshterms
+    )
+  })
+
+  # Extract the tree info
+  meshTree = map_df(meshInfo, function(x){
+    data.frame(
+      uid = x$uid,
+      meshui = x$ds_meshui,
+      treenum = x$ds_idxlinks$treenum
+    )
+  })
+
+  return(list(meshTerms = meshTerms, meshTree = meshTree))
 
 }
