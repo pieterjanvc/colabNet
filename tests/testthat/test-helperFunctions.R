@@ -36,8 +36,6 @@ test_that("missingTreeNums", {
   b = NULL
   expect_equal(a, b)
 
-  expect_error(missingTreeNums("G17.52.023"))
-
   treenums = c()
   a = missingTreeNums(treenums)
   b = NULL

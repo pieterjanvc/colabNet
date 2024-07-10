@@ -273,6 +273,12 @@ ncbi_meshInfo = function(terms = NULL, uid = NULL) {
     )
   })
 
+  # Remove any invalid treenums
+  invalidTreenum = !checkTreeNums(meshTree$treenum, output = "vector")
+  invlaidMeshui = meshTree$meshui[invalidTreenum]
+  meshTerms = meshTerms %>% filter(!meshui %in% invlaidMeshui)
+  meshTree = meshTree[!invalidTreenum,]
+
   return(list(meshTerms = meshTerms, meshTree = meshTree))
 
 }
