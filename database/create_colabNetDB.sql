@@ -1,10 +1,17 @@
 
 CREATE TABLE IF NOT EXISTS "author" (
   "auID" INTEGER PRIMARY KEY AUTOINCREMENT,
+  "modified" TEXT
+);
+
+CREATE TABLE IF NOT EXISTS "authorName" (
+  "anID" INTEGER PRIMARY KEY AUTOINCREMENT,
+  "auID" INTEGER NOT NULL,
   "lastName" TEXT,
   "firstName" TEXT,
   "initials" TEXT,
-  "collectiveName" TEXT
+  "collectiveName" TEXT,
+  FOREIGN KEY("auID") REFERENCES "author"("auID")
 );
 
 CREATE TABLE IF NOT EXISTS "article" (
@@ -47,15 +54,15 @@ CREATE TABLE IF NOT EXISTS "meshLinks" (
 
 CREATE TABLE IF NOT EXISTS "meshTerms" (
  "mteID" INTEGER PRIMARY KEY AUTOINCREMENT,
- "uid" INTEGER NOT NULL,
- "term" TEXT NOT NULL,
- FOREIGN KEY("uid") REFERENCES "meshLinks"("uid")
+ "meshui" INTEGER NOT NULL,
+ "meshterm" TEXT NOT NULL,
+ FOREIGN KEY("meshui") REFERENCES "meshLinks"("meshui")
 );
 
 CREATE TABLE IF NOT EXISTS "meshTree" (
  "mtrID" INTEGER PRIMARY KEY AUTOINCREMENT,
- "treenum" TEXT UNIQUE,
  "uid" INTEGER,
+ "treenum" TEXT UNIQUE, 
  FOREIGN KEY("uid") REFERENCES "meshLinks"("uid")
 );
 

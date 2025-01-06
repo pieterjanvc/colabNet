@@ -44,7 +44,7 @@ checkTreeNums = function(treenums, output = "errorOnly"){
 #' This will allow to reconstruct the MeSH tree later by filling in gaps from
 #' leaves to the root
 #'
-#' @param known A vector of MeshTreeNumbers (e.g. N.06.850.290.200).
+#' @param treenums A vector of MeshTreeNumbers (e.g. N.06.850.290.200).
 #' Use checkTreeNums() is you want to make sure the numbers are in valid format
 #'
 #' @importFrom stringr str_remove
@@ -76,4 +76,11 @@ missingTreeNums = function(treenums){
     allNodes
   }
 
+}
+
+#' Timestamp
+#'
+#' @returns Time formatted as %Y-%m-%d %H:%M:%S
+timeStamp = function(){
+  format(Sys.time(), format = "%Y-%m-%d %H:%M:%S")
 }

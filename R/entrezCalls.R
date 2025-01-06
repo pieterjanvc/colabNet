@@ -212,8 +212,8 @@ ncbi_authorPublicationInfo = function(firstName, lastName, n = -1){
 #' Get detailed MeSH info based on MeSH IDs or terms
 #'
 #' You should only use one parameter:
-#' @param terms vector of MeSH descriptor IDs, tree numbers, or other terms
-#' @param uid MeSH uid (integer values)
+#' @param values vector of MeSH values to search for
+#' @param type The type needs to be meshui (MeSH ui) , treenum (tree number) or uid (MeSH Entrez uid)
 #'
 #' @importFrom rentrez entrez_search entrez_summary
 #' @importFrom purrr map_df
@@ -221,24 +221,21 @@ ncbi_authorPublicationInfo = function(firstName, lastName, n = -1){
 #' @return a list with two elements: meshTerms and meshTree
 #' @export
 #'
-ncbi_meshInfo = function(terms = NULL, uid = NULL) {
+ncbi_meshInfo = function(values, type = c("meshui", "treenum", "uid")) {
 
-  if(is.null(terms) & is.null(terms)){
-    stop("You need at least one MeSH term / descriptor or one MeSH Entrez uid")
+  if(!type[1] %in%  c("meshui", "treenum", "uid")){
+    stop("The type needs to be meshui (MeSH ui) , treenum (tree number) or uid (MeSH Entrez uid)")
   }
 
-  if(!is.null(terms) & !is.null(uid)){
-    stop("You can only search by MeSH term OR MeSH Entrez uid, not both")
-  }
+  type = type[1]
 
-  if(!is.null(terms)){
-
-    # Make sure pasting together multiple terms is not exceeding the URL limit
-    group = (nchar(terms) %>% cumsum()) %/% 2000 + 1
+  if(type != "uid"){
+    # Make sure pasting together multiple values is not exceeding the URL limit
+    group = ((nchar(values) + nchar(type) + 2) %>% cumsum()) %/% 2000 + 1
 
     # Search the mesh database for the uid of each term
     uid = lapply(seq(1, max(group)), function(i){
-      entrez_search("mesh", paste(terms[group == i], collapse = " OR "),
+      entrez_search("mesh", paste(paste0(values[group == i], sprintf("[%s]", type)), collapse = " OR "),
                              retmax = 500)$ids
     })
 
@@ -251,7 +248,7 @@ ncbi_meshInfo = function(terms = NULL, uid = NULL) {
     entrez_summary("mesh", id = getui)
   })
 
-  if(max(group) > 1){
+  if(length(uid) > 250){
     meshInfo = do.call(c, meshInfo)
   }
 

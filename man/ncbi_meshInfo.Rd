@@ -4,12 +4,12 @@
 \alias{ncbi_meshInfo}
 \title{Get detailed MeSH info based on MeSH IDs or terms}
 \usage{
-ncbi_meshInfo(terms = NULL, uid = NULL)
+ncbi_meshInfo(values, type = c("meshui", "treenum", "uid"))
 }
 \arguments{
-\item{terms}{vector of MeSH descriptor IDs, tree numbers, or other terms}
+\item{values}{vector of MeSH values to search for}
 
-\item{uid}{MeSH uid (integer values)}
+\item{type}{The type needs to be meshui (MeSH ui) , treenum (tree number) or uid (MeSH Entrez uid)}
 }
 \value{
 a list with two elements: meshTerms and meshTree

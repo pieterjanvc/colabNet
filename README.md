@@ -4,14 +4,14 @@
 This project aims to create an interactive web application (R Shiny app) which
 will have two tabs
 
-### Collaburation Network Exploration
+### Collaboration Network Exploration
 
 This tab allows users (aimed at students) to see what type of research and 
 collaborations are going on in a research group (e.g. department) with the 
 ability to filter on a specific topic, by researcher or collaborations between
 researchers.
 
-### Collaburation Network Analysis
+### Collaboration Network Analysis
 
 _Not yet implemented_
 
