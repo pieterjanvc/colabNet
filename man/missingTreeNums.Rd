@@ -7,7 +7,7 @@
 missingTreeNums(treenums)
 }
 \arguments{
-\item{known}{A vector of MeshTreeNumbers (e.g. N.06.850.290.200).
+\item{treenums}{A vector of MeshTreeNumbers (e.g. N.06.850.290.200).
 Use checkTreeNums() is you want to make sure the numbers are in valid format}
 }
 \value{

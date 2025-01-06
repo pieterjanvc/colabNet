@@ -9,7 +9,7 @@
 #' @export
 #'
 simpleText = function(text){
-  str_replace_all(stri_trans_nfd(text), "\\p{Mn}", "")
+  str_replace_all(stri_trans_nfd(tolower(text)), "\\p{Mn}", "")
 }
 
 #' Check if MeSH tree numbers are valid

@@ -3,7 +3,7 @@
 #' Get the best matching Pubmed author name
 #'
 #' @param first First name
-#' @param lastLast name
+#' @param lastLast Lastname
 #'
 #' @importFrom rentrez entrez_search entrez_summary
 #' @importFrom stringr str_detect

@@ -8,39 +8,45 @@ if(!file.exists(colabDB)){
 
   myConn = dbConnect(SQLite(),colabDB)
   sapply(sqlFile, function(sql){
-    x = dbExecute(myConn, sql)
+    q = dbExecute(myConn, sql)
   })
   dbDisconnect(myConn)
 }
 
 # Check if an author exists and is in DB
-ncbi_author("PJ", "Van Camp")
-# insert author data into database
-x = ncbi_authorPublicationInfo("PJ", "Van Camp")
-
 myConn = dbConnect(SQLite(),colabDB)
+firstName = "PJ"
+lastName = "Van Camp"
+author = ncbi_author(firstName, lastName)
+authors = tbl(myConn, "authorName") |> filter(paste(lastName, initials) == author) |> collect()
+
+### IF NOT - Add author and papers
+if(nrow(authors) > 0){
+  stop("Author info already in DB")
+}
+
+# Get all publication details
+pubInfo = ncbi_authorPublicationInfo(firstName, lastName)
+
+# insert author data into database
 # Create author ID
 auID <- dbGetQuery(myConn, "INSERT INTO author(modified) VALUES (?) RETURNING auID",
            params = list(timeStamp()))
 auID <- auID$auID
 # Insert name(s)
-q <- dbSendStatement(
+q <- dbExecute(
   myConn,
   "INSERT INTO authorName(auID,lastName,firstName,initials)
   VALUES (?,?,?,?)",
-  params = list(rep(auID, nrow(x$author)), x$author$lastName,
-                x$author$firstName, x$author$initials))
-
-dbDisconnect(myConn)
+  params = list(rep(auID, nrow(pubInfo$author)), pubInfo$author$lastName,
+                pubInfo$author$firstName, pubInfo$author$initials))
 
 # Get meshUI from papers
-x = ncbi_authorPublicationInfo("Laurent", "Van Camp")
-meshui = unique(x$meshDescriptors$DescriptorUI)
+meshui = unique(pubInfo$meshDescriptors$DescriptorUI)
 
 meshInfo = ncbi_meshInfo(meshui, type = "meshui")
 
 # Check DB if the missing nodes are already known
-myConn = RSQLite::dbConnect(RSQLite::SQLite(),"dev/test.db")
 
 missingNodes = missingTreeNums(meshInfo$meshTree$treenum)
 knownNodes = tbl(myConn, "meshTree") %>% filter(treenum %in% local(missingNodes)) %>%
@@ -73,11 +79,23 @@ if(length(toAdd) > 0){
   meshInfo$meshTerms = meshInfo$meshTerms |> filter(meshui %in% meshInfo$meshTree$meshui)
 
   # Add to database
-  x = RSQLite::dbWriteTable(myConn, "meshLinks", 
+  q = RSQLite::dbWriteTable(myConn, "meshLinks", 
   meshInfo$meshTree |> select(uid, meshui) |> distinct(), append = T)
-  x = RSQLite::dbWriteTable(myConn, "meshTerms", meshInfo$meshTerms, append = T)
-  x = RSQLite::dbWriteTable(myConn, "meshTree", 
+  q = RSQLite::dbWriteTable(myConn, "meshTerms", meshInfo$meshTerms, append = T)
+  q = RSQLite::dbWriteTable(myConn, "meshTree", 
   meshInfo$meshTree |> select(uid, treenum) |> distinct(), append = T)
 }
 
+### ADD PAPERS AND METADATA
+pubInfo$coAuthors
+
 RSQLite::dbDisconnect(myConn)
+
+myConn = dbConnect(SQLite(),colabDB)
+
+authors = pubInfo$coAuthors
+
+dbAddAuthors(authors)
+
+articles = pubInfo$articles
+affiliations = pubInfo$affiliations

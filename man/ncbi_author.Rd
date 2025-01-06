@@ -9,7 +9,7 @@ ncbi_author(first, last)
 \arguments{
 \item{first}{First name}
 
-\item{lastLast}{name}
+\item{lastLast}{Lastname}
 }
 \value{
 Author name as string "lastName Initials" as used in Pubmed
