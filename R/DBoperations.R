@@ -8,57 +8,64 @@ colabDB <- "dev/colabNet.db"
 #' @import RSQLite
 #' @import dplyr
 #'
-#' @return Data is inserted into the DB and list of new, modified an unmodified author IDs (auID) is returned
+#' @return Data frame with new, updated and existing author info
 #' @export
 #'
-dbAddAuthors <- function(authors, colabDB = colabDB){
+dbAddAuthors <- function(authors, conn){
+ # authors = authorPublicationInfo$coAuthors 
 
-  myConn = dbConnect(SQLite(), colabDB)
-
+  # Get all distinct author names, but assume same author is last name and initials are the same
   authors = authors |> select(lastName, firstName, initials) |> distinct()
   authors = authors |> group_by(x = tolower(lastName), initials) |> 
-    mutate(tempId = cur_group_id()) |> ungroup() |> select(-x)
-  
-  authors = tbl(myConn, "authorName") |> full_join(
-    authors, by = c("lastName", "firstName", "initials"), copy = TRUE
+    mutate(tempId = cur_group_id()) |> ungroup() |> select(-x)  
+  authors = authors |> left_join(
+    tbl(conn, "authorName"), by = c("lastName", "firstName", "initials"), copy = TRUE
   ) |> collect()
 
-  unmodified = authors |> group_by(tempId) |> filter(sum(is.na(anID)) == 0) |> ungroup()
+  # Check which authors already exist in the DB (nothing to do)
+  existing = authors |> group_by(tempId) |> filter(!is.na(anID)) |> ungroup() |> 
+    mutate(status = "existing")
 
-  # Authors that are already in the DB, but a new version of the name popped up
-  modified = authors |> group_by(tempId) |> filter(!sum(is.na(anID)) %in% c(0, n())) |> ungroup()
+  # Check authors that are already in the DB, but an alternative version of the name popped up
+  updated = authors |> group_by(tempId) |> filter(!sum(is.na(anID)) %in% c(0, n())) |> ungroup()
 
-  if(nrow(modified) > 0){
-    q <- dbExecute(
-      myConn,
+  # Add those alternative names to the DB with same author ID
+  if(nrow(updated) > 0){
+    updated <- updated |> group_by(tempId) |> mutate(auID = min(auID, na.rm = T)) |> 
+      ungroup() |> filter(is.na(anID))
+    updated <- dbGetQuery(
+      conn,
       "INSERT INTO authorName(auID,lastName,firstName,initials,collectiveName)
-      VALUES (?,?,?,?)",
-      params = list(modified$auID, modified$lastName, modified$firstName, 
-        modified$initials, modified$collectiveName)
-    )
+      VALUES (?,?,?,?,?) RETURNING *",
+      params = list(updated$auID, updated$lastName, updated$firstName, 
+        updated$initials, updated$collectiveName)
+    ) |> mutate(status = "updated")
+
+    q <- dbExecute(conn, "UPDATE author SET modified = ? WHERE auID IN (?)",
+      params = list(timeStamp(), paste(unique(updated$auID), collapse = ",")))
   }
 
-  # Authors are not yet in the DB
-  new = authors |> group_by(tempId) |> filter(all(is.na(anID))) |> ungroup()
-  auID <- integer(0)
+  # Add authors who are not yet in the DB
+  new = authors |> group_by(tempId) |> filter(all(is.na(anID))) |> ungroup() |> 
+    select(-auID)
   
   if(nrow(new) > 0){
-    # Create author IDa
-    auID <- dbGetQuery(myConn, "INSERT INTO author(modified) VALUES (?) RETURNING auID",
-      params = list(rep(timeStamp(), nrow(new))))
-    auID <- auID$auID
+    # Create new author IDs
+    auID <- dbGetQuery(conn, "INSERT INTO author(modified) VALUES (?) RETURNING auID",
+      params = list(rep(timeStamp(), new$tempId |> n_distinct())))
+    auID$tempId = unique(new$tempId)
+    new <- new |> left_join(auID, by = "tempId")
     
-    q <- dbExecute(
-      myConn,
+    # Add author names
+    new <- dbGetQuery(
+      conn,
       "INSERT INTO authorName(auID,lastName,firstName,initials,collectiveName)
-      VALUES (?,?,?,?)",
-      params = list(auID, new$lastName, new$firstName, new$initials, new$collectiveName)
-    )
+      VALUES (?,?,?,?,?) RETURNING *",
+      params = list(new$auID, new$lastName, new$firstName, new$initials, new$collectiveName)
+    ) |> mutate(status = "new")
   }
-  
-  dbDisconnect(myConn)
 
-  return(list(auIDNew = auID, auIDModified = unique(modified$auID), auIDUnmodified = unique(unmodified$auID)))
+  return(bind_rows(new, updated, existing) |> select(-tempId))
 }
 
 #' Add authors to the database
@@ -71,38 +78,61 @@ dbAddAuthors <- function(authors, colabDB = colabDB){
 #' @return Data is inserted into the DB and list of new, modified an unmodified author IDs (auID) is returned
 #' @export
 #'
-dbAddArticles <- function(authorPublicationInfo, colabDB = colabDB){
-  myConn = dbConnect(SQLite(), colabDB)
+dbAddArticles <- function(authorPublicationInfo, conn){
+  # authorPublicationInfo = pubInfo
 
   ### ADD ARTICLES
   articles = authorPublicationInfo$articles
 
   # Check which articles are already in the database
-  existing <- tbl(myConn, "article") |> filter(!PMID %in% articles$PMID) |> select(arID, PMID) |> collect()
+  existing <- tbl(conn, "article") |> filter(PMID %in% articles$PMID) |> select(arID, PMID) |> collect()
   new <- articles |> filter(!PMID %in% existing$PMID)
 
-  arID <- integer(0)
   if(nrow(new) > 0){
-    arID <- dbGetQuery(
-      myConn,
+    new <- dbGetQuery(
+      conn,
       "INSERT INTO article(PMID,title,journal,year,month,day)
-      VALUES (?,?,?,?,?,?) RETURNING arID",
+      VALUES (?,?,?,?,?,?) RETURNING arID, PMID",
       params = list(new$PMID, new$title, new$journal, new$year, new$month, new$day)
+    )
+  } else {
+    new <- data.frame()
+  }
+
+  arInfo <- bind_rows(new, existing)
+
+  ### ADD AUTHOR INFO
+  auInfo <- dbAddAuthors(authorPublicationInfo$coAuthors, conn)
+
+  affiliations = authorPublicationInfo$affiliations
+
+  # ADD AFFILIATIONS
+  existing <- tbl(conn, "affiliation") |> filter(affiliation %in% local(unique(affiliations$affiliation))) |> collect()
+  new <- affiliations |>select(affiliation) |>distinct() |> filter(!affiliation %in% existing$affiliation)
+  if(nrow(new) > 0){
+    afID <- dbGetQuery(
+      conn,
+      "INSERT INTO affiliation(affiliation)
+      VALUES (?) RETURNING *",
+      params = list(new$affiliation)
     )
   }
 
-  ### ADD AUTHOR INFO
-  aInfo <- dbAddAuthors(authorPublicationInfo$coAuthors)
+  afInfo <- bind_rows(new,existing)
 
-  affiliations = authorPublicationInfo$affiliations
-  test <- tbl(myConn, "authorName") |> 
-    left_join(authorPublicationInfo$coAuthors, 
-      by = c("lastName", "firstName", "initials", "collectiveName"), copy = T, na_matches = "na") |> 
-    collect()
+  # ADD ARTICLE AUTHOR AFFILIATIONS
+  arAuAf <- authorPublicationInfo$coAuthors |> 
+    left_join(auInfo, 
+      by = c("lastName", "firstName", "initials", "collectiveName"), na_matches = "na") |> 
+    left_join(authorPublicationInfo$affiliations, by = c("PMID", "authorOrder")) |> 
+    left_join(afInfo, by = "affiliation") |> 
+    left_join(arInfo, by = "PMID") |> select(arID, auID, afID)
+
+  q <- dbExecute(conn, "INSERT INTO author_affiliation(arID, auID, afID) VALUES(?,?,?)",
+    params = list(arAuAf$arID, arAuAf$auID, arAuAf$afID))
   
-  # TODO: join the above to the affiliations and start entering data into the DB
+  # TODO  ... ADD MESH INFO
 
-
-  return(list(arIDNew = arID, arIDExisting = existing$arID))
+  return()
   
 }
