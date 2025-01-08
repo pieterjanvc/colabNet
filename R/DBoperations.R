@@ -1,4 +1,42 @@
-colabDB <- "dev/colabNet.db"
+#' Add authors to the database
+#'
+#' @param path Path to ColabNet Database. If DB does not exist it will be created
+#' @param newDBMsg (Default, TRUE) Output a message when a new database was created
+#' @param checkSchema (Default, FALSE) Check the schema of an existing datbase against the reference
+#' 
+#' @import RSQLite
+#' @importFrom stringr str_remove
+#' 
+#' @return A connection to the ColabNet datbase
+#' @export
+#'
+dbGetConn <- function(path, newDBMsg = T, checkSchema = F){
+
+  sqlFile = readLines("database/create_colabNetDB.sql") %>% paste(collapse = "") |> 
+  str_remove(";\\s*$")
+
+  if(!file.exists(path)){    
+    tables = strsplit(sqlFile,";") %>% unlist()
+    myConn = dbConnect(SQLite(),path)
+    q <- sapply(tables, function(sql){
+      q = dbExecute(myConn, sql)
+    })  
+    
+    if(newDBMsg) message("A new database was created")
+    
+  } else {
+    myConn = dbConnect(SQLite(),path)
+    dbSchema <- dbGetQuery(myConn, "SELECT sql FROM sqlite_master WHERE type = 'table'") |> 
+      unlist() |> paste(collapse = ";") |> str_remove("CREATE TABLE sqlite_sequence\\(name,seq\\);")
+    
+    if(dbSchema != sqlFile & checkSchema){
+      dbDisconnect(myConn)
+      stop("The current database and latest schema are not the same")
+    }
+  }
+
+  return(myConn)
+}
 
 #' Add authors to the database
 #'
@@ -11,8 +49,7 @@ colabDB <- "dev/colabNet.db"
 #' @return Data frame with new, updated and existing author info
 #' @export
 #'
-dbAddAuthors <- function(authors, conn){
- # authors = authorPublicationInfo$coAuthors 
+dbAddAuthors <- function(conn, authors){
 
   # Get all distinct author names, but assume same author is last name and initials are the same
   authors = authors |> select(lastName, firstName, initials) |> distinct()
@@ -68,24 +105,99 @@ dbAddAuthors <- function(authors, conn){
   return(bind_rows(new, updated, existing) |> select(-tempId))
 }
 
+#' Insert MeSH info into the ColabNet database
+#'
+#' @param conn Connection to the ColabNet database 
+#' @param values vector of MeSH values to search for
+#' @param type The type needs to be 'meshui' (MeSH ui), 'treenum' (tree number) or 'uid' (MeSH Entrez uid)
+#'
+#' @import dplyr
+#'
+#' @return data frame with all uid and meshui inserted into the database (including intermediate tree nodes)
+#' @export
+#'
+dbAddMesh <- function(conn, values, type){
+  
+  meshInfo = ncbi_meshInfo(values, type)
+ 
+  # Check with intermediate tree nodes (treenum) are missing to get to root
+  missingNodes = missingTreeNums(meshInfo$meshTree$treenum)
+
+  # Check DB which missing treenums (intermediate nodes) are already in the DB
+  knownTreenums = tbl(conn, "meshTree") %>% filter(treenum %in% local(missingNodes)) %>%
+      pull(treenum)
+  
+  # Get info on remaining missing nodes
+  missingNodes = setdiff(missingNodes, knownTreenums)
+
+  # Iteratively add missing nodes
+  #  Iteration needed because some IDs have multple treenums
+  while(length(missingNodes) > 0){ 
+    
+    # Seach NCBI and add results
+    newNodes = ncbi_meshInfo(missingNodes, type = "treenum")  
+    meshInfo$meshTerms = rbind(meshInfo$meshTerms, newNodes$meshTerms)
+    meshInfo$meshTree = rbind(meshInfo$meshTree, newNodes$meshTree)
+
+    # Again check if there are missing links in the new nodes
+    missingNodes = missingTreeNums(meshInfo$meshTree$treenum)
+    knownTreenums = c(knownTreenums,
+      tbl(conn, "meshTree") %>% filter(treenum %in% local(missingNodes)) %>%
+    pull(treenum))
+
+    missingNodes = setdiff(missingNodes, knownTreenums)
+  }
+
+  toAdd = setdiff(meshInfo$meshTree$treenum, knownTreenums)
+
+  if(length(toAdd) > 0){
+
+    # Only add new tree data
+    meshInfo$meshTree = meshInfo$meshTree |> filter(treenum %in% toAdd)
+    meshInfo$meshTerms = meshInfo$meshTerms |> filter(meshui %in% meshInfo$meshTree$meshui)
+
+    # Add to database
+    meshLinks <- meshInfo$meshTree |> select(uid, meshui) |> distinct() 
+    existing <- tbl(conn, "meshLink") |> filter(uid %in% local(meshLinks$uid)) |> 
+      select(uid, meshui) |> collect()
+    meshLinks <- meshLinks |> filter(!uid %in% existing$uid)
+
+    q <- dbExecute(conn, "INSERT INTO meshLink(uid, meshui) VALUES(?,?)",
+      params = list(meshLinks$uid, meshLinks$meshui))
+    
+    meshTerms <- meshInfo$meshTerms |> select(meshui, meshterm) |> distinct()
+    meshTerms <- meshTerms |> filter(!meshui %in% existing$meshui)
+    q <- dbExecute(conn, "INSERT INTO meshTerm(meshui, meshterm) VALUES(?,?)",
+      params = list(meshTerms$meshui, meshTerms$meshterm))
+
+    meshTree <- meshInfo$meshTree |> select(uid, treenum) |> distinct()
+    meshTree <- meshTree |> filter(!uid %in% existing$uid)
+    q <- dbExecute(conn, "INSERT INTO meshTree(uid, treenum) VALUES(?,?)",
+      params = list(meshTree$uid, meshTree$treenum))    
+  }
+
+  return(meshLinks)
+}
+
 #' Add authors to the database
 #'
-#' @param authorPublicationInfo List of data frames geneated by ncbi_authorPublicationInfo()
+#' @param conn Connection to the ColabNet database 
+#' @param authorPublications List of data frames geneated by ncbi_authorPublications()
 #' 
 #' @import RSQLite
 #' @import dplyr
 #'
-#' @return Data is inserted into the DB and list of new, modified an unmodified author IDs (auID) is returned
+#' @return Data is inserted into the DB returning a list the author's aritcles (arID and PMID)
 #' @export
 #'
-dbAddArticles <- function(authorPublicationInfo, conn){
-  # authorPublicationInfo = pubInfo
+dbAddAuthorPublications <- function(conn, authorPublications){
 
   ### ADD ARTICLES
-  articles = authorPublicationInfo$articles
+  articles = authorPublications$articles
 
   # Check which articles are already in the database
-  existing <- tbl(conn, "article") |> filter(PMID %in% articles$PMID) |> select(arID, PMID) |> collect()
+  existing <- tbl(conn, "article") |> filter(PMID %in% articles$PMID) |> select(arID, PMID) |> 
+    collect() |> mutate(status = "existing")
   new <- articles |> filter(!PMID %in% existing$PMID)
 
   if(nrow(new) > 0){
@@ -93,24 +205,29 @@ dbAddArticles <- function(authorPublicationInfo, conn){
       conn,
       "INSERT INTO article(PMID,title,journal,year,month,day)
       VALUES (?,?,?,?,?,?) RETURNING arID, PMID",
-      params = list(new$PMID, new$title, new$journal, new$year, new$month, new$day)
-    )
+      params = list(new$PMID, new$title, new$journal, new$year, new$month, new$day) 
+    ) |> mutate(status = "new")
   } else {
     new <- data.frame()
   }
 
   arInfo <- bind_rows(new, existing)
 
-  ### ADD AUTHOR INFO
-  auInfo <- dbAddAuthors(authorPublicationInfo$coAuthors, conn)
+  # Stop if no new articles were found
+  if(all(arInfo$status == "existing")){
+    return(arInfo)
+  }
 
-  affiliations = authorPublicationInfo$affiliations
+  ### ADD (CO)AUTHOR INFO
+  auInfo <- dbAddAuthors(conn, authorPublications$coAuthors)
+
+  affiliations = authorPublications$affiliations
 
   # ADD AFFILIATIONS
   existing <- tbl(conn, "affiliation") |> filter(affiliation %in% local(unique(affiliations$affiliation))) |> collect()
   new <- affiliations |>select(affiliation) |>distinct() |> filter(!affiliation %in% existing$affiliation)
   if(nrow(new) > 0){
-    afID <- dbGetQuery(
+    new <- dbGetQuery(
       conn,
       "INSERT INTO affiliation(affiliation)
       VALUES (?) RETURNING *",
@@ -120,19 +237,40 @@ dbAddArticles <- function(authorPublicationInfo, conn){
 
   afInfo <- bind_rows(new,existing)
 
-  # ADD ARTICLE AUTHOR AFFILIATIONS
-  arAuAf <- authorPublicationInfo$coAuthors |> 
+  # ADD ARTICLE (CO)AUTHOR INFO AND AFFILIATIONS
+  arAuAf <- authorPublications$coAuthors |> 
     left_join(auInfo, 
       by = c("lastName", "firstName", "initials", "collectiveName"), na_matches = "na") |> 
-    left_join(authorPublicationInfo$affiliations, by = c("PMID", "authorOrder")) |> 
+    left_join(authorPublications$affiliations, by = c("PMID", "authorOrder")) |> 
     left_join(afInfo, by = "affiliation") |> 
-    left_join(arInfo, by = "PMID") |> select(arID, auID, afID)
+    left_join(arInfo, by = "PMID")
+  
+  coAuthors <- arAuAf |> select(arID, auID, authorOrder) |> distinct()
+  q <- dbExecute(conn, "INSERT INTO coAuthor(arID, auID, authorOrder) VALUES(?,?,?)",
+    params = list(coAuthors$arID, coAuthors$auID, coAuthors$authorOrder))
 
   q <- dbExecute(conn, "INSERT INTO author_affiliation(arID, auID, afID) VALUES(?,?,?)",
     params = list(arAuAf$arID, arAuAf$auID, arAuAf$afID))
   
-  # TODO  ... ADD MESH INFO
+  # ADD MESH INFO  
+  # First make sure the MeSH tree is complete for any new terms
+  meshDescriptors <- authorPublications$meshDescriptors |> 
+    left_join(arInfo, by = "PMID") |> filter(status == "new") 
 
-  return()
-  
+  if(nrow(meshDescriptors) > 0) {
+    meshui = unique(meshDescriptors$DescriptorUI)
+
+    if(length(meshui) > 0){
+      result <- dbAddMesh(conn, meshui, "meshui")
+    }  
+    
+    # Insert meshUI from papers
+    meshArticle <- meshDescriptors |> select(arID, PMID, DescriptorUI, DescriptorMajor) |> 
+      distinct() |> mutate(DescriptorMajor = ifelse(DescriptorMajor == "Y", 1, 0))
+    
+    q <- dbExecute(conn, "INSERT INTO mesh_article(arID, meshui, descriptorMajor) VALUES(?,?,?)",
+    params = list(meshArticle$arID, meshArticle$DescriptorUI, meshArticle$DescriptorMajor))
+  } 
+
+  return(arInfo)  
 }

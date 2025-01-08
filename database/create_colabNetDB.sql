@@ -1,10 +1,10 @@
 
-CREATE TABLE IF NOT EXISTS "author" (
+CREATE TABLE "author" (
   "auID" INTEGER PRIMARY KEY AUTOINCREMENT,
   "modified" TEXT
 );
 
-CREATE TABLE IF NOT EXISTS "authorName" (
+CREATE TABLE "authorName" (
   "anID" INTEGER PRIMARY KEY AUTOINCREMENT,
   "auID" INTEGER NOT NULL,
   "lastName" TEXT,
@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS "authorName" (
   FOREIGN KEY("auID") REFERENCES "author"("auID")
 );
 
-CREATE TABLE IF NOT EXISTS "article" (
+CREATE TABLE "article" (
   "arID" INTEGER PRIMARY KEY AUTOINCREMENT,
   "PMID" TEXT UNIQUE,
   "title" TEXT NOT NULL,
@@ -24,20 +24,21 @@ CREATE TABLE IF NOT EXISTS "article" (
   "day" INTEGER
 );
 
-CREATE TABLE IF NOT EXISTS "coAuthor" (
+CREATE TABLE "coAuthor" (
   "arID" INTEGER,
   "auID" INTEGER,
+  "authorOrder" INTEGER,
   PRIMARY KEY ("arID", "auID"),
   FOREIGN KEY("arID") REFERENCES "article"("arID"),
   FOREIGN KEY("auID") REFERENCES "author"("auID")
 );
 
-CREATE TABLE IF NOT EXISTS "affiliation" (
+CREATE TABLE "affiliation" (
   "afID" INTEGER PRIMARY KEY AUTOINCREMENT,
   "affiliation" TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS "author_affiliation" (
+CREATE TABLE "author_affiliation" (
   "arID" INTEGER NOT NULL,
   "auID" INTEGER NOT NULL,
   "afID" INTEGER NOT NULL,
@@ -46,29 +47,29 @@ CREATE TABLE IF NOT EXISTS "author_affiliation" (
   FOREIGN KEY("afID") REFERENCES "affiliation"("afID")
 );
 
-CREATE TABLE IF NOT EXISTS "meshLinks" (
+CREATE TABLE "meshLink" (
  "uid" INTEGER PRIMARY KEY,
  "meshui" TEXT NOT NULL
 );
 
-
-CREATE TABLE IF NOT EXISTS "meshTerms" (
+CREATE TABLE "meshTerm" (
  "mteID" INTEGER PRIMARY KEY AUTOINCREMENT,
  "meshui" INTEGER NOT NULL,
  "meshterm" TEXT NOT NULL,
- FOREIGN KEY("meshui") REFERENCES "meshLinks"("meshui")
+ FOREIGN KEY("meshui") REFERENCES "meshLink"("meshui")
 );
 
-CREATE TABLE IF NOT EXISTS "meshTree" (
+CREATE TABLE "meshTree" (
  "mtrID" INTEGER PRIMARY KEY AUTOINCREMENT,
  "uid" INTEGER,
  "treenum" TEXT UNIQUE, 
- FOREIGN KEY("uid") REFERENCES "meshLinks"("uid")
+ FOREIGN KEY("uid") REFERENCES "meshLink"("uid")
 );
 
-CREATE TABLE IF NOT EXISTS "mesh_article" (
+CREATE TABLE "mesh_article" (
   "arID" INTEGER NOT NULL,
-  "uid" TEXT NOT NULL,
+  "meshui" TEXT NOT NULL,
+  "descriptorMajor" INTEGER,
   FOREIGN KEY("arID") REFERENCES "article"("arID"),
-  FOREIGN KEY("uid") REFERENCES "meshLinks"("uid")
+  FOREIGN KEY("meshui") REFERENCES "meshLink"("meshui")
 );

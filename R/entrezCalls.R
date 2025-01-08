@@ -3,7 +3,7 @@
 #' Get the best matching Pubmed author name
 #'
 #' @param first First name
-#' @param lastLast Lastname
+#' @param last Last name
 #'
 #' @importFrom rentrez entrez_search entrez_summary
 #' @importFrom stringr str_detect
@@ -44,13 +44,13 @@ ncbi_author = function(first, last){
 #'
 #' @export
 #'
-ncbi_authorPublicationInfo = function(firstName, lastName, n = -1){
+ncbi_authorPublications = function(firstName, lastName, n = -1){
 
   # Max 10000 papers (PubMed limit)
   n = ifelse(n == -1, 10000, n)
 
   # Get the best matching author name form PubMed
-  author = ncbi_author(first = firstName, lastName)
+  author = ncbi_author(firstName, lastName)
 
   # Search for all their publication PMIDs (up to n)
   PMIDs = entrez_search("pubmed", term = sprintf("%s[Author]", author),
@@ -227,6 +227,7 @@ ncbi_meshInfo = function(values, type = c("meshui", "treenum", "uid")) {
     stop("The type needs to be meshui (MeSH ui) , treenum (tree number) or uid (MeSH Entrez uid)")
   }
 
+  values = unique(values)
   type = type[1]
 
   if(type != "uid"){
