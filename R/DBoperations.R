@@ -196,7 +196,7 @@ dbAddAuthorPublications <- function(conn, authorPublications){
   articles = authorPublications$articles
 
   # Check which articles are already in the database
-  existing <- tbl(conn, "article") |> filter(PMID %in% articles$PMID) |> select(arID, PMID) |> 
+  existing <- tbl(conn, "article") |> filter(PMID %in% local(articles$PMID)) |> select(arID, PMID) |> 
     collect() |> mutate(status = "existing")
   new <- articles |> filter(!PMID %in% existing$PMID)
 
