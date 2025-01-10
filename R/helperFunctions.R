@@ -93,7 +93,9 @@ timeStamp = function(){
 #' @import dplyr
 #' @import stringr
 #'
-#' @return data frame with all MeSH treenums (including intermediate nodes)
+#' @return A list with two data frames:
+#'  - auTree: The full meshtree for the author (including intermediate nodes)
+#'  - arMesh: The set of MeSH terms actually referenced in the author's articles
 #' @export
 #'
 authorMeshTree <- function(conn, auID){
@@ -129,5 +131,5 @@ authorMeshTree <- function(conn, auID){
 
   auTree <- auTree |> mutate(auID = as.integer({{auID}}), .before = 1)
 
-  return(auTree)
+  return(list(auTree = auTree, arMesh = auMeshui))
 }
