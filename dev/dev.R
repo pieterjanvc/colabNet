@@ -35,10 +35,8 @@ meshRoots <- data.frame(
   )
 )
 
-auID = 1 #PJ Van Camp
-
-amt1 <- authorMeshTree(conn, 1)
-amt2 <- authorMeshTree(conn, 2)
+amt1 <- authorMeshTree(conn, 1) #PJ
+amt2 <- authorMeshTree(conn, 31) #Lorenzo
 
 # Get for each treenum whether there is overlap or not
 diffTree <- bind_rows(amt1$auTree, amt2$auTree) |> group_by(treenum) |> 
@@ -46,43 +44,22 @@ diffTree <- bind_rows(amt1$auTree, amt2$auTree) |> group_by(treenum) |>
   ungroup() |> distinct() |> 
   mutate(level = as.integer(str_count(treenum, "\\.") + 1))
 
-# #Check the higest level overlaps (furthest from the root)
-# diffTree <- diffTree |> filter(overlap)
-
-# lvl <- max(diffTree$level)
-# toCheck <- diffTree |> mutate(root = str_extract(treenum, "^."))
-# result <- data.frame()
-# while(lvl > 0){
-#   toKeep <- toCheck |> filter(level == {{lvl}})
-#   toRemove <- missingTreeNums(toKeep$treenum)
-
-#   result <- bind_rows(result, toKeep)
-#   toCheck <- toCheck |> filter(!treenum %in% c(toKeep$treenum, toRemove))
-#   lvl <- lvl - 1
-  
-# }
-
-# test <- result |> select(uid, level, treenum, root) |> 
-#   group_by(uid, root) |> filter(level == max(level)) |> ungroup()
-
+# Add the MeSH term (description)
 meshTerm <- tbl(conn, "meshLink") |> filter(uid %in% local(diffTree$uid)) |> 
-  left_join(tbl(conn, "meshTerm"), by = "meshui", na_matches = "never") |> distinct() |> 
+  left_join(tbl(conn, "meshTerm"), by = "meshui") |> distinct() |> 
   # If there are multiple term descriptions, only keep one
   group_by(uid) |> filter(mteID == min(mteID)) |> ungroup() |> collect()
 
-# test <- test |> left_join(meshTerm, by = "uid")
+diffTree <- diffTree |> left_join(meshTerm |> select(uid, meshterm), by = "uid") |> 
+  filter(!is.na(meshterm))
 
-# plotData <- c(test$treenum, missingTreeNums(test$treenum))
-# parents <- str_remove(plotData, "\\.\\d+$")
-# parents <- ifelse(plotData == parents, NA, parents)
-
-# Get the parent for each treenum (NA =  root)
+# Get the parent for each treenum ("" =  root)
 diffTree <- diffTree |> mutate(
   parent = str_remove(diffTree$treenum, "\\.\\d+$"),
-  parent = ifelse(diffTree$treenum == parent, "", parents)
-)
+  parent = ifelse(diffTree$treenum == parent, "", parent)
+) 
 
-# Add the number of children for each treenum
+# Add the number of children for each treenum and sort the tree by treenum (important for next step)
 diffTree <- diffTree |> left_join(
   diffTree |> group_by(treenum = parent) |> summarise(children = n(), .groups = "drop"),
   by = "treenum"
@@ -98,36 +75,107 @@ for(i in 2:nrow(diffTree)){
     diffTree$children[i] > 1 |diffTree$children[i-1] > 1){
     b = b + 1
   }
-  # if(diffTree$children[i] != 1 | diffTree$children[i-1] > 1 | 
-  #   diffTree$parent[i-1] == "" | diffTree$parent[i] != diffTree$parent[i-1]){
-  #   b = b + 1
-  # }  
   bID[i] = b
 }
 
 diffTree <- diffTree |> 
   mutate(
     branchID = as.integer({{bID}})
-    # x = lag(branchID),
-    # branchID = ifelse(children == 0, x, branchID)
-  ) |>  select(treenum, branchID, children, parent, everything())
+  ) |>  select(treenum, branchID, children, parent, meshterm, everything())
 
+# Get the parent branchID
 diffTree <- diffTree |> left_join(
   diffTree |> select(parent = treenum, parentBranchID = branchID),
   by = "parent"
 )
 
-plotData <- diffTree |> group_by(branchID) |> summarise(
+## GENERATE TREEMAP PLOT
+
+
+plotData <- diffTree 
+# Highlight mesh Terms that are shared between authors
+plotData <- plotData |> mutate(
+  meshterm = ifelse(auID == 0, sprintf("<b>%s</b>", meshterm), meshterm)
+)
+
+# If the same MeSH term is used in different branches it will cause an error in the treeplot
+# Rename duplicates to make them unique
+plotData = plotData |> group_by(meshterm) |> 
+  mutate(dupID = cur_group_id(), duplicate = n() > 1) |> ungroup()
+
+plotData = bind_rows(
+  plotData |> filter(!duplicate),
+  plotData |> filter(duplicate) |> group_by(dupID) |> 
+    mutate(meshterm = sprintf("%s(%i)", meshterm, 1:n())) |> ungroup()
+)
+
+# Add the parent MeSH term
+plotData <- plotData |> left_join(
+  plotData |> select(parent = treenum, parentMeshterm = meshterm),
+  by = "parent"
+) |> mutate(parentMeshterm = ifelse(is.na(parentMeshterm), "", parentMeshterm))
+
+
+# Merge branches with only one child into a single node
+plotData <- plotData |> group_by(branchID) |> summarise(
   parentBranchID = min(parentBranchID),
   treenum = paste(treenum, collapse = " -> <br>"),
+  meshterm = paste(meshterm, collapse = " -> <br>"),
+  auID = paste(auID, collapse = ","),
   .groups = "drop"
 )
 
+# Get the new parent info for the collapsed data and the root
 plotData <- plotData |> left_join(
-  plotData |> select(parent = treenum, parentBranchID = branchID),
+  plotData |> select(parent = treenum, parentBranchID = branchID, parentMeshterm = meshterm),
   by = "parentBranchID"
+) |> mutate(
+  parentMeshterm = ifelse(is.na(parentMeshterm), "MeSH Tree", parentMeshterm),
+  root = str_extract(plotData$treenum, "^[^\\.\\s]+")
 )
 
+# library(RColorBrewer)
+# generate_distinct_colors <- function(n) {
+#   # Load RColorBrewer library
+#   if (!require(RColorBrewer)) {
+#     install.packages("RColorBrewer")
+#     library(RColorBrewer)
+#   }
+  
+#   # Use a predefined color palette to get distinct colors
+#   if (n <= 12) {
+#     return(brewer.pal(n, "Set3"))
+#   } else {
+#     # Use a custom palette for n > 12
+#     return(colorRampPalette(brewer.pal(12, "Set3"))(n))
+#   }
+# }
+
+# colours <- data.frame(root = str_extract(plotData$treenum, "^[^\\.\\s]+") |> unique()) |> 
+#   mutate(colour = generate_distinct_colors(n()))
+
+colours <- plotData |> select(auID) |> distinct() |> arrange(auID) |> 
+  mutate(colour = c("#69BE28", "#3DB7E4", "#FF8849")[1:n()])
+
+plotData <- plotData |> left_join(colours, by = "auID") 
+
+# Meshterm plot (for app)
+fig <- plotly::plot_ly(
+  type="treemap",
+  labels= plotData$meshterm,
+  parents= plotData$parentMeshterm,
+  marker=list(colors=plotData$colour),
+  textfont = list(
+    color = ifelse(plotData$colour == "#3DB7E4", "white", "black")
+  ),
+  maxdepth = -1
+)  
+fig
+
+htmlwidgets::saveWidget(fig, "D:/Desktop/PJ-Lorenzo.html")
+
+
+# Treenum plot (to check logic)
 fig <- plotly::plot_ly(
   type="treemap",
   labels= plotData$treenum,
@@ -135,49 +183,3 @@ fig <- plotly::plot_ly(
   maxdepth = -1
 )
 fig
-
-#---
-parents <- str_remove(diffTree$treenum, "\\.\\d+$")
-parents <- ifelse(diffTree$treenum == parents, NA, parents)
-
-fig <- plotly::plot_ly(
-  type="treemap",
-  labels= diffTree$treenum,
-  parents= parents,
-  maxdepth = -1
-)
-fig
-
-meshTerm <- tbl(conn, "meshTree") |> filter(treenum %in% local(c(plotData))) |> 
-  left_join(tbl(conn, "meshLink"), by = "uid") |> 
-  left_join(tbl(conn, "meshTerm"), by = "meshui") |> 
-  collect() |> 
-  group_by(treenum) |> slice(1) |> ungroup() |> 
-  
-  left_join(
-    data.frame(
-      treenum = plotData,
-      parent = parents
-    ), by = "treenum"
-  )
-
-meshTerm <- meshTerm |> mutate(root = str_extract(treenum, "^.")) |> group_by(meshterm) |> 
-    mutate(flag = ifelse(n_distinct(root) > 1, T, F)) |> ungroup()
-
-meshTerm <- bind_rows(
-  meshTerm |> filter(flag) |> group_by(meshterm) |> 
-    mutate(meshterm = sprintf("%s (%i)",meshterm, 1:n())) |> ungroup(), 
-  meshTerm |> filter(!flag)
-)
-
-meshTerm <- meshTerm |> left_join(meshTerm |> select(parent = treenum, parentMesh = meshterm),
-  by = "parent")
-
-  fig <- plotly::plot_ly(
-    data = meshTerm,
-    type="treemap",
-    labels= ~meshterm,
-    parents= ~parentMesh,
-    maxdepth = -1
-  )
-  fig
