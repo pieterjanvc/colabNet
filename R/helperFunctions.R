@@ -124,7 +124,8 @@ authorMeshTree <- function(auID, dbPath) {
   # Use the meshTree to get all intermediate meshuis
   auTree <- auMeshui |>
     select(mtrID, uid, treenum) |>
-    distinct() |> mutate(hasArticle = T)
+    distinct() |>
+    mutate(hasArticle = T)
 
   # Cut off one level of the treenum and find its parents
   nextNums <- ifelse(str_detect(auTree$treenum, "\\."),
@@ -142,9 +143,11 @@ authorMeshTree <- function(auID, dbPath) {
     ) |> unique(na.rm = T)
   }
 
-  auTree <- auTree |> mutate(
-    hasArticle = ifelse(is.na(hasArticle), F, T),
-    auID = as.integer({{ auID }}), .before = 1) |> 
+  auTree <- auTree |>
+    mutate(
+      hasArticle = ifelse(is.na(hasArticle), F, T),
+      auID = as.integer({{ auID }}), .before = 1
+    ) |>
     arrange(treenum)
 
   dbDisconnect(conn)
@@ -175,7 +178,7 @@ diffTree <- function(auID1, auID2, pruneDuplicates = F, dbPath) {
   diffTree <- bind_rows(amt1$auTree, amt2$auTree) |>
     group_by(treenum) |>
     mutate(auID = ifelse(n() == 1, auID, 0) |> as.integer()) |>
-    filter(hasArticle == max(hasArticle)) |> 
+    filter(hasArticle == max(hasArticle)) |>
     ungroup() |>
     distinct() |>
     mutate(level = as.integer(str_count(treenum, "\\.") + 1))
@@ -217,7 +220,7 @@ diffTree <- function(auID1, auID2, pruneDuplicates = F, dbPath) {
   bID <- c(b, rep(NA, nrow(diffTree) - 1))
   for (i in 2:nrow(diffTree)) {
     if (diffTree$parent[i] != diffTree$treenum[i - 1] | diffTree$treenum[i] == "" |
-      diffTree$children[i] > 1 | diffTree$children[i - 1] > 1 | diffTree$auID[i] != diffTree$auID[i-1]) {
+      diffTree$children[i] > 1 | diffTree$children[i - 1] > 1 | diffTree$auID[i] != diffTree$auID[i - 1]) {
       b <- b + 1
     }
     bID[i] <- b
@@ -236,7 +239,7 @@ diffTree <- function(auID1, auID2, pruneDuplicates = F, dbPath) {
   )
 
   # Stop here if no need to prune duplicate branches
-  if(!pruneDuplicates) { 
+  if (!pruneDuplicates) {
     return(diffTree)
   }
 
@@ -245,54 +248,61 @@ diffTree <- function(auID1, auID2, pruneDuplicates = F, dbPath) {
   # Find MeSH terms that are duplicated
   diffTree <- diffTree |>
     group_by(meshterm) |>
-    mutate(duplicated = n() > 1) |> 
+    mutate(duplicated = n() > 1) |>
     ungroup()
 
   # Group are created as follows:
   # - Start with duplicates at the highest level (closest to tree root)
   # - If a child is also a duplicate, it's part of the same group, if not the group ends
   getDup <- diffTree |>
-    filter(duplicated) |>     
-    mutate(nDup = 1, groupID = mtrID) |> 
-    select(meshterm, level, treenum,parent, nDup, groupID, mtrID)
+    filter(duplicated) |>
+    mutate(nDup = 1, groupID = mtrID) |>
+    select(meshterm, level, treenum, parent, nDup, groupID, mtrID)
 
   # Keep going from top to bottom until all duplicate groups have been defined
-  curLvl = sort(unique(getDup$level))[2]
-  for(curLvl in sort(unique(getDup$level))){
-    nextLvl <- getDup |> filter(level == {{curLvl}}) 
+  curLvl <- sort(unique(getDup$level))[2]
+  for (curLvl in sort(unique(getDup$level))) {
+    nextLvl <- getDup |> filter(level == {{ curLvl }})
 
-    if(nrow(nextLvl) == 0) {
+    if (nrow(nextLvl) == 0) {
       next
     }
 
-    nextLvl <- nextLvl |> 
-      mutate(newGroupID = ifelse(groupID == 0 , mtrID, groupID)) |> 
+    nextLvl <- nextLvl |>
+      mutate(newGroupID = ifelse(groupID == 0, mtrID, groupID)) |>
       select(parent = treenum, newGroupID)
-   
-    getDup <- getDup |> left_join(nextLvl, by = "parent") |> 
-      mutate(groupID = ifelse(is.na(newGroupID), groupID, newGroupID)) |> 
+
+    getDup <- getDup |>
+      left_join(nextLvl, by = "parent") |>
+      mutate(groupID = ifelse(is.na(newGroupID), groupID, newGroupID)) |>
       select(-newGroupID)
   }
 
   # Add all terms that have a duplicate parent but themselves are not duplicated to the group
-  duplicates <- getDup |> pull(treenum) |> unique()
-  duplicates <- diffTree |> filter(parent %in% duplicates, !treenum %in% duplicates) |> 
+  duplicates <- getDup |>
+    pull(treenum) |>
+    unique()
+  duplicates <- diffTree |>
+    filter(parent %in% duplicates, !treenum %in% duplicates) |>
     pull(parent)
-  getDup$uniqueChild = getDup$treenum %in% duplicates
+  getDup$uniqueChild <- getDup$treenum %in% duplicates
 
   # Now remove redundant duplications according to the following rules
   # - Every duplicated group that has a unique child is kept (non-redundant duplication)
   # - For duplpicated groups with no unique children, keep the group with the largest size
   #   (this will effectively prune small duplications in various places in favour of a large group
   #    containing multiple duplications)
-  getDup <- getDup |> group_by(groupID) |> 
+  getDup <- getDup |>
+    group_by(groupID) |>
     mutate(
       uniqueChild = any(uniqueChild),
       groupSize = n()
-    ) |> group_by(meshterm) |> arrange(desc(groupSize), treenum) |> 
-    filter((!any(uniqueChild) & treenum == treenum[1]) | uniqueChild) |> 
+    ) |>
+    group_by(meshterm) |>
+    arrange(desc(groupSize), treenum) |>
+    filter((!any(uniqueChild) & treenum == treenum[1]) | uniqueChild) |>
     ungroup()
-  
+
   # Now create the new difftree with (redundant) duplicates removed
   diffTree <- bind_rows(
     diffTree |> filter(!duplicated),
@@ -302,19 +312,18 @@ diffTree <- function(auID1, auID2, pruneDuplicates = F, dbPath) {
   return(diffTree)
 }
 
-#' Check whether to use black or white text on a colour backgound 
+#' Check whether to use black or white text on a colour backgound
 #'
 #' @param colours A vector of colours
-#' 
-#' @return A vector of "black" or "white" for each colour 
+#'
+#' @return A vector of "black" or "white" for each colour
 #' @export
-textBW <- function(colours){
- 
-  colours <- col2rgb(colours) 
-  
+textBW <- function(colours) {
+  colours <- col2rgb(colours)
+
   # Calculate the luminance (0 - 255)
-  lum <- apply(colours, 2, function(x){
-    0.2126*x[1] + 0.7152*x[2] + 0.0722*x[3]
+  lum <- apply(colours, 2, function(x) {
+    0.2126 * x[1] + 0.7152 * x[2] + 0.0722 * x[3]
   })
 
   return(ifelse(lum > 127.5, "black", "white"))
@@ -323,7 +332,7 @@ textBW <- function(colours){
 #' Compare two author MeSH trees and find overlapping areas
 #'
 #' @param diffTree a diffTree dataframe returned by diffTree()
-#' @param colours A list of 3 colours for colouring shared, 
+#' @param colours A list of 3 colours for colouring shared,
 #'  author 1 unique and author 2 unique MeSH terms
 #'
 #' @import dplyr
@@ -333,82 +342,80 @@ textBW <- function(colours){
 #' @return A plotly Treemap
 #' @export
 #'
-plotDiffTree <- function(diffTree, colours = c("#69BE28", "#3DB7E4", "#FF8849")){
+plotDiffTree <- function(diffTree, colours = c("#69BE28", "#3DB7E4", "#FF8849")) {
+  if (length(colours) != 3) {
+    stop("A list of three colours needs to be provided")
+  }
 
-if(length(colours) != 3){
-  stop("A list of three colours needs to be provided")
-}
-  
-# Highlight mesh Terms that are shared between authors
-plotData <- diffTree |> mutate(
-  meshterm = ifelse(auID == 0, sprintf("<b>%s</b>", meshterm), meshterm)
-)
-
-# If the same MeSH term is used in different branches it will cause an error in the treeplot
-# Rename duplicates to make them unique
-plotData <- plotData |>
-  group_by(meshterm) |>
-  mutate(dupID = cur_group_id(), duplicate = n() > 1) |>
-  ungroup()
-
-plotData <- bind_rows(
-  plotData |> filter(!duplicate),
-  plotData |> filter(duplicate) |> group_by(dupID) |>
-    mutate(meshterm = sprintf("%s(%i)", meshterm, 1:n())) |> ungroup()
-)
-
-# Add the parent MeSH term
-plotData <- plotData |>
-  left_join(
-    plotData |> select(parent = treenum, parentMeshterm = meshterm),
-    by = "parent"
-  ) |>
-  mutate(parentMeshterm = ifelse(is.na(parentMeshterm), "", parentMeshterm))
-plotData$parentMeshterm[!plotData$parentMeshterm %in% plotData$meshterm]
-
-# Merge branches with only one child into a single node
-plotData <- plotData |>
-  group_by(branchID, auID) |>
-  summarise(
-    parentBranchID = min(parentBranchID),
-    treenum = paste(treenum, collapse = " -> <br>"),
-    meshterm = paste(meshterm, collapse = " -> <br>"),
-    .groups = "drop"
+  # Highlight mesh Terms that are shared between authors
+  plotData <- diffTree |> mutate(
+    meshterm = ifelse(auID == 0, sprintf("<b>%s</b>", meshterm), meshterm)
   )
 
-# Get the new parent info for the collapsed data and the root
-plotData <- plotData |>
-  left_join(
-    plotData |> select(parent = treenum, parentBranchID = branchID, parentMeshterm = meshterm) |> distinct(),
-    by = "parentBranchID"
-  ) |>
-  mutate(
-    parentMeshterm = ifelse(is.na(parentMeshterm), "MeSH Tree", parentMeshterm),
-    root = str_extract(plotData$treenum, "^[^\\.\\s]+")
+  # If the same MeSH term is used in different branches it will cause an error in the treeplot
+  # Rename duplicates to make them unique
+  plotData <- plotData |>
+    group_by(meshterm) |>
+    mutate(dupID = cur_group_id(), duplicate = n() > 1) |>
+    ungroup()
+
+  plotData <- bind_rows(
+    plotData |> filter(!duplicate),
+    plotData |> filter(duplicate) |> group_by(dupID) |>
+      mutate(meshterm = sprintf("%s(%i)", meshterm, 1:n())) |> ungroup()
   )
 
-# The first colour is the one where authors share a MeSH terms the other two their unique ones
-colours <- plotData |>
-  select(auID) |>
-  distinct() |>
-  arrange(auID) |>
-  mutate(colour = colours[1:n()])
+  # Add the parent MeSH term
+  plotData <- plotData |>
+    left_join(
+      plotData |> select(parent = treenum, parentMeshterm = meshterm),
+      by = "parent"
+    ) |>
+    mutate(parentMeshterm = ifelse(is.na(parentMeshterm), "", parentMeshterm))
+  plotData$parentMeshterm[!plotData$parentMeshterm %in% plotData$meshterm]
 
-plotData <- plotData |> left_join(colours, by = "auID")
+  # Merge branches with only one child into a single node
+  plotData <- plotData |>
+    group_by(branchID, auID) |>
+    summarise(
+      parentBranchID = min(parentBranchID),
+      treenum = paste(treenum, collapse = " -> <br>"),
+      meshterm = paste(meshterm, collapse = " -> <br>"),
+      .groups = "drop"
+    )
 
-# Meshterm plot (for app)
-fig <- plot_ly(
-  type = "treemap",
-  labels = plotData$meshterm,
-  parents = plotData$parentMeshterm,
-  marker = list(colors = plotData$colour),
-  textfont = list(
-    color = textBW(plotData$colour)
-  ),
-  maxdepth = -1
-)
-  
-# htmlwidgets::saveWidget(fig, "D:/Desktop/PJ-Lorenzo.html")
-return(fig)
+  # Get the new parent info for the collapsed data and the root
+  plotData <- plotData |>
+    left_join(
+      plotData |> select(parent = treenum, parentBranchID = branchID, parentMeshterm = meshterm) |> distinct(),
+      by = "parentBranchID"
+    ) |>
+    mutate(
+      parentMeshterm = ifelse(is.na(parentMeshterm), "MeSH Tree", parentMeshterm),
+      root = str_extract(plotData$treenum, "^[^\\.\\s]+")
+    )
 
+  # The first colour is the one where authors share a MeSH terms the other two their unique ones
+  colours <- plotData |>
+    select(auID) |>
+    distinct() |>
+    arrange(auID) |>
+    mutate(colour = colours[1:n()])
+
+  plotData <- plotData |> left_join(colours, by = "auID")
+
+  # Meshterm plot (for app)
+  fig <- plot_ly(
+    type = "treemap",
+    labels = plotData$meshterm,
+    parents = plotData$parentMeshterm,
+    marker = list(colors = plotData$colour),
+    textfont = list(
+      color = textBW(plotData$colour)
+    ),
+    maxdepth = -1
+  )
+
+  # htmlwidgets::saveWidget(fig, "D:/Desktop/PJ-Lorenzo.html")
+  return(fig)
 }

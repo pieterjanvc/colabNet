@@ -46,10 +46,6 @@ amt2 <- authorMeshTree(31) # Lorenzo
 
 ## GENERATE TREEMAP PLOT
 
-pData <- diffTree(1,31,pruneDuplicates = T)
+pData <- diffTree(1, 31, pruneDuplicates = T)
 
-plotDiffTree(pData, colours = c("#69BE28", "#3DB7E4", "#4c248d") )
-
-
-
-
+plotDiffTree(pData, colours = c("#69BE28", "#3DB7E4", "#4c248d"))
