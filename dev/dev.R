@@ -46,8 +46,10 @@ amt2 <- authorMeshTree(31) # Lorenzo
 
 ## GENERATE TREEMAP PLOT
 
+pData <- diffTree(1,31)
 
-plotData <- diffTree
+plotData <- pData
+
 # Highlight mesh Terms that are shared between authors
 plotData <- plotData |> mutate(
   meshterm = ifelse(auID == 0, sprintf("<b>%s</b>", meshterm), meshterm)
@@ -77,19 +79,18 @@ plotData <- plotData |>
 
 # Merge branches with only one child into a single node
 plotData <- plotData |>
-  group_by(branchID) |>
+  group_by(branchID, auID) |>
   summarise(
     parentBranchID = min(parentBranchID),
     treenum = paste(treenum, collapse = " -> <br>"),
     meshterm = paste(meshterm, collapse = " -> <br>"),
-    auID = paste(auID, collapse = ","),
     .groups = "drop"
   )
 
 # Get the new parent info for the collapsed data and the root
 plotData <- plotData |>
   left_join(
-    plotData |> select(parent = treenum, parentBranchID = branchID, parentMeshterm = meshterm),
+    plotData |> select(parent = treenum, parentBranchID = branchID, parentMeshterm = meshterm) |> distinct(),
     by = "parentBranchID"
   ) |>
   mutate(

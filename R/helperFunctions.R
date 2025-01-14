@@ -150,6 +150,9 @@ authorMeshTree <- function(auID, dbPath) {
 }
 
 diffTree <- function(auID1, auID2, dbPath) {
+  
+  amt1 <- authorMeshTree(auID1)
+  amt2 <- authorMeshTree(auID2)
   conn <- dbGetConn(dbPath)
 
   # Get for each treenum whether there is overlap or not
@@ -167,7 +170,7 @@ diffTree <- function(auID1, auID2, dbPath) {
     distinct() |>
     # If there are multiple term descriptions, only keep one
     group_by(uid) |>
-    filter(mteID == min(mteID)) |>
+    filter(mteID == min(mteID, na.rm = T)) |>
     ungroup() |>
     collect()
 
@@ -195,7 +198,7 @@ diffTree <- function(auID1, auID2, dbPath) {
   bID <- c(b, rep(NA, nrow(diffTree) - 1))
   for (i in 2:nrow(diffTree)) {
     if (diffTree$parent[i] != diffTree$treenum[i - 1] | diffTree$treenum[i] == "" |
-      diffTree$children[i] > 1 | diffTree$children[i - 1] > 1) {
+      diffTree$children[i] > 1 | diffTree$children[i - 1] > 1 | diffTree$auID[i] != diffTree$auID[i-1]) {
       b <- b + 1
     }
     bID[i] <- b
@@ -214,4 +217,6 @@ diffTree <- function(auID1, auID2, dbPath) {
   )
 
   dbDisconnect(conn)
+
+  return(diffTree)
 }
