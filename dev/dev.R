@@ -1,12 +1,16 @@
 # Create a database to work with
 
+# Install package for additional testing
+# devtools::install() 
+# library("colabNet")
+  
 firstName = "PJ"
 lastName = "Van Camp"
 
 firstName = "Lorenzo"
 lastName = "Gesuita"
 
-conn <- dbGetConn("dev/colabNet.db", checkSchema = T)
+dbSetup("dev/colabNet.db", checkSchema = T)
 
 authorPublications <- ncbi_authorPublications(firstName, lastName)
 result <- dbAddAuthorPublications(conn, authorPublications)
@@ -35,59 +39,10 @@ meshRoots <- data.frame(
   )
 )
 
-amt1 <- authorMeshTree(conn, 1) #PJ
-amt2 <- authorMeshTree(conn, 31) #Lorenzo
 
-# Get for each treenum whether there is overlap or not
-diffTree <- bind_rows(amt1$auTree, amt2$auTree) |> group_by(treenum) |> 
-  mutate(auID = ifelse(n() == 1, auID, 0) |> as.integer()) |> 
-  ungroup() |> distinct() |> 
-  mutate(level = as.integer(str_count(treenum, "\\.") + 1))
+amt1 <- authorMeshTree(1) #PJ
+amt2 <- authorMeshTree(31) #Lorenzo
 
-# Add the MeSH term (description)
-meshTerm <- tbl(conn, "meshLink") |> filter(uid %in% local(diffTree$uid)) |> 
-  left_join(tbl(conn, "meshTerm"), by = "meshui") |> distinct() |> 
-  # If there are multiple term descriptions, only keep one
-  group_by(uid) |> filter(mteID == min(mteID)) |> ungroup() |> collect()
-
-diffTree <- diffTree |> left_join(meshTerm |> select(uid, meshterm), by = "uid") |> 
-  filter(!is.na(meshterm))
-
-# Get the parent for each treenum ("" =  root)
-diffTree <- diffTree |> mutate(
-  parent = str_remove(diffTree$treenum, "\\.\\d+$"),
-  parent = ifelse(diffTree$treenum == parent, "", parent)
-) 
-
-# Add the number of children for each treenum and sort the tree by treenum (important for next step)
-diffTree <- diffTree |> left_join(
-  diffTree |> group_by(treenum = parent) |> summarise(children = n(), .groups = "drop"),
-  by = "treenum"
-) |> mutate(children = as.integer(ifelse(is.na(children), 0, children))) |> 
-  arrange(treenum)
-
-# Check if treenums can be merged if they don't branch off
-b = 1
-bID = c(b, rep(NA, nrow(diffTree) - 1))
-for(i in 2:nrow(diffTree)){
-  
-  if(diffTree$parent[i] != diffTree$treenum[i-1] | diffTree$treenum[i] == "" |
-    diffTree$children[i] > 1 |diffTree$children[i-1] > 1){
-    b = b + 1
-  }
-  bID[i] = b
-}
-
-diffTree <- diffTree |> 
-  mutate(
-    branchID = as.integer({{bID}})
-  ) |>  select(treenum, branchID, children, parent, meshterm, everything())
-
-# Get the parent branchID
-diffTree <- diffTree |> left_join(
-  diffTree |> select(parent = treenum, parentBranchID = branchID),
-  by = "parent"
-)
 
 ## GENERATE TREEMAP PLOT
 
@@ -154,6 +109,7 @@ plotData <- plotData |> left_join(
 # colours <- data.frame(root = str_extract(plotData$treenum, "^[^\\.\\s]+") |> unique()) |> 
 #   mutate(colour = generate_distinct_colors(n()))
 
+# The first colour is the one where authors share a MeSH terms the other two their unique ones
 colours <- plotData |> select(auID) |> distinct() |> arrange(auID) |> 
   mutate(colour = c("#69BE28", "#3DB7E4", "#FF8849")[1:n()])
 
