@@ -4,16 +4,19 @@
 # devtools::install()
 # library("colabNet")
 
+dbSetup("dev/colabNet.db", checkSchema = T)
+
 firstName <- "PJ"
 lastName <- "Van Camp"
 
 firstName <- "Lorenzo"
 lastName <- "Gesuita"
 
-dbSetup("dev/colabNet.db", checkSchema = T)
+firstName <- "David"
+lastName <- "Van Vactor"
 
 authorPublications <- ncbi_authorPublications(firstName, lastName)
-result <- dbAddAuthorPublications(conn, authorPublications)
+result <- dbAddAuthorPublications(authorPublications)
 
 # Find overlap between authors based on MeSH terms of their research papers
 

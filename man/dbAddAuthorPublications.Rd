@@ -4,12 +4,13 @@
 \alias{dbAddAuthorPublications}
 \title{Add authors to the database}
 \usage{
-dbAddAuthorPublications(authorPublications, dbPath)
+dbAddAuthorPublications(authorPublications, dbInfo)
 }
 \arguments{
 \item{authorPublications}{List of data frames geneated by ncbi_authorPublications()}
 
-\item{dbPath}{(optional if dbSetup() has been run) Path to the ColabNet database}
+\item{dbInfo}{(optional if dbSetup() has been run)
+Path to the ColabNet database or existing connection}
 }
 \value{
 Data is inserted into the DB returning a list the author's aritcles (arID and PMID)

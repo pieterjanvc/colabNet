@@ -4,10 +4,10 @@
 \alias{dbSetup}
 \title{Setup the ColabNet database for the current session}
 \usage{
-dbSetup(dbPath, newDBMsg = T, checkSchema = F, returnConn = F)
+dbSetup(dbInfo, newDBMsg = T, checkSchema = F, returnConn = F)
 }
 \arguments{
-\item{dbPath}{Path to ColabNet Database. If DB does not exist it will be created}
+\item{dbInfo}{Path to ColabNet Database. If DB does not exist it will be created}
 
 \item{newDBMsg}{(Default, TRUE) Output a message when a new database was created}
 

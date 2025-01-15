@@ -312,6 +312,149 @@ diffTree <- function(auID1, auID2, pruneDuplicates = F, dbPath) {
   return(diffTree)
 }
 
+diffTree2 <- function(auIDs, pruneDuplicates = F, dbPath) {
+  # auIDs = c(1,2,31)
+  amt <- map_df(auIDs, authorMeshTree)
+  conn <- dbGetConn(dbPath)
+
+  # Get for each treenum whether there is overlap or not
+  diffTree <- bind_rows(amt1$auTree, amt2$auTree) |>
+    group_by(treenum) |>
+    mutate(auID = ifelse(n() == 1, auID, 0) |> as.integer()) |>
+    filter(hasArticle == max(hasArticle)) |>
+    ungroup() |>
+    distinct() |>
+    mutate(level = as.integer(str_count(treenum, "\\.") + 1))
+
+  # Add the MeSH term (description)
+  meshTerm <- tbl(conn, "meshLink") |>
+    filter(uid %in% local(diffTree$uid)) |>
+    left_join(tbl(conn, "meshTerm"), by = "meshui") |>
+    distinct() |>
+    # If there are multiple term descriptions, only keep one
+    group_by(uid) |>
+    filter(mteID == min(mteID, na.rm = T)) |>
+    ungroup() |>
+    collect()
+
+  dbDisconnect(conn)
+
+  diffTree <- diffTree |>
+    left_join(meshTerm |> select(uid, meshterm), by = "uid") |>
+    filter(!is.na(meshterm))
+
+  # Get the parent for each treenum ("" =  root)
+  diffTree <- diffTree |> mutate(
+    parent = str_remove(diffTree$treenum, "\\.\\d+$"),
+    parent = ifelse(diffTree$treenum == parent, "", parent)
+  )
+
+  # Add the number of children for each treenum and sort the tree by treenum (important for next step)
+  diffTree <- diffTree |>
+    left_join(
+      diffTree |> group_by(treenum = parent) |> summarise(children = n(), .groups = "drop"),
+      by = "treenum"
+    ) |>
+    mutate(children = as.integer(ifelse(is.na(children), 0, children))) |>
+    arrange(treenum)
+
+  # Check if treenums can be merged if they don't branch off
+  b <- 1
+  bID <- c(b, rep(NA, nrow(diffTree) - 1))
+  for (i in 2:nrow(diffTree)) {
+    if (diffTree$parent[i] != diffTree$treenum[i - 1] | diffTree$treenum[i] == "" |
+      diffTree$children[i] > 1 | diffTree$children[i - 1] > 1 | diffTree$auID[i] != diffTree$auID[i - 1]) {
+      b <- b + 1
+    }
+    bID[i] <- b
+  }
+
+  diffTree <- diffTree |>
+    mutate(
+      branchID = as.integer({{ bID }})
+    ) |>
+    select(treenum, branchID, children, parent, meshterm, everything())
+
+  # Get the parent branchID
+  diffTree <- diffTree |> left_join(
+    diffTree |> select(parent = treenum, parentBranchID = branchID) |> distinct(),
+    by = "parent"
+  )
+
+  # Stop here if no need to prune duplicate branches
+  if (!pruneDuplicates) {
+    return(diffTree)
+  }
+
+  ## REMOVE DUPLICATE BRANCHES
+
+  # Find MeSH terms that are duplicated
+  diffTree <- diffTree |>
+    group_by(meshterm) |>
+    mutate(duplicated = n() > 1) |>
+    ungroup()
+
+  # Group are created as follows:
+  # - Start with duplicates at the highest level (closest to tree root)
+  # - If a child is also a duplicate, it's part of the same group, if not the group ends
+  getDup <- diffTree |>
+    filter(duplicated) |>
+    mutate(nDup = 1, groupID = mtrID) |>
+    select(meshterm, level, treenum, parent, nDup, groupID, mtrID)
+
+  # Keep going from top to bottom until all duplicate groups have been defined
+  curLvl <- sort(unique(getDup$level))[2]
+  for (curLvl in sort(unique(getDup$level))) {
+    nextLvl <- getDup |> filter(level == {{ curLvl }})
+
+    if (nrow(nextLvl) == 0) {
+      next
+    }
+
+    nextLvl <- nextLvl |>
+      mutate(newGroupID = ifelse(groupID == 0, mtrID, groupID)) |>
+      select(parent = treenum, newGroupID)
+
+    getDup <- getDup |>
+      left_join(nextLvl, by = "parent") |>
+      mutate(groupID = ifelse(is.na(newGroupID), groupID, newGroupID)) |>
+      select(-newGroupID)
+  }
+
+  # Add all terms that have a duplicate parent but themselves are not duplicated to the group
+  duplicates <- getDup |>
+    pull(treenum) |>
+    unique()
+  duplicates <- diffTree |>
+    filter(parent %in% duplicates, !treenum %in% duplicates) |>
+    pull(parent)
+  getDup$uniqueChild <- getDup$treenum %in% duplicates
+
+  # Now remove redundant duplications according to the following rules
+  # - Every duplicated group that has a unique child is kept (non-redundant duplication)
+  # - For duplpicated groups with no unique children, keep the group with the largest size
+  #   (this will effectively prune small duplications in various places in favour of a large group
+  #    containing multiple duplications)
+  getDup <- getDup |>
+    group_by(groupID) |>
+    mutate(
+      uniqueChild = any(uniqueChild),
+      groupSize = n()
+    ) |>
+    group_by(meshterm) |>
+    arrange(desc(groupSize), treenum) |>
+    filter((!any(uniqueChild) & treenum == treenum[1]) | uniqueChild) |>
+    ungroup()
+
+  # Now create the new difftree with (redundant) duplicates removed
+  diffTree <- bind_rows(
+    diffTree |> filter(!duplicated),
+    diffTree |> filter(treenum %in% getDup$treenum)
+  )
+
+  return(diffTree)
+}
+
 #' Check whether to use black or white text on a colour backgound
 #'
 #' @param colours A vector of colours

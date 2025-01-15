@@ -28,7 +28,7 @@ CREATE TABLE "coAuthor" (
   "arID" INTEGER,
   "auID" INTEGER,
   "authorOrder" INTEGER,
-  PRIMARY KEY ("arID", "auID"),
+  PRIMARY KEY ("arID", "auID", "authorOrder"),
   FOREIGN KEY("arID") REFERENCES "article"("arID"),
   FOREIGN KEY("auID") REFERENCES "author"("auID")
 );
