@@ -74,7 +74,12 @@ dbSetup <- function(dbInfo, newDBMsg = T, checkSchema = F, returnConn = F) {
 #' @export
 #'
 dbGetConn <- function(dbInfo, checkSchema = T) {
-  if (missing(dbInfo) & !is.null(getOption("dbInfo", default = NULL))) {
+  if (missing(dbInfo)) {
+
+    if(is.null(getOption("dbInfo", default = NULL))){
+      stop("There is no database set up, please run dbSetup() first")
+    }
+
     conn <- dbConnect(SQLite(), getOption("dbInfo"))
   } else if(inherits(dbInfo, "DBIConnection")){
     conn <- dbInfo

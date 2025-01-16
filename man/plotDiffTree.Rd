@@ -4,10 +4,10 @@
 \alias{plotDiffTree}
 \title{Compare two author MeSH trees and find overlapping areas}
 \usage{
-plotDiffTree(diffTree, colours, dbInfo)
+plotDiffTree(difftree, colours, dbInfo)
 }
 \arguments{
-\item{diffTree}{a diffTree dataframe returned by diffTree()}
+\item{difftree}{a diffTree dataframe returned by diffTree()}
 
 \item{colours}{(optional) A list of 3 colours
 \itemize{

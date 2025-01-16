@@ -52,6 +52,8 @@ amt2 <- authorMeshTree(31) # Lorenzo
 ## GENERATE TREEMAP PLOT
 # auIDs = c(1,31,75)
 # issue with 1 and 75
-pData <- diffTree(c(1, 31, 75), pruneDuplicates = T)
+# row 138  - E01.370.225.500.607 -> <br>E01.370.225.500.607.512
+auIDs <- c(1, 75)
+difftree <- diffTree(auIDs, pruneDuplicates = T)
 
-plotDiffTree(pData)
+plotDiffTree(difftree)
