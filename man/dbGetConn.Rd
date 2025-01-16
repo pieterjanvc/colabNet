@@ -2,20 +2,20 @@
 % Please edit documentation in R/DBoperations.R
 \name{dbGetConn}
 \alias{dbGetConn}
-\title{Add authors to the database}
+\title{Get a ColabNet database connection}
 \usage{
-dbGetConn(path, newDBMsg = T, checkSchema = F)
+dbGetConn(dbInfo, checkSchema = T)
 }
 \arguments{
-\item{path}{Path to ColabNet Database. If DB does not exist it will be created}
+\item{dbInfo}{(optional if dbSetup() has been run) Path to the ColabNet database
+or existing connection. If the dbSetup() has been run the assigned database will be used}
 
-\item{newDBMsg}{(Default, TRUE) Output a message when a new database was created}
-
-\item{checkSchema}{(Default, FALSE) Check the schema of an existing datbase against the reference}
+\item{checkSchema}{(Default, TRUE) Check the schema of if dbInfo is explicitly provided.
+Ignored when dbSetup() had been used.}
 }
 \value{
-A connection to the ColabNet datbase
+Connection to the ColabNet database
 }
 \description{
-Add authors to the database
+Get a ColabNet database connection
 }

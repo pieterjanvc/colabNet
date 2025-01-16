@@ -4,14 +4,15 @@
 \alias{dbAddMesh}
 \title{Insert MeSH info into the ColabNet database}
 \usage{
-dbAddMesh(conn, values, type)
+dbAddMesh(values, type, dbInfo)
 }
 \arguments{
-\item{conn}{Connection to the ColabNet database}
-
 \item{values}{vector of MeSH values to search for}
 
 \item{type}{The type needs to be 'meshui' (MeSH ui), 'treenum' (tree number) or 'uid' (MeSH Entrez uid)}
+
+\item{dbInfo}{(optional if dbSetup() has been run) Path to the ColabNet database
+or existing connection}
 }
 \value{
 data frame with all uid and meshui inserted into the database (including intermediate tree nodes)

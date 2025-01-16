@@ -1,4 +1,3 @@
-
 # simpleText()
 test_that("simpleText", {
   expect_equal(simpleText("résumé"), "resume")
@@ -10,36 +9,31 @@ test_that("simpleText", {
 
 # Test checkTreeNums()
 test_that("checkTreeNums", {
-
-  treenums = c("G17.035", "G17.800.500", "G02.111.873.750")
+  treenums <- c("G17.035", "G17.800.500", "G02.111.873.750")
   expect_equal(checkTreeNums(treenums), NULL)
   expect_equal(checkTreeNums(treenums, output = "vector"), c(T, T, T))
   expect_equal(checkTreeNums(treenums, output = "bool"), T)
 
-  treenums = c("G17.035", "G17.80.500", "G02.111.873.750")
+  treenums <- c("G17.035", "G17.80.500", "G02.111.873.750")
   expect_equal(checkTreeNums(treenums, output = "vector"), c(T, F, T))
   expect_equal(checkTreeNums(treenums, output = "bool"), F)
   expect_error(checkTreeNums(treenums))
-
 })
 
 # Test missingTreeNums()
 test_that("missingTreeNums", {
-
-  treenums = c("G17.035", "G17.800.500", "G02.111.873.750")
-  a = missingTreeNums(treenums)
-  b = c("G17", "G17.800", "G02.111.873", "G02.111", "G02")
+  treenums <- c("G17.035", "G17.800.500", "G02.111.873.750")
+  a <- missingTreeNums(treenums)
+  b <- c("G17", "G17.800", "G02.111.873", "G02.111", "G02")
   expect_equal(a, b)
 
-  treenums = c("G17")
-  a = missingTreeNums(treenums)
-  b = NULL
+  treenums <- c("G17")
+  a <- missingTreeNums(treenums)
+  b <- NULL
   expect_equal(a, b)
 
-  treenums = c()
-  a = missingTreeNums(treenums)
-  b = NULL
+  treenums <- c()
+  a <- missingTreeNums(treenums)
+  b <- NULL
   expect_equal(a, b)
-
 })
-

@@ -4,5 +4,5 @@
 
 # Test getAuthor()
 test_that("ncbi_author", {
-  expect_equal(ncbi_author("Pieter-Jan", 'Van Camp'), "Van Camp PJ")
+  expect_equal(ncbi_author("Pieter-Jan", "Van Camp"), "Van Camp PJ")
 })
