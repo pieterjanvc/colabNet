@@ -5,7 +5,7 @@
 #' @return Start the Shiny app
 #' @export
 #'
-colabNet <- function() {
+colabNet_v1 <- function() {
   # ////////////////
   # ---- DATA ----
   # ///////////////
