@@ -4,13 +4,21 @@
 \alias{plotDiffTree}
 \title{Compare two author MeSH trees and find overlapping areas}
 \usage{
-plotDiffTree(diffTree, colours = c("#69BE28", "#3DB7E4", "#FF8849"))
+plotDiffTree(diffTree, colours, dbInfo)
 }
 \arguments{
 \item{diffTree}{a diffTree dataframe returned by diffTree()}
 
-\item{colours}{A list of 3 colours for colouring shared,
-author 1 unique and author 2 unique MeSH terms}
+\item{colours}{(optional) A list of 3 colours
+\itemize{
+\item In case of comparing two authors, the first two colours represent the individual author's
+MeSH terms and the last colour shared terms
+\item In case of 2+, the first colour represents a term only belonging to a single author,
+the next two colours form a scale between which the number of authors per MeSH term will
+be interpolated. Min number of authors is colour 2, max is colour 3
+}}
+
+\item{dbInfo}{Path to the ColabNet database. Can be left blank if setup with dbConn()}
 }
 \value{
 A plotly Treemap

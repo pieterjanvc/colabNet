@@ -4,14 +4,14 @@
 \alias{diffTree}
 \title{Compare two author MeSH trees and find overlapping areas}
 \usage{
-diffTree(auID1, auID2, pruneDuplicates = F, dbPath)
+diffTree(auIDs, pruneDuplicates = F, dbInfo)
 }
 \arguments{
-\item{auID1}{Author ID for author 2 (stored in the author table of the DB)}
+\item{auIDs}{Vector author IDs (stored in the author table of the DB)}
 
 \item{pruneDuplicates}{Prune parts of the MeSH tree that contain duplicated terms}
 
-\item{dbPath}{Path to the ColabNet database. Can be left blank if setup with dbConn()}
+\item{dbInfo}{Path to the ColabNet database. Can be left blank if setup with dbConn()}
 }
 \value{
 A data frame with the MeSH tree information of both authors and their overlap

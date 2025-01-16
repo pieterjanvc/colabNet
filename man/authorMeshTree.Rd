@@ -4,12 +4,12 @@
 \alias{authorMeshTree}
 \title{Extract the MeSH tree for a specific author}
 \usage{
-authorMeshTree(auID, dbPath)
+authorMeshTree(auID, dbInfo)
 }
 \arguments{
 \item{auID}{Author ID (stored in the author table of the DB)}
 
-\item{dbPath}{Path to the ColabNet database. Can be left blank if setup with dbConn()}
+\item{dbInfo}{Path to the ColabNet database. Can be left blank if setup with dbConn()}
 }
 \value{
 A list with two data frames:

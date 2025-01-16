@@ -18,6 +18,8 @@ lastName <- "Van Vactor"
 authorPublications <- ncbi_authorPublications(firstName, lastName)
 result <- dbAddAuthorPublications(authorPublications)
 
+# auIDs = c(1,31,75)
+
 # Find overlap between authors based on MeSH terms of their research papers
 
 meshRoots <- data.frame(
@@ -48,7 +50,8 @@ amt2 <- authorMeshTree(31) # Lorenzo
 
 
 ## GENERATE TREEMAP PLOT
+# auIDs = c(1,31,75)
+# issue with 1 and 75
+pData <- diffTree(c(1, 31, 75), pruneDuplicates = T)
 
-pData <- diffTree(1, 31, pruneDuplicates = T)
-
-plotDiffTree(pData, colours = c("#69BE28", "#3DB7E4", "#4c248d"))
+plotDiffTree(pData)
