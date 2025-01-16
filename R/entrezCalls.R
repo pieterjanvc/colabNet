@@ -1,7 +1,7 @@
 #' Get the best matching Pubmed author name
 #'
-#' @param first First name
-#' @param last Last name
+#' @param firstName First name
+#' @param lastName Last name
 #'
 #' @importFrom rentrez entrez_search entrez_summary
 #' @importFrom stringr str_detect
@@ -9,16 +9,16 @@
 #' @return Author name as string "lastName Initials" as used in Pubmed
 #' @export
 #'
-ncbi_author <- function(first, last) {
-  result <- entrez_search("pubmed", term = sprintf("%s %s[Author]", last, first), retmax = 1)
+ncbi_author <- function(firstName, lastName) {
+  result <- entrez_search("pubmed", term = sprintf("%s %s[Author]", lastName, firstName), retmax = 1)
 
   if (length(result$ids) == 0) {
     warning("This name might not get good PubMed matches")
-    return(paste(last, first))
+    return(paste(lastName, firstName))
   }
 
   result <- entrez_summary("pubmed", result$ids[1])
-  result$authors$name[str_detect(simpleText(result$authors$name), simpleText(last))]
+  result$authors$name[str_detect(simpleText(result$authors$name), simpleText(lastName))]
 }
 
 #' Get author names, papers, co-authors and affiliations for a specific researcher
@@ -64,7 +64,7 @@ ncbi_authorPublications <- function(firstName, lastName, n = -1) {
 
   # Generate a dataframe of paper info
   articleInfo <- data.frame(
-    PMID = PMIDs$ids,
+    PMID = xml_find_first(info, "./PMID") %>% xml_text(),
     title = xml_find_first(info, "./Article/ArticleTitle") %>% xml_text(),
     journal = xml_find_first(info, "./Article/Journal/Title") %>% xml_text(),
     year = xml_find_first(info, "./Article/Journal/JournalIssue/PubDate/Year") %>%
@@ -264,13 +264,12 @@ ncbi_meshInfo <- function(values, type = c("meshui", "treenum", "uid")) {
   # Get the MeSH data from NCBI
   meshInfo <- sapply(seq(1, length(uid), by = 250), function(i) {
     getui <- uid[i:min(i + 249, length(uid))]
-    entrez_summary("mesh", id = getui)
+    entrez_summary("mesh", id = getui, always_return_list = T)
   })
 
   if (length(uid) > 250) {
     meshInfo <- do.call(c, meshInfo)
   }
-
 
   # Extract the mesh terms
   meshTerms <- map_df(meshInfo, function(x) {

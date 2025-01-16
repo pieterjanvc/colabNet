@@ -4,12 +4,12 @@
 \alias{ncbi_author}
 \title{Get the best matching Pubmed author name}
 \usage{
-ncbi_author(first, last)
+ncbi_author(firstName, lastName)
 }
 \arguments{
-\item{first}{First name}
+\item{firstName}{First name}
 
-\item{last}{Last name}
+\item{lastName}{Last name}
 }
 \value{
 Author name as string "lastName Initials" as used in Pubmed

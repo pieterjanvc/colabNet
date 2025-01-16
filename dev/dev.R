@@ -4,19 +4,25 @@
 # devtools::install()
 # library("colabNet")
 
+devtools::load_all()
 dbSetup("dev/colabNet.db", checkSchema = T)
 
-firstName <- "PJ"
-lastName <- "Van Camp"
+authors = data.frame(
+  firstName = c("PJ", "Lorenzo", "Cristina", "Irene", "Grey", "Kayla", "Lauren"),
+  lastName = c("Van Camp", "Gesuita","Deoliveira", "Wong", 'Kuling', "Nygaard", "Essler")
+)
 
-firstName <- "Lorenzo"
-lastName <- "Gesuita"
+i =  1
 
-firstName <- "David"
-lastName <- "Van Vactor"
+for(i in 1:nrow(authors)){  
+  firstName = authors$firstName[i]
+  if(firstName == "Irene") {next}
+  lastName = authors$lastName[i]
+  authorPublications <- ncbi_authorPublications(firstName, lastName)
+  result <- dbAddAuthorPublications(authorPublications)
+  print(sprintf("%s added", authors$firstName[i]))
+}
 
-authorPublications <- ncbi_authorPublications(firstName, lastName)
-result <- dbAddAuthorPublications(authorPublications)
 
 # auIDs = c(1,31,75)
 
@@ -50,10 +56,10 @@ amt2 <- authorMeshTree(31) # Lorenzo
 
 
 ## GENERATE TREEMAP PLOT
-# auIDs = c(1,31,75)
-# issue with 1 and 75
+# auIDs = c(1,31,72,103,141,165)
+# issue with 165
 # row 138  - E01.370.225.500.607 -> <br>E01.370.225.500.607.512
-auIDs <- c(1, 75)
+auIDs <- c(1,31,72,103,141)
 difftree <- diffTree(auIDs, pruneDuplicates = T)
 
 plotDiffTree(difftree)

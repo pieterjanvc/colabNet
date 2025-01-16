@@ -1,6 +1,8 @@
 #' Run the colabNet Shiny App
 #'
-#' @import shiny dplyr stringr tidyr purrr visNetwork DT
+#' @import shiny dplyr stringr tidyr purrr visNetwork pool
+#' @importFrom RSQLite SQLite
+#' @importFrom DT dataTableOutput renderDataTable
 #'
 #' @return Start the Shiny app
 #' @export
@@ -10,6 +12,18 @@ colabNet_v2 <- function() {
   # ///////////////
   # ---- DATA ----
   # //////////////
+  
+  # ColabNet Database
+  colabNetDB = "dev/colabNet.db"
+
+  # Setup for functions in the package
+  dbSetup(colabNetDB)
+
+  # Pool for the Shiny app
+  pool <- dbPool(SQLite(), dbname = colabNetDB)
+  onStop(function() {
+    poolClose(pool)
+  })
   
   # //////////////
   # ---- UI ----

@@ -1,6 +1,7 @@
 
 CREATE TABLE "author" (
   "auID" INTEGER PRIMARY KEY AUTOINCREMENT,
+  "authorOfInterest" INTEGER DEFAULT 0,
   "modified" TEXT
 );
 

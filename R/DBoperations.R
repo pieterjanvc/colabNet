@@ -350,9 +350,24 @@ dbAddAuthorPublications <- function(authorPublications, dbInfo) {
   ### ADD (CO)AUTHOR INFO
   auInfo <- dbAddAuthors(authorPublications$coAuthors, conn)
 
-  affiliations <- authorPublications$affiliations
+  # Set authorOfInterest to TRUE to distinguish from co-authors
+  auID <- auInfo |> filter(
+    lastName %in% authorPublications$author$lastName, 
+    initials %in% authorPublications$author$initials) |> pull(auID) |> unique()
+  
+  if(length(auID) > 1){
+    dbRollback(conn)
+    dbDisconnect(conn)
+    stop("Ambiguous author of interest")
+  }
+  
+  q <- dbExecute(conn, "UPDATE author SET authorOfInterest = 1 WHERE auID = ?",
+    params = list(auID)
+  )  
 
   # ADD AFFILIATIONS
+  affiliations <- authorPublications$affiliations
+  
   existing <- tbl(conn, "affiliation") |>
     filter(affiliation %in% local(unique(affiliations$affiliation))) |>
     collect()
