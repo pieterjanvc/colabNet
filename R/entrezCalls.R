@@ -64,16 +64,16 @@ ncbi_authorPublications <- function(firstName, lastName, n = -1) {
 
   # Generate a dataframe of paper info
   articleInfo <- data.frame(
-    PMID = xml_find_first(info, "./PMID") %>% xml_text(),
-    title = xml_find_first(info, "./Article/ArticleTitle") %>% xml_text(),
-    journal = xml_find_first(info, "./Article/Journal/Title") %>% xml_text(),
-    year = xml_find_first(info, "./Article/Journal/JournalIssue/PubDate/Year") %>%
+    PMID = xml_find_first(info, "./PMID") |> xml_text(),
+    title = xml_find_first(info, "./Article/ArticleTitle") |> xml_text(),
+    journal = xml_find_first(info, "./Article/Journal/Title") |> xml_text(),
+    year = xml_find_first(info, "./Article/Journal/JournalIssue/PubDate/Year") |>
       xml_text(),
-    month = xml_find_first(info, "./Article/Journal/JournalIssue/PubDate/Month") %>%
+    month = xml_find_first(info, "./Article/Journal/JournalIssue/PubDate/Month") |>
       xml_text(),
-    day = xml_find_first(info, "./Article/Journal/JournalIssue/PubDate/Day") %>%
+    day = xml_find_first(info, "./Article/Journal/JournalIssue/PubDate/Day") |>
       xml_text()
-  ) %>% mutate(
+  ) |> mutate(
     year = as.integer(year),
     day = as.integer(day)
   )
@@ -89,10 +89,10 @@ ncbi_authorPublications <- function(firstName, lastName, n = -1) {
   ids <- str_match(xml_path(lastNames), r"(PubmedArticle\[(\d+)\].+Author(\[(\d+)\])?)")
 
   lastNames <- data.frame(
-    lastName = lastNames %>% xml_text(),
+    lastName = lastNames |> xml_text(),
     articleID = as.integer(ids[, 2]),
     authorOrder = as.integer(ids[, 4])
-  ) %>%
+  ) |>
     # Articles with only one author did not match id regex so we put in 1 manually
     mutate(authorOrder = ifelse(is.na(authorOrder), 1, authorOrder))
 
@@ -101,15 +101,15 @@ ncbi_authorPublications <- function(firstName, lastName, n = -1) {
   ids <- str_match(xml_path(otherNames), r"(PubmedArticle\[(\d+)\].+Author(\[(\d+)\])?)")
 
   otherNames <- data.frame(
-    firstName = otherNames %>% xml_text(),
-    initials = xml_find_all(authorInfo, "./Author/Initials") %>% xml_text(),
+    firstName = otherNames |> xml_text(),
+    initials = xml_find_all(authorInfo, "./Author/Initials") |> xml_text(),
     articleID = as.integer(ids[, 2]),
     authorOrder = as.integer(ids[, 4])
-  ) %>%
+  ) |>
     mutate(authorOrder = ifelse(is.na(authorOrder), 1, authorOrder))
 
   # Bind first, last and initials together
-  authorNames <- lastNames %>%
+  authorNames <- lastNames |>
     left_join(otherNames, by = c("articleID", "authorOrder"))
 
   # Collective names - Names of consortia etc. who can be authors
@@ -120,57 +120,73 @@ ncbi_authorPublications <- function(firstName, lastName, n = -1) {
   )
 
   collectiveNames <- data.frame(
-    collectiveName = collectiveNames %>% xml_text(),
+    collectiveName = collectiveNames |> xml_text(),
     articleID = as.integer(ids[, 2]),
     authorOrder = as.integer(ids[, 4])
-  ) %>%
+  ) |>
     mutate(authorOrder = ifelse(is.na(authorOrder), 1, authorOrder))
 
   # Bind all author info together into a single data frame
   authors <- bind_rows(
-    authorNames %>% left_join(
+    authorNames |> left_join(
       data.frame(
         articleID = 1:length(PMIDs$ids),
         PMID = PMIDs$ids
       ),
       by = "articleID"
     ),
-    collectiveNames %>% left_join(
+    collectiveNames |> left_join(
       data.frame(
         articleID = 1:length(PMIDs$ids),
         PMID = PMIDs$ids
       ),
       by = "articleID"
     )
-  ) %>%
-    select(PMID, authorOrder, everything()) %>%
-    arrange(articleID, authorOrder) %>%
+  ) |>
+    select(PMID, authorOrder, everything()) |>
+    arrange(articleID, authorOrder) |>
     select(-articleID)
+
+  # Find all name variations the author of interest has used in papers and pick default
+  # Last name and initials are used to define a unique author
+  authors <- authors |>
+    group_by(lastName, firstName, initials) |>
+    mutate(n = n()) |> 
+    group_by(simple = simpleText(lastName), initials) |>
+    arrange(desc(n)) |> 
+    mutate(tempId = cur_group_id(), default = row_number() == 1) |> 
+    group_by(lastName, firstName, initials) |> 
+    mutate(default = any(default)) |> 
+    ungroup() |> select(-simple, -n)
+
+  author <- authors |> select(tempId, lastName, firstName, initials, default) |> 
+    filter(simpleText(lastName) == simpleText({{ lastName }})) |> 
+    distinct()
 
   # Affiliations
   affiliations <- xml_find_all(authorInfo, "./Author/AffiliationInfo/Affiliation")
   ids <- str_match(xml_path(affiliations), r"(PubmedArticle\[(\d+)\].+Author\[(\d+)\])")
 
   affiliations <- data.frame(
-    affiliation = affiliations %>% xml_text(),
+    affiliation = affiliations |> xml_text(),
     articleID = as.integer(ids[, 2]),
     authorOrder = as.integer(ids[, 3])
-  ) %>%
+  ) |>
     left_join(
       data.frame(
         articleID = 1:length(PMIDs$ids),
         PMID = PMIDs$ids
       ),
       by = "articleID"
-    ) %>%
+    ) |>
     # IN case there is only one affiliation for a whole author list it applies
     # to all and we set the authorOrder to NA
-    group_by(articleID) %>%
+    group_by(articleID) |>
     mutate(
       n = n(),
       authorOrder = ifelse(n == 1, NA, authorOrder)
-    ) %>%
-    ungroup() %>%
+    ) |>
+    ungroup() |>
     select(-n, -articleID)
 
   # Extract the MeSH term descriptors and qualifiers per paper (if any)
@@ -178,46 +194,39 @@ ncbi_authorPublications <- function(firstName, lastName, n = -1) {
   ids <- str_match(xml_path(descriptors), r"(PubmedArticle\[(\d+)\].+MeshHeading\[(\d+)\])")
 
   descriptors <- data.frame(
-    DescriptorName = descriptors %>% xml_text(),
-    DescriptorUI = descriptors %>% xml_attr("UI"),
-    DescriptorMajor = descriptors %>% xml_attr("MajorTopicYN"),
+    DescriptorName = descriptors |> xml_text(),
+    DescriptorUI = descriptors |> xml_attr("UI"),
+    DescriptorMajor = descriptors |> xml_attr("MajorTopicYN"),
     articleID = as.integer(ids[, 2]),
     meshLink = as.integer(ids[, 3])
-  ) %>%
+  ) |>
     left_join(
       data.frame(
         articleID = 1:length(PMIDs$ids),
         PMID = PMIDs$ids
       ),
       by = "articleID"
-    ) %>%
+    ) |>
     select(-articleID)
 
   qualifiers <- xml_find_all(info, "./MeshHeadingList/MeshHeading/QualifierName")
   ids <- str_match(xml_path(qualifiers), r"(PubmedArticle\[(\d+)\].+MeshHeading\[(\d+)\])")
 
   qualifiers <- data.frame(
-    QualifierName = qualifiers %>% xml_text(),
-    QualifierUI = qualifiers %>% xml_attr("UI"),
-    QualifierMajor = qualifiers %>% xml_attr("MajorTopicYN"),
+    QualifierName = qualifiers |> xml_text(),
+    QualifierUI = qualifiers |> xml_attr("UI"),
+    QualifierMajor = qualifiers |> xml_attr("MajorTopicYN"),
     articleID = as.integer(ids[, 2]),
     meshLink = as.integer(ids[, 3])
-  ) %>%
+  ) |>
     left_join(
       data.frame(
         articleID = 1:length(PMIDs$ids),
         PMID = PMIDs$ids
       ),
       by = "articleID"
-    ) %>%
-    select(-articleID)
-
-
-  # Find all name variations the author of interest has used in papers
-  author <- authors %>%
-    select(lastName, firstName, initials) %>%
-    distinct() %>%
-    filter(simpleText(lastName) == simpleText({{ lastName }}))
+    ) |>
+    select(-articleID)  
 
   # Return the results
   return(list(
@@ -249,7 +258,7 @@ ncbi_meshInfo <- function(values, type = c("meshui", "treenum", "uid")) {
 
   if (type != "uid") {
     # Make sure pasting together multiple values is not exceeding the URL limit
-    group <- ((nchar(values) + nchar(type) + 2) %>% cumsum()) %/% 2000 + 1
+    group <- ((nchar(values) + nchar(type) + 2) |> cumsum()) %/% 2000 + 1
 
     # Search the mesh database for the uid of each term
     uid <- lapply(seq(1, max(group)), function(i) {
@@ -291,7 +300,7 @@ ncbi_meshInfo <- function(values, type = c("meshui", "treenum", "uid")) {
   # Remove any invalid treenums
   invalidTreenum <- !checkTreeNums(meshTree$treenum, output = "vector")
   invlaidMeshui <- meshTree$meshui[invalidTreenum]
-  meshTerms <- meshTerms %>% filter(!meshui %in% invlaidMeshui)
+  meshTerms <- meshTerms |> filter(!meshui %in% invlaidMeshui)
   meshTree <- meshTree[!invalidTreenum, ]
 
   return(list(meshTerms = meshTerms, meshTree = meshTree))

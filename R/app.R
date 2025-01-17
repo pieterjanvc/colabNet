@@ -1,6 +1,7 @@
 #' Run the colabNet Shiny App
 #'
-#' @import shiny dplyr stringr tidyr purrr visNetwork DT
+#' @import shiny dplyr stringr tidyr purrr visNetwork
+#' @importFrom DT DTOutput renderDT
 #'
 #' @return Start the Shiny app
 #' @export

@@ -8,6 +8,7 @@ CREATE TABLE "author" (
 CREATE TABLE "authorName" (
   "anID" INTEGER PRIMARY KEY AUTOINCREMENT,
   "auID" INTEGER NOT NULL,
+  "default" INTEGER DEFAULT 0,
   "lastName" TEXT,
   "firstName" TEXT,
   "initials" TEXT,

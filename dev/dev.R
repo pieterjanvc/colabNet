@@ -23,7 +23,6 @@ for(i in 1:nrow(authors)){
   print(sprintf("%s added", authors$firstName[i]))
 }
 
-
 # auIDs = c(1,31,75)
 
 # Find overlap between authors based on MeSH terms of their research papers
