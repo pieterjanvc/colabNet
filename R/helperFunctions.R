@@ -357,7 +357,7 @@ textBW <- function(colours) {
 #' @import stringr
 #' @importFrom plotly plot_ly
 #'
-#' @return A plotly Treemap
+#' @return A dataset that can be used to create a (plotly) Treemap
 #' @export
 #'
 plotDiffTree <- function(difftree, colours, dbInfo) {
@@ -396,8 +396,9 @@ plotDiffTree <- function(difftree, colours, dbInfo) {
     group_by(branchID, auIDs, nAuth) |>
     summarise(
       parentBranchID = min(parentBranchID),
+      leafNodeTreenum = treenum[n()],
       treenum = paste(treenum, collapse = " -> <br>"),
-      meshterm = paste(meshterm, collapse = " -> <br>"),
+      meshterm = paste(meshterm, collapse = " -> <br>"),      
       .groups = "drop"
     )
 
@@ -464,22 +465,6 @@ plotDiffTree <- function(difftree, colours, dbInfo) {
       .groups = "drop") 
   
   plotData <- plotData |> left_join(auInfo, by = "auIDs")
-
-  # Meshterm plot (for app)
-  fig <- plot_ly(
-    type = "treemap",
-    labels = plotData$meshterm,
-    parents = plotData$parentMeshterm,
-    marker = list(colors = plotData$colour),
-    hovertext = sprintf("%s<br><br>%s", plotData$meshterm, plotData$auNames),
-    hoverinfo = "text",
-    textfont = list(
-      color = textBW(plotData$colour)
-    ),
-    maxdepth = -1
-  )
-
-  fig
-  # htmlwidgets::saveWidget(fig, "D:/Desktop/PJ-Lorenzo.html")
-  return(fig)
+  
+  return(plotData)
 }

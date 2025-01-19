@@ -61,4 +61,5 @@ amt2 <- authorMeshTree(31) # Lorenzo
 auIDs <- c(1,31,72,103,141)
 difftree <- diffTree(auIDs, pruneDuplicates = T)
 
-plotDiffTree(difftree)
+test <- plotDiffTree(difftree)
+test

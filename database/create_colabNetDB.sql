@@ -68,6 +68,9 @@ CREATE TABLE "meshTree" (
  FOREIGN KEY("uid") REFERENCES "meshLink"("uid")
 );
 
+CREATE UNIQUE INDEX "idx_treenum" 
+ON "meshTree" ("treenum");
+
 CREATE TABLE "mesh_article" (
   "arID" INTEGER NOT NULL,
   "meshui" TEXT NOT NULL,

@@ -21,7 +21,7 @@ be interpolated. Min number of authors is colour 2, max is colour 3
 \item{dbInfo}{Path to the ColabNet database. Can be left blank if setup with dbConn()}
 }
 \value{
-A plotly Treemap
+A dataset that can be used to create a (plotly) Treemap
 }
 \description{
 Compare two author MeSH trees and find overlapping areas

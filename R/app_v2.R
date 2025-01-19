@@ -2,7 +2,7 @@
 #'
 #' @import shiny dplyr stringr tidyr purrr visNetwork pool plotly
 #' @importFrom RSQLite SQLite
-#' @importFrom DT DTOutput renderDT datatable
+#' @importFrom DT DTOutput renderDT datatable dataTableProxy replaceData
 #'
 #' @return Start the Shiny app
 #' @export
@@ -32,6 +32,15 @@ colabNet_v2 <- function() {
     filter(authorOfInterest == 1, auID != 163) |> 
     pull(auID)
   difftree <- diffTree(auIDs, pruneDuplicates = T)
+  plotData <- plotDiffTree(difftree)
+  allArticles <- tbl(pool, "coAuthor") |> filter(auID %in% local(auIDs)) |> distinct() |> 
+    left_join(tbl(pool, "article"), by = "arID") |> 
+    left_join(tbl(pool, "authorName") |> 
+      group_by(auID) |> filter(default) |> ungroup(), by = "auID") |> 
+      select(arID, PMID, lastName, month, year, title, journal) |>
+      arrange(desc(PMID)) |> collect() |> 
+    mutate(PMID = sprintf('<a href="https://pubmed.ncbi.nlm.nih.gov/%s" target="_blank">%s</a>', PMID, PMID))
+  nArticles <- length(unique(allArticles$artID))
   print("... finished building difftree")
   
   # //////////////
@@ -41,7 +50,7 @@ colabNet_v2 <- function() {
   ui <- fluidPage(
     fluidRow(    
       fluidRow(
-        column(12,p("Add filters ..."))
+        column(12,DTOutput("test"))
       ),
       fluidRow(column(12,
         tabsetPanel(
@@ -101,20 +110,53 @@ colabNet_v2 <- function() {
 
     # ---- Colab MeSH Tree ----
     # //////////////////////////
-    output$meshTreePlot <- renderPlotly({
-      plotDiffTree(difftree)
+
+    output$meshTreePlot <- renderPlotly({      
+      plot_ly(
+        type = "treemap",
+        labels = plotData$meshterm,
+        parents = plotData$parentMeshterm,
+        marker = list(colors = plotData$colour),
+        hovertext = sprintf("%s<br><br>%s", plotData$meshterm, plotData$auNames),
+        hoverinfo = "text",
+        textfont = list(
+          color = textBW(plotData$colour)
+        ),
+        maxdepth = -1,
+        source = "mtPlot"
+      )    
+    })
+    # htmlwidgets::saveWidget(fig, "D:/Desktop/PJ-Lorenzo.html")
+
+    meshSel <- reactive({
+      children <- plotData[event_data("plotly_click", "mtPlot")$pointNumber+1,]$leafNodeTreenum
+      children <- paste0(children, "%")
+      tbl(pool, "meshTree") |> filter(str_like(treenum, local({{children}}))) |> 
+        left_join(tbl(pool, "meshLink"), by = "uid") |> 
+        left_join(tbl(pool, "meshTerm"), by = "meshui") |> 
+        left_join(tbl(pool, "mesh_article"), by = "meshui") |> 
+        collect()
     })
    
     # ---- Articles Table ----
     # ////////////////////////
+    proxy <- dataTableProxy("articleTable")
     output$articleTable <- renderDT({
-      tbl(pool, "coAuthor") |> filter(auID %in% local(auIDs)) |> distinct() |> 
-        left_join(tbl(pool, "article"), by = "arID") |> 
-        left_join(tbl(pool, "authorName") |> 
-          group_by(auID) |> filter(default) |> ungroup(), by = "auID") |> 
-          collect() |> select(PMID, lastName, month, year, title, journal) |>
-          arrange(desc(PMID))
-    },rownames = FALSE)
+      allArticles |> select(-arID)
+    }, rownames = F, escape = F)    
+
+    observeEvent(meshSel(), {
+
+      toFilter <- unique(meshSel()$arID)
+      
+      if(length(toFilter) == nArticles){
+        articles <- allArticles
+      } else {
+        articles <- allArticles |> filter(arID %in% toFilter)
+      }
+      
+      replaceData(proxy, articles |> select(-arID), rownames = F)
+    })
   }
 
   shinyApp(ui, server)
