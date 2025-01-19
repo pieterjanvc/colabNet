@@ -26,9 +26,9 @@ colabNet_v2 <- function() {
   })
 
   # Get the full diffTree
-  print("Building difftree ...")
+  print("Precompute shared data ...")
   auIDs <- tbl(pool, "author") |> 
-    # TODO remove 165 exclusion once bug fixed!!
+    # TODO remove 163 exclusion once bug fixed!!
     filter(authorOfInterest == 1, auID != 163) |> 
     pull(auID)
   difftree <- diffTree(auIDs, pruneDuplicates = T)
@@ -41,7 +41,8 @@ colabNet_v2 <- function() {
       arrange(desc(PMID)) |> collect() |> 
     mutate(PMID = sprintf('<a href="https://pubmed.ncbi.nlm.nih.gov/%s" target="_blank">%s</a>', PMID, PMID))
   nArticles <- length(unique(allArticles$artID))
-  print("... finished building difftree")
+  authorsimscore <- authorSimScore(difftree)
+  print("... finished")
   
   # //////////////
   # ---- UI ----
@@ -49,15 +50,15 @@ colabNet_v2 <- function() {
 
   ui <- fluidPage(
     fluidRow(    
-      fluidRow(
-        column(12,DTOutput("test"))
-      ),
+      fluidRow(column(12,
+        h3("Similarity between researchers based on article MeSH terms")
+      )),
       fluidRow(column(12,
         tabsetPanel(
-          tabPanel("Collaboration Network",
+          tabPanel("Network",
             visNetworkOutput("networkPlot", height = "60vh"),
             value="networkTab"),
-            tabPanel("Collaboration MeSH Tree",
+            tabPanel("MeSH Tree",
             plotlyOutput("meshTreePlot", height = "60vh"),
             value="networkTab")
         )
@@ -96,16 +97,42 @@ colabNet_v2 <- function() {
     # ---- Colab Network ----
     # ///////////////////////
     output$networkPlot <- renderVisNetwork({
-      nodes <- data.frame(id = 1:5, 
-        label = c("Node 1", "Node 2", "Node 3", "Node 4", "Node 5"))
-      edges <- data.frame(from = c(1, 1, 2, 3, 4), 
-        to = c(2, 3, 4, 5, 5))
+      nodes <- tbl(pool, "author") |> 
+        filter(authorOfInterest == 1, auID != 163) |> 
+        left_join(tbl(pool, "authorName") |> filter(default), by = "auID") |> 
+        select(id = auID, lastName, firstName, collectiveName) |> collect() |> 
+        mutate(
+          label = case_when(
+            !is.na(collectiveName) ~ collectiveName,
+            is.na(firstName) ~ lastName,
+            TRUE ~ sprintf("%s\n%s", lastName, firstName)
+          )
+        ) |> select(id, label)
+
+      edges <- authorsimscore |> 
+        transmute(from = auID1, to = auID2, 
+          width = simScore / max(simScore),
+          color = colorRamp(c("#feffb3", "#12b725"))(width) |> rgb(maxColorValue = 255),
+          width = width  * 8)
 
       # Create a simple visNetwork graph
-      visNetwork(nodes, edges) %>%
-      visOptions(manipulation = TRUE) %>%
-      visNodes(size = 30, color = list(background = "lightblue", border = "blue")) %>%
-      visEdges(smooth = FALSE)
+      visNetwork(nodes, edges) |>      
+        visNodes(
+          size = 20, 
+          color = list(background = "lightblue", border = "blue"),
+          font = list(background = rgb(1,1,1,0.8))
+        ) |>
+        visEdges(smooth = T) |> 
+        visPhysics(
+          barnesHut = list(
+            # gravitationalConstant = -2000,  # Optional: adjust gravity
+            # centralGravity = 0.3,           # Optional: adjust central gravity
+            springLength = 200,             # Optional: adjust spring length
+            # springConstant = 0.01,          # Optional: adjust spring constant
+            # damping = 0.4,                  # Optional: adjust damping
+            repulsion = 1000               # Increased repulsion value
+          )
+        )
     })
 
     # ---- Colab MeSH Tree ----

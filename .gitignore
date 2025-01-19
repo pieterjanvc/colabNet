@@ -3,5 +3,6 @@
 .RData
 .Ruserdata
 **/*.db
+**/*.db-journal
 **/*.rds
 backup/*

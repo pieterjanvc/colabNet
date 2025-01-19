@@ -55,11 +55,17 @@ amt2 <- authorMeshTree(31) # Lorenzo
 
 
 ## GENERATE TREEMAP PLOT
-# auIDs = c(1,31,72,103,141,165)
-# issue with 165
+# auIDs = c(1,31,69,100,137,163)
+# issue with Essler 163
 # row 138  - E01.370.225.500.607 -> <br>E01.370.225.500.607.512
-auIDs <- c(1,31,72,103,141)
+auIDs <- tbl(dbGetConn(checkSchema = F), "author") |> 
+    # TODO remove 163 exclusion once bug fixed!!
+    filter(authorOfInterest == 1, auID != 163) |> 
+    pull(auID)
 difftree <- diffTree(auIDs, pruneDuplicates = T)
 
-test <- plotDiffTree(difftree)
-test
+difftree <- diffTree(c(1,31), pruneDuplicates = T)
+
+difftree |> filter(nAuth == 2) |> pull(level) |> sum()
+
+

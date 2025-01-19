@@ -14,6 +14,7 @@
 #' @export
 #'
 dbSetup <- function(dbInfo, newDBMsg = T, checkSchema = F, returnConn = F) {
+  # Get the reference schema
   sqlFile <- readLines("database/create_colabNetDB.sql") |>
     paste(collapse = "") |>
     str_remove(";\\s*$")
@@ -32,10 +33,12 @@ dbSetup <- function(dbInfo, newDBMsg = T, checkSchema = F, returnConn = F) {
     if (newDBMsg) message("A new database was created")
   } else if (checkSchema) {
     myConn <- dbConnect(SQLite(), dbInfo)
-    dbSchema <- dbGetQuery(myConn, "SELECT sql FROM sqlite_master WHERE type = 'table'") |>
+    # Extract the schema from the database to compare to the reference
+    dbSchema <- dbGetQuery(
+      myConn, paste('SELECT sql FROM sqlite_master WHERE type IN ("table", "index")',
+    ' AND "sql" NOT NULL AND name != \'sqlite_sequence\'')) |>
       unlist() |>
-      paste(collapse = ";") |>
-      str_remove("CREATE TABLE sqlite_sequence\\(name,seq\\);")
+      paste(collapse = ";")
 
     if (dbSchema != sqlFile) {
       dbDisconnect(myConn)

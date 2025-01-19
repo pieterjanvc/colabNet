@@ -158,7 +158,7 @@ authorMeshTree <- function(auID, dbInfo) {
 #' Compare two author MeSH trees and find overlapping areas
 #'
 #' @param auIDs Vector author IDs (stored in the author table of the DB)
-#' @param pruneDuplicates Prune parts of the MeSH tree that contain duplicated terms
+#' @param pruneDuplicates (default = TRUE) Prune parts of the MeSH tree that contain duplicated terms
 #' @param dbInfo Path to the ColabNet database. Can be left blank if setup with dbConn()
 #'
 #' @import dplyr
@@ -167,7 +167,7 @@ authorMeshTree <- function(auID, dbInfo) {
 #' @return A data frame with the MeSH tree information of both authors and their overlap
 #' @export
 #'
-diffTree <- function(auIDs, pruneDuplicates = F, dbInfo) {
+diffTree <- function(auIDs, pruneDuplicates = T, dbInfo) {
 
   amt <- lapply(auIDs, authorMeshTree)
   conn <- dbGetConn(dbInfo)
@@ -467,4 +467,34 @@ plotDiffTree <- function(difftree, colours, dbInfo) {
   plotData <- plotData |> left_join(auInfo, by = "auIDs")
   
   return(plotData)
+}
+
+#' Score all author pairs based on shared MeSH terms
+#'
+#' @param difftree a diffTree dataframe returned by diffTree(pruneDuplicates = T)
+#' @param minLevel (Default 1, root) The minimum level to consider a term shared
+#' 
+#' @import dplyr
+#' @importFrom tidyr separate_rows
+#'
+#' @return A dataset that can be used to create a (plotly) Treemap
+#' @export
+#'
+authorSimScore <- function(difftree, minLevel = 1){
+  # Only keep overlapping parts of the MeSH tree and separate info per author again
+  overlap <- difftree |> 
+    filter(nAuth > 1, hasArticle, level >= minLevel) |> 
+    select(mtrID, auIDs, level, hasArticle) |> 
+    separate_rows(auIDs, sep = ",")
+
+  auIDs <- unique(overlap$auIDs)
+
+  # Calculate a simple similarity score (to be refined later):
+  # - Add up all levels of the tree that overlap and have an article
+  # - This assumes that deeper nested is more specific and thus more overlap
+  apply(combn(auIDs, 2), 2, function(x){
+    simScore <- overlap |> filter(auIDs %in% x) |> group_by(mtrID) |> 
+      filter(n() > 1) |> slice(1) |> pull(level) |> sum()
+    list(auID1 = x[1], auID2 = x[2], simScore = simScore)
+  }) |> bind_rows()
 }
