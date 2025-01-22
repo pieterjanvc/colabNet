@@ -13,7 +13,7 @@ CREATE TABLE "authorName" (
   "firstName" TEXT,
   "initials" TEXT,
   "collectiveName" TEXT,
-  FOREIGN KEY("auID") REFERENCES "author"("auID")
+  FOREIGN KEY("auID") REFERENCES "author"("auID") ON DELETE CASCADE
 );
 
 CREATE TABLE "article" (
@@ -31,8 +31,8 @@ CREATE TABLE "coAuthor" (
   "auID" INTEGER,
   "authorOrder" INTEGER,
   PRIMARY KEY ("arID", "auID", "authorOrder"),
-  FOREIGN KEY("arID") REFERENCES "article"("arID"),
-  FOREIGN KEY("auID") REFERENCES "author"("auID")
+  FOREIGN KEY("arID") REFERENCES "article"("arID") ON DELETE CASCADE,
+  FOREIGN KEY("auID") REFERENCES "author"("auID") ON DELETE CASCADE
 );
 
 CREATE TABLE "affiliation" (
@@ -41,39 +41,41 @@ CREATE TABLE "affiliation" (
 );
 
 CREATE TABLE "author_affiliation" (
+  "aafID" INTEGER PRIMARY KEY AUTOINCREMENT,
   "arID" INTEGER NOT NULL,
   "auID" INTEGER NOT NULL,
   "afID" INTEGER NOT NULL,
-  FOREIGN KEY("arID") REFERENCES "article"("arID"),
-  FOREIGN KEY("auID") REFERENCES "author"("auID"),
-  FOREIGN KEY("afID") REFERENCES "affiliation"("afID")
+  FOREIGN KEY("arID") REFERENCES "article"("arID") ON DELETE CASCADE,
+  FOREIGN KEY("auID") REFERENCES "author"("auID") ON DELETE CASCADE,
+  FOREIGN KEY("afID") REFERENCES "affiliation"("afID") ON DELETE CASCADE
 );
 
 CREATE TABLE "meshLink" (
  "uid" INTEGER PRIMARY KEY,
- "meshui" TEXT NOT NULL
+ "meshui" TEXT UNIQUE NOT NULL
 );
 
 CREATE TABLE "meshTerm" (
  "mteID" INTEGER PRIMARY KEY AUTOINCREMENT,
- "meshui" INTEGER NOT NULL,
+ "meshui" TEXT NOT NULL,
  "meshterm" TEXT NOT NULL,
- FOREIGN KEY("meshui") REFERENCES "meshLink"("meshui")
+ FOREIGN KEY("meshui") REFERENCES "meshLink"("meshui") ON DELETE CASCADE
 );
 
 CREATE TABLE "meshTree" (
  "mtrID" INTEGER PRIMARY KEY AUTOINCREMENT,
  "uid" INTEGER,
  "treenum" TEXT UNIQUE, 
- FOREIGN KEY("uid") REFERENCES "meshLink"("uid")
+ FOREIGN KEY("uid") REFERENCES "meshLink"("uid") ON DELETE CASCADE
 );
 
 CREATE TABLE "mesh_article" (
+  "maID" INTEGER PRIMARY KEY AUTOINCREMENT,
   "arID" INTEGER NOT NULL,
   "meshui" TEXT NOT NULL,
   "descriptorMajor" INTEGER,
-  FOREIGN KEY("arID") REFERENCES "article"("arID"),
-  FOREIGN KEY("meshui") REFERENCES "meshLink"("meshui")
+  FOREIGN KEY("arID") REFERENCES "article"("arID") ON DELETE CASCADE,
+  FOREIGN KEY("meshui") REFERENCES "meshLink"("meshui") ON DELETE CASCADE
 );
 
 CREATE UNIQUE INDEX "idx_treenum" ON "meshTree" ("treenum");

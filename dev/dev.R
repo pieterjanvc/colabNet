@@ -67,5 +67,3 @@ difftree <- diffTree(auIDs, pruneDuplicates = T)
 difftree <- diffTree(c(1,31), pruneDuplicates = T)
 
 difftree |> filter(nAuth == 2) |> pull(level) |> sum()
-
-

@@ -17,7 +17,7 @@ colabNet_v2 <- function() {
   colabNetDB = "dev/colabNet.db"
 
   # Setup for functions in the package
-  dbSetup(colabNetDB)
+  dbSetup(colabNetDB, checkSchema = T)
 
   # Pool for the Shiny app
   pool <- dbPool(SQLite(), dbname = colabNetDB)

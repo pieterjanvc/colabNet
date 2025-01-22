@@ -119,11 +119,7 @@ dbAddAuthors <- function(authors, dbInfo) {
   authors <- authors |>
     select(lastName, firstName, initials, tempId, def = default) |>
     distinct()
-  # authors <- authors |>
-  #   group_by(x = simpleText(lastName), initials) |>
-  #   mutate(tempId = cur_group_id()) |>
-  #   ungroup() |>
-  #   select(-x)
+
   authors <- authors |>
     left_join(
       tbl(conn, "authorName"),
@@ -196,6 +192,60 @@ dbAddAuthors <- function(authors, dbInfo) {
   }  
 
   return(bind_rows(new, updated, existing) |> select(-tempId))
+}
+
+#' Remove authors and their articles from the database
+#'
+#' @param auIDs auIDs to remove. Co-authors who are not and authorOfInterest and 
+#' do not appear in other non-removed articles, are removed too
+#' @param dbInfo (optional if dbSetup() has been run) Path to the ColabNet database
+#'  or existing connection
+#'
+#' @import dplyr
+#'
+#' @return data frame with all auID and arID that were removed
+#' @export
+#'
+dbDeleteAuthors <- function(auIDs, dbInfo){
+
+  conn <- dbGetConn(dbInfo)
+  
+  if(sqliteIsTransacting(conn)){
+    endTransaction = F    
+  } else {
+    dbBegin(conn)
+    endTransaction = T
+  }
+
+  # Get all articles and authors to remove
+  toRemove <- tbl(conn, "coAuthor") |> select(arID, auID1 = auID) |> 
+    left_join(tbl(conn, "author") |> select(auID1 = auID, authorOfInterest), by = "auID1") |> 
+    left_join(tbl(conn, "coAuthor") |> select(arID, auID2 = auID), by = "arID") |> 
+    filter(auID2 %in% local(auIDs), auID1 %in% local(auIDs) | authorOfInterest == 0) |> 
+    select(auID = auID1, arID) |> collect()
+
+  # Make sure not to remove co-authors who apprear in articles that are not being deleted
+  toKeep <- tbl(conn, "coAuthor") |> 
+    filter(!arID %in% local(toRemove$arID), auID %in% local(toRemove$auID)) |> 
+    pull(auID) |> unique()
+
+  toRemove <- toRemove |> filter(!auID %in% toKeep)
+
+  #Delete authors
+  q <- dbExecute(conn, "DELETE FROM author WHERE auID IN (?)",
+        params = paste(unique(toRemove$auID), collapse = ","))
+  
+  # Delete articles
+  q <- dbExecute(conn, "DELETE FROM article WHERE arID IN (?)",
+        params = paste(unique(toRemove$arID), collapse = ","))  
+  
+  if(endTransaction){    
+    dbCommit(conn)
+    dbDisconnect(conn)
+  } 
+  
+  return(toRemove)
+
 }
 
 #' Insert MeSH info into the ColabNet database
