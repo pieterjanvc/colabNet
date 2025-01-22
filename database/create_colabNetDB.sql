@@ -30,9 +30,11 @@ CREATE TABLE "coAuthor" (
   "arID" INTEGER,
   "auID" INTEGER,
   "authorOrder" INTEGER,
+  "anID" INTEGER,
   PRIMARY KEY ("arID", "auID", "authorOrder"),
   FOREIGN KEY("arID") REFERENCES "article"("arID") ON DELETE CASCADE,
-  FOREIGN KEY("auID") REFERENCES "author"("auID") ON DELETE CASCADE
+  FOREIGN KEY("auID") REFERENCES "author"("auID") ON DELETE CASCADE,
+  FOREIGN KEY("anID") REFERENCES "authorName"("anID") ON DELETE CASCADE
 );
 
 CREATE TABLE "affiliation" (

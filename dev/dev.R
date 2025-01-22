@@ -7,21 +7,28 @@
 devtools::load_all()
 dbSetup("dev/colabNet.db", checkSchema = T)
 
-authors = data.frame(
-  firstName = c("PJ", "Lorenzo", "Cristina", "Irene", "Grey", "Kayla", "Lauren"),
-  lastName = c("Van Camp", "Gesuita","Deoliveira", "Wong", 'Kuling', "Nygaard", "Essler")
-)
+# authors = data.frame(
+#   firstName = c("PJ", "Lorenzo", "Cristina", "Irene", "Grey", "Kayla", "Lauren"),
+#   lastName = c("Van Camp", "Gesuita","Deoliveira", "Wong", 'Kuling', "Nygaard", "Essler")
+# )
 
-i =  1
+# authorPublications <- lapply(1:nrow(authors), function(i){  
+#   print("Next one")
+#   firstName = authors$firstName[i]
+#   if(firstName == "Irene") {return(NULL)}
+#   lastName = authors$lastName[i]
+#   ncbi_authorPublications(firstName, lastName)
+# })
+# authorPublications <- authorPublications[!sapply(authorPublications, is.null)]
+# saveRDS(authorPublications, "data/ap.rds")
+authorPublications <- readRDS("data/ap.rds")
 
-for(i in 1:nrow(authors)){  
-  firstName = authors$firstName[i]
-  if(firstName == "Irene") {next}
-  lastName = authors$lastName[i]
-  authorPublications <- ncbi_authorPublications(firstName, lastName)
-  result <- dbAddAuthorPublications(authorPublications)
-  print(sprintf("%s added", authors$firstName[i]))
-}
+result <- map_df(authorPublications, function(x){
+  print("Next one")
+  dbAddAuthorPublications(x)
+})
+
+result <- dbDeleteArticle(c(21, 23,24))
 
 # auIDs = c(1,31,75)
 
@@ -67,3 +74,5 @@ difftree <- diffTree(auIDs, pruneDuplicates = T)
 difftree <- diffTree(c(1,31), pruneDuplicates = T)
 
 difftree |> filter(nAuth == 2) |> pull(level) |> sum()
+
+

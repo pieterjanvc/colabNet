@@ -157,8 +157,8 @@ dbAddAuthors <- function(authors, dbInfo) {
       )
     ) |> mutate(status = "updated")
 
-    q <- dbExecute(conn, "UPDATE author SET modified = ? WHERE auID IN (?)",
-      params = list(timeStamp(), paste(unique(updated$auID), collapse = ","))
+    q <- dbExecute(conn, sprintf("UPDATE author SET modified = '%s' WHERE auID IN (%s)",
+      timeStamp(), paste(unique(updated$auID), collapse = ","))
     )
   }
 
@@ -232,12 +232,12 @@ dbDeleteAuthors <- function(auIDs, dbInfo){
   toRemove <- toRemove |> filter(!auID %in% toKeep)
 
   #Delete authors
-  q <- dbExecute(conn, "DELETE FROM author WHERE auID IN (?)",
-        params = paste(unique(toRemove$auID), collapse = ","))
+  q <- dbExecute(conn, sprintf("DELETE FROM author WHERE auID IN (%s)",
+        paste(unique(toRemove$auID), collapse = ",")))
   
   # Delete articles
-  q <- dbExecute(conn, "DELETE FROM article WHERE arID IN (?)",
-        params = paste(unique(toRemove$arID), collapse = ","))  
+  q <- dbExecute(conn, sprintf("DELETE FROM article WHERE arID IN (%s)",
+        paste(unique(toRemove$arID), collapse = ",")))
   
   if(endTransaction){    
     dbCommit(conn)
@@ -448,10 +448,10 @@ dbAddAuthorPublications <- function(authorPublications, dbInfo) {
     left_join(arInfo, by = "PMID")
     
   coAuthors <- arAuAf |>
-    select(arID, auID, authorOrder) |>
+    select(arID, auID, authorOrder, anID) |>
     distinct() 
-  q <- dbExecute(conn, "INSERT INTO coAuthor(arID, auID, authorOrder) VALUES(?,?,?)",
-    params = list(coAuthors$arID, coAuthors$auID, coAuthors$authorOrder)
+  q <- dbExecute(conn, "INSERT INTO coAuthor(arID, auID, authorOrder, anID) VALUES(?,?,?,?)",
+    params = list(coAuthors$arID, coAuthors$auID, coAuthors$authorOrder, coAuthors$anID)
   )
 
   # Sometimes affiliations are not provided so remove the empty ones
@@ -492,4 +492,70 @@ dbAddAuthorPublications <- function(authorPublications, dbInfo) {
   }  
 
   return(arInfo)
+}
+
+#' Delete specified articles and any associated authors / author names
+#' Useful when an article has been incorrectly associated with an author for
+#' example because of name overlap
+#'
+#' @param arIDs Vector of arIDs to delete (as found in article table)
+#' @param dbInfo (optional if dbSetup() has been run) 
+#'  Path to the ColabNet database or existing connection
+#'
+#' @import RSQLite
+#' @import dplyr
+#'
+#' @return Dataframe of articles and authors/author names that have been deleted
+#' @export
+#'
+dbDeleteArticle <- function(arIDs, dbInfo){
+
+  conn <- dbGetConn(dbInfo)
+  
+  if(sqliteIsTransacting(conn)){
+    endTransaction = F    
+  } else {
+    dbBegin(conn)
+    endTransaction = T
+  }
+
+  # Get all articles and authors to remove
+  toRemove <- tbl(conn, "coAuthor") |> filter(arID %in% local(arIDs)) |> collect()
+
+  # Keep author names that are in other articles not being removed
+  toKeep <- tbl(conn, "coAuthor") |> 
+    filter(anID %in% local(toRemove$anID), !arID %in% local(toRemove$arID))
+
+  toRemove <- toRemove |> filter(!anID %in% toKeep)
+  
+  # Authors with action deleteAuthor will be removed completely, 
+  #  authors with action deleteName only have a specific alternative/incorrect name removed
+  removeAuth <- tbl(conn, "authorName") |> filter(auID %in% local(toRemove$auID)) |> 
+    distinct() |> collect() |> left_join(
+      toRemove |> select(auID2 = auID, anID) |> distinct(), 
+      by = "anID") |> 
+    group_by(auID) |> mutate(action = ifelse(
+      any(is.na(auID2)), "deleteName", "deleteAuthor"
+    )) |> ungroup() |> filter(!is.na(auID2))  
+  
+  # Delete authors
+  delAuID <- removeAuth |> filter(action == "deleteAuthor") |> pull(auID) |> unique()
+  q <- dbExecute(conn, sprintf("DELETE FROM author WHERE auID IN (%s)",
+        paste(delAuID, collapse = ",")))
+  
+  # Delete incorrect names
+  delAnID <- removeAuth |> filter(action == "deleteName") |> pull(anID) |> unique()
+  q <- dbExecute(conn, sprintf("DELETE FROM authorName WHERE anID IN (%s)",
+        paste(delAnID, collapse = ",")))
+  
+  # Delete articles
+  q <- dbExecute(conn, sprintf("DELETE FROM article WHERE arID IN (%s)",
+        paste(arIDs, collapse = ",")))
+  
+  if(endTransaction){
+    dbCommit(conn)
+    dbDisconnect(conn)
+  }  
+
+  return(removeAuth)
 }
