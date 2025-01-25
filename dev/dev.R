@@ -11,17 +11,20 @@ dbSetup("dev/colabNet.db", checkSchema = T)
 #   firstName = c("PJ", "Lorenzo", "Cristina", "Irene", "Grey", "Kayla", "Lauren"),
 #   lastName = c("Van Camp", "Gesuita","Deoliveira", "Wong", 'Kuling', "Nygaard", "Essler")
 # )
-# i = 1
+# i = 2
 # authorPublications <- lapply(1:nrow(authors), function(i){  
 #   print("Next one")
 #   firstName = authors$firstName[i]
 #   lastName = authors$lastName[i]
-#   result <- ncbi_authorArticleList(ncbi_author(firstName, lastName), PMIDonly = T)
-#   if(!result$success){
+#   authorinfo <- ncbi_author(firstName, lastName)
+#   result <- ncbi_authorArticleList(authorinfo$lastName, authorinfo$firstName, 
+#     authorinfo$initials, PMIDonly = T)
+
+#   if(result$statusCode != 2){
 #     warning("Too many results for ", firstName, " ", lastName)
 #     return(NULL)
 #   }
-#   ncbi_publicationDetails(result$PMID)
+#   ncbi_publicationDetails(PMIDs = result$PMID, lastNameOfInterest = authorinfo$lastName)
 # })
 
 # authorPublications <- authorPublications[!sapply(authorPublications, is.null)]
@@ -77,3 +80,4 @@ auIDs <- tbl(dbGetConn(checkSchema = F), "author") |>
     filter(authorOfInterest == 1, auID != 163) |> 
     pull(auID)
 difftree <- diffTree(auIDs, pruneDuplicates = T)
+

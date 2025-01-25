@@ -12,7 +12,7 @@ ncbi_author(firstName, lastName)
 \item{lastName}{Last name}
 }
 \value{
-Author name as string "lastName Initials" as used in Pubmed
+A data frame with lastName, firstName, initials based on top hit article
 }
 \description{
 Get the best matching Pubmed author name

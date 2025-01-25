@@ -28,8 +28,7 @@ colabNet_v2 <- function() {
   # Get the full diffTree
   print("Precompute shared data ...")
   auIDs <- tbl(pool, "author") |> 
-    # TODO remove 163 exclusion once bug fixed!!
-    filter(authorOfInterest == 1, auID != 163) |> 
+    filter(authorOfInterest == 1) |> 
     pull(auID)
   difftree <- diffTree(auIDs, pruneDuplicates = T)
   plotData <- plotDiffTree(difftree)
