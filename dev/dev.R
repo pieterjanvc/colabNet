@@ -11,18 +11,25 @@ dbSetup("dev/colabNet.db", checkSchema = T)
 #   firstName = c("PJ", "Lorenzo", "Cristina", "Irene", "Grey", "Kayla", "Lauren"),
 #   lastName = c("Van Camp", "Gesuita","Deoliveira", "Wong", 'Kuling', "Nygaard", "Essler")
 # )
-
+# i = 1
 # authorPublications <- lapply(1:nrow(authors), function(i){  
 #   print("Next one")
 #   firstName = authors$firstName[i]
-#   if(firstName == "Irene") {return(NULL)}
 #   lastName = authors$lastName[i]
-#   ncbi_authorPublications(firstName, lastName)
+#   result <- ncbi_authorArticleList(ncbi_author(firstName, lastName), PMIDonly = T)
+#   if(!result$success){
+#     warning("Too many results for ", firstName, " ", lastName)
+#     return(NULL)
+#   }
+#   ncbi_publicationDetails(result$PMID)
 # })
+
 # authorPublications <- authorPublications[!sapply(authorPublications, is.null)]
 # saveRDS(authorPublications, "data/ap.rds")
 authorPublications <- readRDS("data/ap.rds")
 
+# authorPublications <- readRDS("data/ap.rds")[[2]]
+# x <- readRDS("data/ap.rds")[[1]]
 result <- map_df(authorPublications, function(x){
   print("Next one")
   dbAddAuthorPublications(x)
@@ -70,9 +77,3 @@ auIDs <- tbl(dbGetConn(checkSchema = F), "author") |>
     filter(authorOfInterest == 1, auID != 163) |> 
     pull(auID)
 difftree <- diffTree(auIDs, pruneDuplicates = T)
-
-difftree <- diffTree(c(1,31), pruneDuplicates = T)
-
-difftree |> filter(nAuth == 2) |> pull(level) |> sum()
-
-

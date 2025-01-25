@@ -90,6 +90,9 @@ dbGetConn <- function(dbInfo, checkSchema = T) {
     conn <- dbSetup(dbInfo, checkSchema = checkSchema, returnConn = T)
   }
 
+  # Make sure that foreign key constraints and cascading are enforced
+  q <- dbExecute(conn, "PRAGMA foreign_keys = ON")
+
   return(conn)
 }
 
@@ -309,20 +312,22 @@ dbAddMesh <- function(values, type, dbInfo) {
     meshInfo$meshTree <- meshInfo$meshTree |> filter(treenum %in% toAdd)
     meshInfo$meshTerms <- meshInfo$meshTerms |> filter(meshui %in% meshInfo$meshTree$meshui)
 
-    # Add to database
+    # Find new and existing
     meshLinks <- meshInfo$meshTree |>
       select(uid, meshui) |>
-      distinct()
+      distinct() |> mutate(uid = as.integer(uid))
     existing <- tbl(conn, "meshLink") |>
       filter(uid %in% local(meshLinks$uid)) |>
       select(uid, meshui) |>
       collect()
-    meshLinks <- meshLinks |> filter(!uid %in% existing$uid)
+    new <- meshLinks |> filter(!uid %in% existing$uid)
 
+    # Insert new MeSH links
     q <- dbExecute(conn, "INSERT INTO meshLink(uid, meshui) VALUES(?,?)",
-      params = list(meshLinks$uid, meshLinks$meshui)
+      params = list(new$uid, new$meshui)
     )
 
+    # Insert new MeSH Terms
     meshTerms <- meshInfo$meshTerms |>
       select(meshui, meshterm) |>
       distinct()
@@ -331,6 +336,7 @@ dbAddMesh <- function(values, type, dbInfo) {
       params = list(meshTerms$meshui, meshTerms$meshterm)
     )
 
+    # Insert new MeSH Tree branches
     meshTree <- meshInfo$meshTree |>
       select(uid, treenum) |>
       distinct()
@@ -345,7 +351,10 @@ dbAddMesh <- function(values, type, dbInfo) {
     dbDisconnect(conn)
   }
 
-  return(meshLinks)
+  return(bind_rows(
+    new |> mutate(status = "new"), 
+    existing |> mutate(status = "existing")
+  ))
 }
 
 #' Add authors to the database
@@ -471,19 +480,35 @@ dbAddAuthorPublications <- function(authorPublications, dbInfo) {
   if (nrow(meshDescriptors) > 0) {
     meshui <- unique(meshDescriptors$DescriptorUI)
 
+    # The check tags male (D008297) and female (D005260) will be ignored as they
+    #  are not part of the MeSH Tree 
+    #  https://www.nlm.nih.gov/tsd/cataloging/MeSH_CatPractices.html
+    meshui <- meshui[!meshui %in% c("D008297", "D005260")]
+
+    # Add nymissing MeSH terms / Tree branches to the database
     if (length(meshui) > 0) {
       result <- dbAddMesh(meshui, "meshui", dbInfo = conn)
     }
 
-    # Insert meshUI from papers
+    # Remove any mesh descriptors that were not added to the database
+    notAdded <- meshui[!meshui %in% result$meshui]
+    
+    if(length(notAdded) > 0){
+      warning("The following meshui were not found are are ignored: ",
+          paste(notAdded, collapse = ", "))      
+    }
+
+    # Insert new meshUI from papers
     meshArticle <- meshDescriptors |>
       select(arID, PMID, DescriptorUI, DescriptorMajor) |>
+      filter(!DescriptorUI %in% c(notAdded, "D008297", "D005260")) |> 
       distinct() |>
       mutate(DescriptorMajor = ifelse(DescriptorMajor == "Y", 1, 0))
 
     q <- dbExecute(conn, "INSERT INTO mesh_article(arID, meshui, descriptorMajor) VALUES(?,?,?)",
       params = list(meshArticle$arID, meshArticle$DescriptorUI, meshArticle$DescriptorMajor)
     )
+
   }
 
   if(endTransaction){
