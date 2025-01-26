@@ -41,31 +41,55 @@ colabNet_v2 <- function() {
     mutate(PMID = sprintf('<a href="https://pubmed.ncbi.nlm.nih.gov/%s" target="_blank">%s</a>', PMID, PMID))
   nArticles <- length(unique(allArticles$artID))
   authorsimscore <- authorSimScore(difftree)
-  print("... finished")
+  print("... finished")  
   
   # //////////////
   # ---- UI ----
   # /////////////
 
   ui <- fluidPage(
-    fluidRow(    
-      fluidRow(column(12,
-        h3("Similarity between researchers based on article MeSH terms")
-      )),
-      fluidRow(column(12,
-        tabsetPanel(
-          tabPanel("Network",
-            visNetworkOutput("networkPlot", height = "60vh"),
-            value="networkTab"),
-            tabPanel("MeSH Tree",
-            plotlyOutput("meshTreePlot", height = "60vh"),
-            value="networkTab")
-        )
-      )),
-      fluidRow(column(12,
-        DTOutput("articleTable")
-      ))
-    ),
+    fluidRow(column(12,
+      tabsetPanel(
+        tabPanel("Exploration",
+        fluidRow(    
+          fluidRow(column(12,
+            h3("Similarity between researchers based on article MeSH terms")
+          )),
+          fluidRow(column(12,
+            tabsetPanel(
+              tabPanel("Network",
+                visNetworkOutput("networkPlot", height = "60vh"),
+                value="networkTab"),
+                tabPanel("MeSH Tree",
+                plotlyOutput("meshTreePlot", height = "60vh"),
+                value="networkTab")
+            )
+          )),
+          fluidRow(column(12,
+            DTOutput("articleTable")
+          ))
+        ),value="exploration"),
+        tabPanel("Data",
+        fluidRow(column(6,          
+          wellPanel(
+            selectInput("auID", "Authors in Database", choices = NULL),
+            uiOutput("alternativeNames")
+          ),
+          DTOutput("authorArticleList")        
+        ), column(6,
+          wellPanel(
+            textInput("lastName", "Last name"),
+            textInput("firstName", "First name"),
+            textAreaInput("PMIDs", "(optional) Limit search by PMID (comma separated)"),
+            actionButton("pubmedByAuthor", "Search Pubmed")
+          ),
+          uiOutput("pubmedSearch_msg"),
+          DTOutput("pubmedArticles")
+        )),
+        value="exploration"
+      )
+      )
+    ))    ,
     fluidRow(column(12,
     tags$footer(
       p(
@@ -93,8 +117,11 @@ colabNet_v2 <- function() {
 
   server <- function(input, output, session) {
 
+    # ---- EXPLORATION TAB ----
+    # /////////////////////////
+
     # ---- Colab Network ----
-    # ///////////////////////
+
     output$networkPlot <- renderVisNetwork({
       nodes <- tbl(pool, "author") |> 
         filter(authorOfInterest == 1, auID != 163) |> 
@@ -135,7 +162,6 @@ colabNet_v2 <- function() {
     })
 
     # ---- Colab MeSH Tree ----
-    # //////////////////////////
 
     output$meshTreePlot <- renderPlotly({      
       plot_ly(
@@ -165,7 +191,7 @@ colabNet_v2 <- function() {
     })
    
     # ---- Articles Table ----
-    # ////////////////////////
+
     proxy <- dataTableProxy("articleTable")
     output$articleTable <- renderDT({
       allArticles |> select(-arID)
@@ -183,7 +209,102 @@ colabNet_v2 <- function() {
       
       replaceData(proxy, articles |> select(-arID), rownames = F)
     })
-  }
+
+    # ---- DATA TAB ----
+    # /////////////////////////
+
+    # ---- Existing authors ----
+    authorList <- reactive({
+      tbl(pool, "author") |> 
+        filter(authorOfInterest == 1) |> left_join(
+          tbl(pool, "authorName"), by = "auID"
+        ) |> collect() |> arrange(lastName)    
+    })
+
+    observeEvent(authorList(),{
+      newVals <- authorList() |> filter(default == 1)
+      updateSelectInput(session, "auID", choices = setNames(
+        newVals$auID,
+        paste(newVals$lastName, newVals$firstName, sep = ", ")        
+      ))
+    })
+
+    output$alternativeNames <- renderUI({
+      altNames <- authorList() |> filter(auID == local(input$auID)) |> 
+        filter(default == 0)
+
+      if(nrow(altNames) == 0) {
+        return(NULL)
+      } else {
+        return(tags$i(
+          sprintf("Also published under: %s", 
+          paste(altNames$lastName, altNames$firstName, sep = ", ", collapse = " | "))))
+      }
+      
+    })
+
+    authorArticles <- reactive({      
+      tbl(pool, "coAuthor") |> 
+        filter(auID == local(input$auID)) |> select(auID, arID) |> left_join(
+          tbl(pool, "article"), by = "arID"
+        ) |> collect() |> arrange(desc(PMID))
+    })
+
+    output$authorArticleList <- renderDT({
+      authorArticles() |> select(PMID, year, month, title, journal) |> 
+        mutate(PMID = sprintf('<a href="https://pubmed.ncbi.nlm.nih.gov/%s" target="_blank">%s</a>', PMID, PMID))
+    }, rownames = F, escape = F)
+  
+    # ---- Search for new ----
+    
+
+    # Search by author name
+    pubmedSearch <- reactive({
+
+      if(str_trim(input$lastName) == "" | str_trim(input$firstName) == "" ){
+        elementMsg("pubmedByAuthor", 
+          "You need to provide both last name and first name")
+        return(NULL)
+      } 
+
+      author <- ncbi_author(input$lastName, input$firstName)
+        
+        # If no author found
+        if(length(author$lastName) == 0){
+          elementMsg("pubmedByAuthor", 
+          "No results for and author with provided first and last name")
+          return(NULL)
+        } 
+        
+        search <- ncbi_authorArticleList(author$lastName, author$firstName,
+          author$initials, str_split(input$PMIDs, ",")[[1]] |> str_trim())        
+
+        if(search$statusCode ==  0) {
+          elementMsg("pubmedByAuthor",sprintf(
+            "This search yielded too many (%i) results. Please add PMIDs",
+            search$n))
+          df <- NULL
+        } else if (search$statusCode ==  1) {
+          elementMsg("pubmedByAuthor",
+          "It's possible that this name is ambiguous as many results were found. 
+          Consider limiting by PMID to only return relevant articles.")
+          df <- search$articles
+        } else {
+          elementMsg("pubmedByAuthor")
+          df <- search$articles
+        }      
+
+        return(df)
+      
+    }) |> bindEvent(input$pubmedByAuthor)
+
+    output$pubmedArticles <- renderDT({
+      req(pubmedSearch())
+      pubmedSearch() |> select(PMID, date, title, journal) |> 
+        mutate(PMID = sprintf('<a href="https://pubmed.ncbi.nlm.nih.gov/%s" target="_blank">%s</a>', PMID, PMID))
+    }, rownames = F, escape = F)
+  
+  }  
 
   shinyApp(ui, server)
 }

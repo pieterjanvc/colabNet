@@ -16,7 +16,7 @@ dbSetup("dev/colabNet.db", checkSchema = T)
 #   print("Next one")
 #   firstName = authors$firstName[i]
 #   lastName = authors$lastName[i]
-#   authorinfo <- ncbi_author(firstName, lastName)
+#   authorinfo <- ncbi_author(lastName, firstName)
 #   result <- ncbi_authorArticleList(authorinfo$lastName, authorinfo$firstName, 
 #     authorinfo$initials, PMIDonly = T)
 

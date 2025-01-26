@@ -4,12 +4,12 @@
 \alias{ncbi_author}
 \title{Get the best matching Pubmed author name}
 \usage{
-ncbi_author(firstName, lastName)
+ncbi_author(lastName, firstName)
 }
 \arguments{
-\item{firstName}{First name}
-
 \item{lastName}{Last name}
+
+\item{firstName}{First name}
 }
 \value{
 A data frame with lastName, firstName, initials based on top hit article
