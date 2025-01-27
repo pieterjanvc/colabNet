@@ -26,23 +26,25 @@ colabNet_v2 <- function() {
     poolClose(pool)
   })
 
-  # Get the full diffTree
-  print("Precompute shared data ...")
-  auIDs <- tbl(pool, "author") |> 
-    filter(authorOfInterest == 1) |> 
-    pull(auID)
-  difftree <- diffTree(auIDs, pruneDuplicates = T)
-  plotData <- plotDiffTree(difftree)
-  allArticles <- tbl(pool, "coAuthor") |> filter(auID %in% local(auIDs)) |> distinct() |> 
-    left_join(tbl(pool, "article"), by = "arID") |> 
-    left_join(tbl(pool, "authorName") |> 
-      group_by(auID) |> filter(default) |> ungroup(), by = "auID") |> 
-      select(arID, PMID, lastName, month, year, title, journal) |>
-      arrange(desc(PMID)) |> collect() |> 
-    mutate(PMID = sprintf('<a href="https://pubmed.ncbi.nlm.nih.gov/%s" target="_blank">%s</a>', PMID, PMID))
-  nArticles <- length(unique(allArticles$artID))
-  authorsimscore <- authorSimScore(difftree)
-  print("... finished")  
+  # Precompute data
+  preCompData <- reactivePoll(5000, NULL,
+    checkFunc = function(){
+      file.info(colabNetDB)$mtime
+    }, valueFunc = function(){
+      print("Precompute shared data ...")
+      auIDs <- tbl(pool, "author") |> 
+        filter(authorOfInterest == 1) |> 
+        pull(auID)
+      difftree <- diffTree(auIDs, pruneDuplicates = T)
+      plotData <- plotDiffTree(difftree)
+     
+      authorsimscore <- authorSimScore(difftree)
+      print("... finished")
+      return(list(auIDs = auIDs, plotData = plotData, authorsimscore = authorsimscore))
+    }
+  )
+  
+
 
   # Function to extract relevant authors (first, last and of interest) from list
   relevantAuthors <- function(authors, lastName){
@@ -99,6 +101,7 @@ colabNet_v2 <- function() {
             tags$h3("Find articles on Pubmed"),
             textInput("lastName", "Last name"),
             textInput("firstName", "First name"),
+            checkboxInput("includeInitials", "Extend search with initials (broader)"),
             textAreaInput("PMIDs", "(optional) Limit search by PMID (comma separated)"),
             actionButton("pubmedByAuthor", "Search Pubmed")
           ),                  
@@ -154,7 +157,7 @@ colabNet_v2 <- function() {
           )
         ) |> select(id, label)
 
-      edges <- authorsimscore |> 
+      edges <- isolate(preCompData()$authorsimscore) |> 
         transmute(from = auID1, to = auID2, 
           width = simScore / max(simScore),
           color = colorRamp(c("#feffb3", "#12b725"))(width) |> rgb(maxColorValue = 255),
@@ -182,13 +185,17 @@ colabNet_v2 <- function() {
 
     # ---- Colab MeSH Tree ----
 
+    # Shared data will only refresh when user refreshes app
+    plotData <- isolate(preCompData()$plotData)
+
     output$meshTreePlot <- renderPlotly({      
       plot_ly(
         type = "treemap",
         labels = plotData$meshterm,
         parents = plotData$parentMeshterm,
         marker = list(colors = plotData$colour),
-        hovertext = sprintf("%s<br><br>%s", plotData$meshterm, plotData$auNames),
+        hovertext = sprintf("%s<br><br>%s", plotData$meshterm, 
+        plotData$auNames),
         hoverinfo = "text",
         textfont = list(
           color = textBW(plotData$colour)
@@ -210,6 +217,15 @@ colabNet_v2 <- function() {
     })
    
     # ---- Articles Table ----
+
+    allArticles <- tbl(pool, "coAuthor") |> filter(auID %in% local(isolate(preCompData()$auIDs))) |> distinct() |> 
+      left_join(tbl(pool, "article"), by = "arID") |> 
+      left_join(tbl(pool, "authorName") |> 
+        group_by(auID) |> filter(default) |> ungroup(), by = "auID") |> 
+        select(arID, PMID, lastName, month, year, title, journal) |>
+        arrange(desc(PMID)) |> collect() |> 
+      mutate(PMID = sprintf('<a href="https://pubmed.ncbi.nlm.nih.gov/%s" target="_blank">%s</a>', PMID, PMID))
+    nArticles <- length(unique(allArticles$artID))
 
     proxy <- dataTableProxy("articleTable")
     output$articleTable <- renderDT({
@@ -250,7 +266,8 @@ colabNet_v2 <- function() {
 
     output$alternativeNames <- renderUI({
 
-      auNames <- authorList() |> filter(auID == local(input$auID)) 
+      auNames <- tbl(pool, "authorName") |> 
+        filter(auID == local(input$auID)) |> collect()
 
       # Set the Pubmed Search to match selection
       default <- auNames |> filter(default == 1)
@@ -336,14 +353,15 @@ colabNet_v2 <- function() {
         
         # Look for articles in Pubmed
         search <- ncbi_authorArticleList(author$lastName, author$firstName,
-          author$initials, str_split(input$PMIDs, ",")[[1]] |> str_trim())        
+          author$initials, str_split(input$PMIDs, ",")[[1]] |> str_trim(),
+          input$includeInitials)        
 
         if(search$statusCode ==  0) {
           elementMsg("pubmedByAuthor",sprintf(
             "This search yielded too many (%i) results. Please add PMIDs",
             search$n))
           df <- NULL
-        } else if (search$statusCode ==  1) {
+        } else if (search$statusCode ==  1 & input$includeInitials) {
           elementMsg("pubmedByAuthor",
           "It's possible that this name is ambiguous as many results were found. 
           Consider limiting by PMID to only return relevant articles.")
@@ -420,8 +438,11 @@ colabNet_v2 <- function() {
       
       noHTML <- PMIDs |> 
         str_extract(".*>(.+)<", group = 1)
-      showModal(modalDialog(paste(PMIDs, collapse = ",")))
-      
+          
+      if(length(PMIDs) == 0){
+        showNotification("No articles to add", type = "message")
+      }
+
       req(length(PMIDs) > 0)
       disable("artAdd")
       new <- ncbi_publicationDetails(noHTML, input$lastName)
@@ -432,6 +453,29 @@ colabNet_v2 <- function() {
       replaceData(authorArticleList_proxy, updatedTable)
       enable("artAdd")
     }) |> bindEvent(input$artAdd)
+
+    observe({
+      PMIDs <- auArtList()[input$authorArticleList_rows_selected,] |> 
+        filter(InDB == "YES") |> pull(PMID)
+      
+      noHTML <- PMIDs |> 
+        str_extract(".*>(.+)<", group = 1)
+      
+      if(length(PMIDs) == 0){
+        showNotification("No articles to remove", type = "message")
+      }
+
+      req(length(PMIDs) > 0)
+      disable("artDel")
+      arIDs <- tbl(pool, "article") |> filter(PMID %in% local(noHTML)) |> 
+        pull(arID)
+      deleted <- dbDeleteArticle(arIDs)
+      updatedTable <- auArtList() |> mutate(
+        InDB = ifelse(PMID %in% PMIDs, "NO", InDB)
+      )
+      replaceData(authorArticleList_proxy, updatedTable)
+      enable("artDel")
+    }) |> bindEvent(input$artDel)
   
   }  
 
