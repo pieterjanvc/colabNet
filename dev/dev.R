@@ -84,3 +84,9 @@ difftree <- diffTree(auIDs, pruneDuplicates = T)
 test <- ncbi_authorArticleList("Van Camp", "Pieter-Jan", "PJ")
 
 lastName = "Van Camp"
+
+PMIDs <- "28202393"
+lastNameOfInterest<- "DeOliveira"
+authorPublications <- ncbi_publicationDetails("28202393", "DeOliveira")
+
+new <- dbAddAuthorPublications(authorPublications)

@@ -89,6 +89,11 @@ colabNet_v2 <- function() {
             tags$h3("Authors in database"),
             selectInput("auID", "Author", choices = NULL),
             uiOutput("alternativeNames")
+          ),
+          wellPanel(
+            tags$h3("Add / Remove articles from database"),
+            actionButton("artAdd", "Add selected articles"),
+            actionButton("artDel", "Remove selected articles")
           )),column(7,
           wellPanel(
             tags$h3("Find articles on Pubmed"),
@@ -360,9 +365,17 @@ colabNet_v2 <- function() {
       
     }) |> bindEvent(input$pubmedByAuthor)
 
-    # Table that shows author articles
-    output$authorArticleList <- renderDT({
-      
+    auArtList <- reactiveVal()
+
+     # Table that shows author articles
+     output$authorArticleList <- renderDT({    
+      data.frame(PMID = character(), InDB = character(), 
+        Title = character(), Info = character()) 
+     }, escape = F)
+
+    authorArticleList_proxy <- dataTableProxy("authorArticleList")
+    
+    observe({
       # Existing articles in DB for this author
       if(nrow(authorArticles()) > 0) {
         existing <- authorArticles() |> 
@@ -389,14 +402,36 @@ colabNet_v2 <- function() {
       req(nrow(df) > 0)
    
       # Resulting tables combining new and existing articles
-      df |> 
+      df <- df |> 
         transmute(
           PMID = sprintf('<a href="https://pubmed.ncbi.nlm.nih.gov/%s" target="_blank">%s</a>', PMID, PMID),
           InDB = inDB, Title = title, 
           Info = sprintf("%s | <i>%s</i> (%s)", 
           relevantAuthors(authors, input$lastName), journal, year)
         )
-    }, rownames = F, escape = F)
+      
+      replaceData(authorArticleList_proxy, df)
+      auArtList(df)
+    })   
+
+    observe({
+      PMIDs <- auArtList()[input$authorArticleList_rows_selected,] |> 
+        filter(InDB == "NO") |> pull(PMID)
+      
+      noHTML <- PMIDs |> 
+        str_extract(".*>(.+)<", group = 1)
+      showModal(modalDialog(paste(PMIDs, collapse = ",")))
+      
+      req(length(PMIDs) > 0)
+      disable("artAdd")
+      new <- ncbi_publicationDetails(noHTML, input$lastName)
+      new <- dbAddAuthorPublications(new)
+      updatedTable <- auArtList() |> mutate(
+        InDB = ifelse(PMID %in% PMIDs, "YES", InDB)
+      )
+      replaceData(authorArticleList_proxy, updatedTable)
+      enable("artAdd")
+    }) |> bindEvent(input$artAdd)
   
   }  
 
