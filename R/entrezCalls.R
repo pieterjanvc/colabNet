@@ -2,6 +2,7 @@
 #'
 #' @param lastName Last name
 #' @param firstName First name
+#' @param showWarnings (Default = T) Show warnings
 #' 
 #' @importFrom rentrez entrez_search entrez_summary
 #' @importFrom stringr str_detect
@@ -9,13 +10,13 @@
 #' @return A data frame with lastName, firstName, initials based on top hit article
 #' @export
 #'
-ncbi_author <- function(lastName, firstName) {
+ncbi_author <- function(lastName, firstName, showWarnings = T) {
  
   # Find the top hit for the provided author name
   result <- entrez_search("pubmed", term = sprintf("%s %s[Author]", lastName, firstName), retmax = 1)
 
   if (length(result$ids) == 0) {
-    warning("This name might not get good PubMed matches")
+    if(showWarnings) warning("This name might not get good PubMed matches")
     return(data.frame(lastName = character(0), firstName = character(0), 
     initials = character(0)))
   }

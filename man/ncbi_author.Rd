@@ -4,12 +4,14 @@
 \alias{ncbi_author}
 \title{Get the best matching Pubmed author name}
 \usage{
-ncbi_author(lastName, firstName)
+ncbi_author(lastName, firstName, showWarnings = T)
 }
 \arguments{
 \item{lastName}{Last name}
 
 \item{firstName}{First name}
+
+\item{showWarnings}{(Default = T) Show warnings}
 }
 \value{
 A data frame with lastName, firstName, initials based on top hit article

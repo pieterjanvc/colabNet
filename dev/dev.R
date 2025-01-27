@@ -81,3 +81,6 @@ auIDs <- tbl(dbGetConn(checkSchema = F), "author") |>
     pull(auID)
 difftree <- diffTree(auIDs, pruneDuplicates = T)
 
+test <- ncbi_authorArticleList("Van Camp", "Pieter-Jan", "PJ")
+
+lastName = "Van Camp"
