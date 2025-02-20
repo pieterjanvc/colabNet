@@ -2,3 +2,5 @@
 ^\.Rproj\.user$
 ^colabNet\.Rproj$
 ^LICENSE\.md$
+^data/
+^dev/

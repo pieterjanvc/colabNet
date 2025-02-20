@@ -189,16 +189,6 @@ ncbi_publicationDetails <- function(PMIDs, lastNameOfInterest, n = -1) {
   #  be properly joined later by PMID
   ids <- str_match(xml_path(lastNames), r"(PubmedArticle(\[(\d+)\])?\/.*Author(\[(\d+)\])?)")
 
-  # # In case of only a single article there will be no ID
-  # if(is.na(ids[,3][1])){
-  #   ids[,3] = 1
-  # }
-
-  # # In case of only a single author there will be no ID
-  # if(is.na(ids[,5][1])){
-  #   ids[,5] = 1
-  # }
-
   lastNames <- data.frame(
     lastName = lastNames |> xml_text(),
     articleID = as.integer(ids[, 3]),
@@ -213,16 +203,6 @@ ncbi_publicationDetails <- function(PMIDs, lastNameOfInterest, n = -1) {
   # Rarely authors only have last name so we need to process rest seperately
   otherNames <- xml_find_all(authorInfo, "./Author/ForeName")
   ids <- str_match(xml_path(otherNames), r"(PubmedArticle(\[(\d+)\])?\/.*Author(\[(\d+)\])?)")
-
-  # # In case of only a single article there will be no ID
-  # if(is.na(ids[,3][1])){
-  #   ids[,3] = 1
-  # }
-
-  # # In case of only a single author there will be no ID
-  # if(is.na(ids[,5][1])){
-  #   ids[,5] = 1
-  # }
 
   otherNames <- data.frame(
     firstName = otherNames |> xml_text(),
@@ -245,16 +225,6 @@ ncbi_publicationDetails <- function(PMIDs, lastNameOfInterest, n = -1) {
     xml_path(collectiveNames),
     r"(PubmedArticle(\[(\d+)\])?\/.*Author(\[(\d+)\])?)"
   )
-
-  # # In case of only a single article there will be no ID
-  # if(is.na(ids[,3][1])){
-  #   ids[,3] = 1
-  # }
-
-  # # In case of only a single author there will be no ID
-  # if(is.na(ids[,5][1])){
-  #   ids[,5] = 1
-  # }
 
   collectiveNames <- data.frame(
     collectiveName = collectiveNames |> xml_text(),
@@ -305,13 +275,17 @@ ncbi_publicationDetails <- function(PMIDs, lastNameOfInterest, n = -1) {
 
   # Affiliations
   affiliations <- xml_find_all(authorInfo, "./Author/AffiliationInfo/Affiliation")
-  ids <- str_match(xml_path(affiliations), r"(PubmedArticle\[(\d+)\].+Author\[(\d+)\])")
+  ids <- str_match(xml_path(affiliations), r"(PubmedArticle(\[(\d+)\])?\/.*Author(\[(\d+)\])?)")
 
   affiliations <- data.frame(
     affiliation = affiliations |> xml_text(),
-    articleID = as.integer(ids[, 2]),
-    authorOrder = as.integer(ids[, 3])
-  ) |>
+    articleID = as.integer(ids[, 3]),
+    authorOrder = as.integer(ids[, 5])
+  ) |> 
+    mutate(
+      articleID = ifelse(is.na(articleID), 1, articleID),
+      authorOrder = ifelse(is.na(authorOrder), 1, authorOrder)
+    ) |> 
     left_join(
       data.frame(
         articleID = 1:length(PMIDs),
@@ -319,27 +293,30 @@ ncbi_publicationDetails <- function(PMIDs, lastNameOfInterest, n = -1) {
       ),
       by = "articleID"
     ) |>
-    # IN case there is only one affiliation for a whole author list it applies
-    # to all and we set the authorOrder to NA
+    # In case there is only one affiliation for a whole author list note that
     group_by(articleID) |>
     mutate(
       n = n(),
-      authorOrder = ifelse(n == 1, NA, authorOrder)
+      sharedAffiliation = ifelse(n == 1, T, F)
     ) |>
     ungroup() |>
     select(-n, -articleID)
 
   # Extract the MeSH term descriptors and qualifiers per paper (if any)
   descriptors <- xml_find_all(info, "./MedlineCitation/MeshHeadingList/MeshHeading/DescriptorName")
-  ids <- str_match(xml_path(descriptors), r"(PubmedArticle\[(\d+)\].+MeshHeading\[(\d+)\])")
+  ids <- str_match(xml_path(descriptors), r"(PubmedArticle(\[(\d+)\])?\/.*MeshHeading(\[(\d+)\])?)")
 
   descriptors <- data.frame(
     DescriptorName = descriptors |> xml_text(),
     DescriptorUI = descriptors |> xml_attr("UI"),
     DescriptorMajor = descriptors |> xml_attr("MajorTopicYN"),
-    articleID = as.integer(ids[, 2]),
-    meshLink = as.integer(ids[, 3])
+    articleID = as.integer(ids[, 3]),
+    meshLink = as.integer(ids[, 5])
   ) |>
+    mutate(
+      articleID = ifelse(is.na(articleID), 1, articleID),
+      meshLink = ifelse(is.na(meshLink), 1, meshLink)
+    ) |> 
     left_join(
       data.frame(
         articleID = 1:length(PMIDs),
@@ -350,15 +327,19 @@ ncbi_publicationDetails <- function(PMIDs, lastNameOfInterest, n = -1) {
     select(-articleID)
 
   qualifiers <- xml_find_all(info, "./MedlineCitation/MeshHeadingList/MeshHeading/QualifierName")
-  ids <- str_match(xml_path(qualifiers), r"(PubmedArticle\[(\d+)\].+MeshHeading\[(\d+)\])")
+  ids <- str_match(xml_path(qualifiers), r"(PubmedArticle(\[(\d+)\])?\/.*MeshHeading(\[(\d+)\])?)")
 
   qualifiers <- data.frame(
     QualifierName = qualifiers |> xml_text(),
     QualifierUI = qualifiers |> xml_attr("UI"),
     QualifierMajor = qualifiers |> xml_attr("MajorTopicYN"),
-    articleID = as.integer(ids[, 2]),
-    meshLink = as.integer(ids[, 3])
+    articleID = as.integer(ids[, 3]),
+    meshLink = as.integer(ids[, 5])
   ) |>
+    mutate(
+      articleID = ifelse(is.na(articleID), 1, articleID),
+      meshLink = ifelse(is.na(meshLink), 1, meshLink)
+    )|>
     left_join(
       data.frame(
         articleID = 1:length(PMIDs),

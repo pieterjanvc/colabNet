@@ -4,7 +4,7 @@
 # devtools::install()
 # library("colabNet")
 
-devtools::load_all()
+#devtools::load_all()
 dbSetup("dev/colabNet.db", checkSchema = T)
 
 # authors = data.frame(
