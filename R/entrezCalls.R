@@ -189,15 +189,15 @@ ncbi_publicationDetails <- function(PMIDs, lastNameOfInterest, n = -1) {
   #  be properly joined later by PMID
   ids <- str_match(xml_path(lastNames), r"(PubmedArticle(\[(\d+)\])?\/.*Author(\[(\d+)\])?)")
 
-  # In case of only a single article there will be no ID
-  if(is.na(ids[,3][1])){
-    ids[,3] = 1
-  }
+  # # In case of only a single article there will be no ID
+  # if(is.na(ids[,3][1])){
+  #   ids[,3] = 1
+  # }
 
-  # In case of only a single author there will be no ID
-  if(is.na(ids[,5][1])){
-    ids[,5] = 1
-  }
+  # # In case of only a single author there will be no ID
+  # if(is.na(ids[,5][1])){
+  #   ids[,5] = 1
+  # }
 
   lastNames <- data.frame(
     lastName = lastNames |> xml_text(),
@@ -205,21 +205,24 @@ ncbi_publicationDetails <- function(PMIDs, lastNameOfInterest, n = -1) {
     authorOrder = as.integer(ids[, 5])
   ) |>
     # Articles with only one author did not match id regex so we put in 1 manually
-    mutate(authorOrder = ifelse(is.na(authorOrder), 1, authorOrder))
+    mutate(
+      articleID = ifelse(is.na(articleID), 1, articleID),
+      authorOrder = ifelse(is.na(authorOrder), 1, authorOrder)
+    )
 
   # Rarely authors only have last name so we need to process rest seperately
   otherNames <- xml_find_all(authorInfo, "./Author/ForeName")
   ids <- str_match(xml_path(otherNames), r"(PubmedArticle(\[(\d+)\])?\/.*Author(\[(\d+)\])?)")
 
-  # In case of only a single article there will be no ID
-  if(is.na(ids[,3][1])){
-    ids[,3] = 1
-  }
+  # # In case of only a single article there will be no ID
+  # if(is.na(ids[,3][1])){
+  #   ids[,3] = 1
+  # }
 
-  # In case of only a single author there will be no ID
-  if(is.na(ids[,5][1])){
-    ids[,5] = 1
-  }
+  # # In case of only a single author there will be no ID
+  # if(is.na(ids[,5][1])){
+  #   ids[,5] = 1
+  # }
 
   otherNames <- data.frame(
     firstName = otherNames |> xml_text(),
@@ -227,7 +230,10 @@ ncbi_publicationDetails <- function(PMIDs, lastNameOfInterest, n = -1) {
     articleID = as.integer(ids[, 3]),
     authorOrder = as.integer(ids[, 5])
   ) |>
-    mutate(authorOrder = ifelse(is.na(authorOrder), 1, authorOrder))
+    mutate(
+      articleID = ifelse(is.na(articleID), 1, articleID),
+      authorOrder = ifelse(is.na(authorOrder), 1, authorOrder)
+    )
 
   # Bind first, last and initials together
   authorNames <- lastNames |>
@@ -240,22 +246,25 @@ ncbi_publicationDetails <- function(PMIDs, lastNameOfInterest, n = -1) {
     r"(PubmedArticle(\[(\d+)\])?\/.*Author(\[(\d+)\])?)"
   )
 
-  # In case of only a single article there will be no ID
-  if(is.na(ids[,3][1])){
-    ids[,3] = 1
-  }
+  # # In case of only a single article there will be no ID
+  # if(is.na(ids[,3][1])){
+  #   ids[,3] = 1
+  # }
 
-  # In case of only a single author there will be no ID
-  if(is.na(ids[,5][1])){
-    ids[,5] = 1
-  }
+  # # In case of only a single author there will be no ID
+  # if(is.na(ids[,5][1])){
+  #   ids[,5] = 1
+  # }
 
   collectiveNames <- data.frame(
     collectiveName = collectiveNames |> xml_text(),
     articleID = as.integer(ids[, 3]),
     authorOrder = as.integer(ids[, 5])
   ) |>
-    mutate(authorOrder = ifelse(is.na(authorOrder), 1, authorOrder))
+    mutate(
+      articleID = ifelse(is.na(articleID), 1, articleID),
+      authorOrder = ifelse(is.na(authorOrder), 1, authorOrder)
+    )
 
   # Bind all author info together into a single data frame
   authors <- bind_rows(

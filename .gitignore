@@ -4,5 +4,5 @@
 .Ruserdata
 **/*.db
 **/*.db-journal
-**/*.rds
 backup/*
+data/*
