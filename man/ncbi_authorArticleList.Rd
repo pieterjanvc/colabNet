@@ -9,9 +9,10 @@ ncbi_authorArticleList(
   firstName,
   initials,
   PMIDs,
-  searchInitials = T,
+  searchInitials = F,
+  returnHistory = F,
   PMIDonly = F,
-  stopFetching = 100
+  stopFetching = 1000
 )
 }
 \arguments{
@@ -23,27 +24,26 @@ ncbi_authorArticleList(
 
 \item{PMIDs}{(optional) If set limit the search to the PMIDs for the given author}
 
-\item{searchInitials}{Default = T. Include additional search on initials.
+\item{searchInitials}{Default = F. Include additional search on initials.
 This is helpful if author has used multiple versions of first name}
+
+\item{returnHistory}{(Default = False). If true, will return rentrez web history object}
 
 \item{PMIDonly}{Return only valid PMID, not the data table}
 
-\item{stopFetching}{(Default = 100) If more than this number of articles are
-found, it might be that results for multiple authors with the same name are
+\item{stopFetching}{(Default = 1000) If more than this number of articles are
+found, it is very likely that results for multiple authors with the same name are
 found. In this case is might be better to manually provide the PMID instead}
 }
 \value{
 List with 4 elements
-statusCode:
+success: TRUE if success; If FALSE, number of matches > stopFetching, nothing returned
 \itemize{
-\item 0: too many hits with first name and initials (defined by stopFetching).
-only total count returned
-\item 1: too many hits with initials or searchInitials = F.
-First name hits returned only
-\item 2: hits with first name and initials
 \item n: Total number of articles found (returned even when stopFetching reached)
 \item PMIDs: when not stopFetching
 \item articles: Data frame with basic article info (when PMIDonly = F and not stopFetching)
+\item history: If returnHistory = T: History object that can be used for subsequent entrez
+calls (for large datasets), otherwise NA
 }
 }
 \description{

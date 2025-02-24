@@ -41,31 +41,29 @@ ncbi_author <- function(lastName, firstName, showWarnings = T) {
 #' @param lastName Author last name
 #' @param firstName Author first name
 #' @param initials Author initials (ignored when searchInitials = F)
-#' @param searchInitials Default = T. Include additional search on initials.
+#' @param searchInitials Default = F. Include additional search on initials.
 #' This is helpful if author has used multiple versions of first name
 #' @param PMIDs (optional) If set limit the search to the PMIDs for the given author
 #' @param PMIDonly Return only valid PMID, not the data table
-#' @param stopFetching (Default = 100) If more than this number of articles are 
-#' found, it might be that results for multiple authors with the same name are 
+#' @param returnHistory (Default = False). If true, will return rentrez web history object
+#' @param stopFetching (Default = 1000) If more than this number of articles are 
+#' found, it is very likely that results for multiple authors with the same name are 
 #' found. In this case is might be better to manually provide the PMID instead
 #'
 #' @importFrom rentrez entrez_search entrez_summary
 #' @importFrom stringr str_extract
 #'
 #' @return List with 4 elements
-#' statusCode:
-#'   - 0: too many hits with first name and initials (defined by stopFetching).
-#'        only total count returned
-#'   - 1: too many hits with initials or searchInitials = F. 
-#'        First name hits returned only
-#'   - 2: hits with first name and initials
+#' success: TRUE if success; If FALSE, number of matches > stopFetching, nothing returned
 #' - n: Total number of articles found (returned even when stopFetching reached)
 #' - PMIDs: when not stopFetching
 #' - articles: Data frame with basic article info (when PMIDonly = F and not stopFetching)
+#' - history: If returnHistory = T: History object that can be used for subsequent entrez 
+#' calls (for large datasets), otherwise NA
 #' 
 #' @export
 ncbi_authorArticleList <- function(lastName, firstName, initials, PMIDs,
-  searchInitials = T, PMIDonly = F, stopFetching = 100){  
+  searchInitials = F, returnHistory = F, PMIDonly = F, stopFetching = 1000){  
  
   if(!missing(PMIDs)){
     # Only keep numeric values
@@ -77,39 +75,45 @@ ncbi_authorArticleList <- function(lastName, firstName, initials, PMIDs,
   }  else {
     addFilter = ""
   }
-  
-  # Search on lastName + firstName
-  withFirst <- entrez_search("pubmed", 
-    term = sprintf("(%s %s[Author])%s", lastName, firstName, addFilter), 
-    retmax = stopFetching)
-  
-  if(withFirst$count > stopFetching){
-    return(list(statusCode = 0, n = withFirst$count, PMID = NA, articles = NA))
+
+  if(searchInitials){
+    searchInitials = sprintf(' OR "%s %s"[Author]', lastName, initials)
+  } else {
+    searchInitials = ""
   }
   
-  # Search on lastName + initials
-  if(searchInitials){
-    withInitials <- entrez_search("pubmed", 
-    term = sprintf("(%s %s[Author])%s", lastName, initials, addFilter), 
-    retmax = stopFetching)  
-  } else {
-    withInitials = list(count = stopFetching + 1)
-  }  
+  # Search on Pubmed for author
+  searchResult <- entrez_search("pubmed", 
+    term = sprintf('("%s %s"[Author]%s")%s', lastName, firstName, searchInitials, addFilter), 
+    retmax = stopFetching, use_history = returnHistory)
   
-  if(withInitials$count > stopFetching){
-    statusCode = 1
-    PMID = withFirst$ids
+  if(returnHistory) {
+    history = searchResult$web_history
   } else {
-    statusCode = 2
-    PMID = union(withFirst$ids, withInitials$ids)
-  }  
+    history = NA
+  }
+  
+  # Chheck if the search had too many results
+  if(searchResult$count > stopFetching){
+    return(list(success = F, n = searchResult$count, PMID = NA, 
+      articles = NA, history = NA))
+  }
+
+  PMID = searchResult$ids
 
   # Don't fetch more data if PMIDonly = T
   if(PMIDonly){
-    return(list(statusCode = statusCode, n = length(PMID), PMID = PMID, articles = NA))
+    return(list(success = T, n = length(PMID), PMID = PMID, 
+    articles = NA, history = history))
   }
 
-  result <- entrez_summary("pubmed", PMID, always_return_list = T)
+  # Get article info
+  if(returnHistory){
+    result <- entrez_summary("pubmed", web_history = history, 
+    always_return_list = T)
+  } else {
+    result <- entrez_summary("pubmed", PMID, always_return_list = T)
+  }  
 
   articles <- data.frame(
     PMID = sapply(result, "[[", "uid"),
@@ -121,17 +125,20 @@ ncbi_authorArticleList <- function(lastName, firstName, initials, PMIDs,
     matchOnFirstName = PMID %in% withFirst$ids
   )
 
-  return(list(statusCode = statusCode, n = nrow(articles), PMID = articles$PMID, articles = articles))
+  return(list(success = T, n = nrow(articles), 
+    PMID = articles$PMID, articles = articles, history = history))
 
 }
 
 #' Get author names, papers, co-authors and affiliations for a specific researcher
 #'
-#' @param PMIDs Vector of PMIDs. Use ncbi_authorArticleList if you want to search by name
+#' @param PMIDs Vector of PMIDs. Use ncbi_authorArticleList if you want to search by name.
 #' @param lastNameOfInterest Author last name for setting the authorOfInterest 
+#' @param history (Default NA) Use rentrez history object in case of long PMIDs list. 
+#' this is useful in case of a large number of articles 
 #' @param n (Default = -1 or all) Number of papers to fetch from Pubmed
 #'
-#' @importFrom rentrez entrez_search entrez_fetch
+#' @importFrom rentrez entrez_search entrez_fetch entrez_post
 #' @import xml2
 #' @import dplyr
 #' @importFrom stringr str_match
@@ -146,14 +153,20 @@ ncbi_authorArticleList <- function(lastName, firstName, initials, PMIDs,
 #'
 #' @export
 #'
-ncbi_publicationDetails <- function(PMIDs, lastNameOfInterest, n = -1) {
+ncbi_publicationDetails <- function(PMIDs, lastNameOfInterest, history = NA, n = -1) {
   # Max 10000 papers (PubMed limit)
   n <- ifelse(n == -1, 10000, n)
 
-  # Fetch all paper details
-  info <- read_xml(entrez_fetch("pubmed", id = PMIDs,
+   # Fetch all paper details
+  if(all(is.na(history))){
+    info <- read_xml(entrez_fetch("pubmed", PMIDs, rettype = "xml", retmax = n
+  ))
+  } else {
+    info <- read_xml(entrez_fetch("pubmed", web_history = history,
     rettype = "xml", retmax = n
   ))
+  } 
+ 
   info <- xml_find_all(info, ".//PubmedArticle")
 
   # Generate a dataframe of paper info

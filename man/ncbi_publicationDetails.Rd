@@ -4,12 +4,15 @@
 \alias{ncbi_publicationDetails}
 \title{Get author names, papers, co-authors and affiliations for a specific researcher}
 \usage{
-ncbi_publicationDetails(PMIDs, lastNameOfInterest, n = -1)
+ncbi_publicationDetails(PMIDs, lastNameOfInterest, history = NA, n = -1)
 }
 \arguments{
-\item{PMIDs}{Vector of PMIDs. Use ncbi_authorArticleList if you want to search by name}
+\item{PMIDs}{Vector of PMIDs. Use ncbi_authorArticleList if you want to search by name.}
 
 \item{lastNameOfInterest}{Author last name for setting the authorOfInterest}
+
+\item{history}{(Default NA) Use rentrez history object in case of long PMIDs list.
+this is useful in case of a large number of articles}
 
 \item{n}{(Default = -1 or all) Number of papers to fetch from Pubmed}
 }

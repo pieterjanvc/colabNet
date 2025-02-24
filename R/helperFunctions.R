@@ -561,7 +561,7 @@ filter_affiliation <- function(publicationDetails, regex){
 
   # Get PMIDs that have an affilitation match using the regex for author of interest
   toKeep <- publicationDetails$affiliations |>
-    filter(str_detect(affiliation, affiliationFilter)) |> 
+    filter(str_detect(affiliation, regex)) |> 
     left_join(
       publicationDetails$coAuthors |> filter(
         lastName %in% publicationDetails$author$lastName,
