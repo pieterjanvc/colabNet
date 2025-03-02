@@ -4,7 +4,7 @@
 \alias{colabNet_v2}
 \title{Run the colabNet Shiny App}
 \usage{
-colabNet_v2()
+colabNet_v2(colabNetDB)
 }
 \value{
 Start the Shiny app

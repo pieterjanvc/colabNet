@@ -120,13 +120,13 @@ dbAddAuthors <- function(authors, dbInfo) {
 
   # Get all distinct author names, but assume same author is last name and initials are the same
   authors <- authors |>
-    select(lastName, firstName, initials, tempId, def = default) |>
+    select(lastName, firstName, initials, collectiveName, tempId, def = default) |>
     distinct()
 
   authors <- authors |>
     left_join(
       tbl(conn, "authorName"),
-      by = c("lastName", "firstName", "initials"), copy = TRUE
+      by = c("lastName", "firstName", "initials", "collectiveName"), copy = TRUE
     ) |>
     collect()
 
@@ -369,7 +369,7 @@ dbAddMesh <- function(values, type, dbInfo) {
 #' @return Data is inserted into the DB returning a list the author's aritcles (arID and PMID)
 #' @export
 #'
-dbAddAuthorPublications <- function(authorPublications, dbInfo) {
+dbAddAuthorPublications <- function(authorPublications, matchOnFirst = F, dbInfo) {
   conn <- dbGetConn(dbInfo)
 
   if(sqliteIsTransacting(conn)){
@@ -405,21 +405,59 @@ dbAddAuthorPublications <- function(authorPublications, dbInfo) {
 
   # Stop if no new articles were found
   if (all(arInfo$status == "existing")) {
+    # Check if the author was already marked as one of interest
+    if(matchOnFirst){
+      auID <- tbl(conn, "authorName") |> filter(
+        lastName %in% local(authorPublications$author$lastName), 
+        firstName %in% local(authorPublications$author$firstName)) |> pull(auID) |> unique()
+    } else {
+      auID <-  tbl(conn, "authorName") |> filter(
+        lastName %in% local(authorPublications$author$lastName), 
+        initials %in% local(authorPublications$author$initials)) |> pull(auID) |> unique()
+    }  
+
+    if(length(auID) != 1){
+      dbRollback(conn)
+      dbDisconnect(conn)
+      stop(ifelse(length(auID) > 1, "Ambiguous author of interest", 
+      "No match on author first and last name"))
+    }
+
+    q <- dbExecute(conn, "UPDATE author SET authorOfInterest = 1 WHERE auID = ?",
+    params = list(auID)
+    )
+
+    if(endTransaction){
+      dbCommit(conn)
+      dbDisconnect(conn)
+    }
+
     return(arInfo)
   }
+
+  # Only continue with new article data from authorPublications
+  authorPublications <-  filter_PMID(authorPublications, 
+    PMIDs = new$PMID)
 
   ### ADD (CO)AUTHOR INFO
   auInfo <- dbAddAuthors(authorPublications$coAuthors, conn)
 
   # Set authorOfInterest to TRUE to distinguish from co-authors
-  auID <- auInfo |> filter(
-    lastName %in% authorPublications$author$lastName, 
-    initials %in% authorPublications$author$initials) |> pull(auID) |> unique()
+  if(matchOnFirst){
+    auID <- auInfo |> filter(
+      lastName %in% authorPublications$author$lastName, 
+      firstName %in% authorPublications$author$firstName) |> pull(auID) |> unique()
+  } else {
+    auID <- auInfo |> filter(
+      lastName %in% authorPublications$author$lastName, 
+      initials %in% authorPublications$author$initials) |> pull(auID) |> unique()
+  }  
   
-  if(length(auID) > 1){
+  if(length(auID) != 1){
     dbRollback(conn)
     dbDisconnect(conn)
-    stop("Ambiguous author of interest")
+    stop(ifelse(length(auID) > 1, "Ambiguous author of interest", 
+    "No match on author first and last name"))
   }
   
   q <- dbExecute(conn, "UPDATE author SET authorOfInterest = 1 WHERE auID = ?",
@@ -455,7 +493,8 @@ dbAddAuthorPublications <- function(authorPublications, dbInfo) {
     left_join(authorPublications$affiliations, by = c("PMID", "authorOrder")) |>
     left_join(afInfo, by = "affiliation") |>
     left_join(arInfo, by = "PMID")
-    
+  
+  # Filter out articles that are already in the database (via other author of interest)
   coAuthors <- arAuAf |>
     select(arID, auID, authorOrder, anID) |>
     distinct() 

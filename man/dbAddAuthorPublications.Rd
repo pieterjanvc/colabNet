@@ -4,7 +4,7 @@
 \alias{dbAddAuthorPublications}
 \title{Add authors to the database}
 \usage{
-dbAddAuthorPublications(authorPublications, dbInfo)
+dbAddAuthorPublications(authorPublications, matchOnFirst = F, dbInfo)
 }
 \arguments{
 \item{authorPublications}{List of data frames geneated by ncbi_authorPublications()}

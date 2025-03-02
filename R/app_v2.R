@@ -8,15 +8,12 @@
 #' @return Start the Shiny app
 #' @export
 #'
-colabNet_v2 <- function() {
+colabNet_v2 <- function(colabNetDB) {
 
   # ///////////////
   # ---- DATA ----
   # //////////////
   
-  # ColabNet Database
-  colabNetDB = "dev/colabNet.db"
-
   # Setup for functions in the package
   dbSetup(colabNetDB, checkSchema = T)
 

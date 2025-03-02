@@ -4,12 +4,27 @@
 \alias{ncbi_publicationDetails}
 \title{Get author names, papers, co-authors and affiliations for a specific researcher}
 \usage{
-ncbi_publicationDetails(PMIDs, lastNameOfInterest, history = NA, n = -1)
+ncbi_publicationDetails(
+  PMIDs,
+  lastName,
+  firstName,
+  initials,
+  matchOnFirstOnly = F,
+  history = NA,
+  n = -1
+)
 }
 \arguments{
 \item{PMIDs}{Vector of PMIDs. Use ncbi_authorArticleList if you want to search by name.}
 
-\item{lastNameOfInterest}{Author last name for setting the authorOfInterest}
+\item{lastName}{Author last name of the author of interest}
+
+\item{firstName}{Author first name of the author of interest}
+
+\item{initials}{Author initials of the author of interest}
+
+\item{matchOnFirstOnly}{(Default = FALSE). If set to TRUE, exact matching on first name is
+performed (can lead to missed matches but useful when common last name)}
 
 \item{history}{(Default NA) Use rentrez history object in case of long PMIDs list.
 this is useful in case of a large number of articles}

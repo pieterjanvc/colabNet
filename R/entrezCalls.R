@@ -133,7 +133,11 @@ ncbi_authorArticleList <- function(lastName, firstName, initials, PMIDs,
 #' Get author names, papers, co-authors and affiliations for a specific researcher
 #'
 #' @param PMIDs Vector of PMIDs. Use ncbi_authorArticleList if you want to search by name.
-#' @param lastNameOfInterest Author last name for setting the authorOfInterest 
+#' @param lastName Author last name of the author of interest 
+#' @param firstName Author first name of the author of interest 
+#' @param initials Author initials of the author of interest 
+#' @param matchOnFirstOnly (Default = FALSE). If set to TRUE, exact matching on first name is
+#' performed (can lead to missed matches but useful when common last name) 
 #' @param history (Default NA) Use rentrez history object in case of long PMIDs list. 
 #' this is useful in case of a large number of articles 
 #' @param n (Default = -1 or all) Number of papers to fetch from Pubmed
@@ -153,7 +157,8 @@ ncbi_authorArticleList <- function(lastName, firstName, initials, PMIDs,
 #'
 #' @export
 #'
-ncbi_publicationDetails <- function(PMIDs, lastNameOfInterest, history = NA, n = -1) {
+ncbi_publicationDetails <- function(PMIDs, lastName, firstName, initials, 
+  matchOnFirstOnly = F, history = NA, n = -1) {
   # Max 10000 papers (PubMed limit)
   n <- ifelse(n == -1, 10000, n)
 
@@ -273,18 +278,30 @@ ncbi_publicationDetails <- function(PMIDs, lastNameOfInterest, history = NA, n =
   # Find all name variations the author of interest has used in papers and pick default
   # Last name and initials are used to define a unique author
   authors <- authors |>
-    group_by(lastName, firstName, initials) |>
+    group_by(lastName, firstName, initials, collectiveName) |>
     mutate(n = n()) |> 
-    group_by(simple = simpleText(lastName), initials) |>
+    group_by(simple = simpleText(lastName), initials, simpleText(collectiveName)) |>
     arrange(desc(n)) |> 
     mutate(tempId = cur_group_id(), default = row_number() == 1) |> 
-    group_by(lastName, firstName, initials) |> 
+    group_by(lastName, firstName, initials, collectiveName) |> 
     mutate(default = any(default)) |> 
     ungroup() |> select(-simple, -n)
 
-  author <- authors |> select(tempId, lastName, firstName, initials, default) |> 
-    filter(simpleText(lastName) == simpleText({{ lastNameOfInterest }})) |> 
-    distinct()
+  if(matchOnFirstOnly){
+    author <- authors |> select(tempId, lastName, firstName, initials, default) |> 
+      filter(
+        simpleText(lastName) == simpleText({{ lastName }}),
+        simpleText(firstName) == simpleText({{ firstName }})
+      ) |> 
+      distinct()
+  } else {
+    author <- authors |> select(tempId, lastName, firstName, initials, default) |> 
+      filter(
+        simpleText(lastName) == simpleText({{ lastName }}),
+        simpleText(initials) == simpleText({{ initials }})
+      ) |> 
+      distinct()
+  } 
 
   # Affiliations
   affiliations <- xml_find_all(authorInfo, "./Author/AffiliationInfo/Affiliation")
