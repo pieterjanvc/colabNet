@@ -247,80 +247,122 @@ diffTree <- function(auIDs, pruneDuplicates = T, dbInfo) {
 
   ## REMOVE DUPLICATE BRANCHES
 
-  # Find MeSH terms that are duplicated
+  # Step 1 - Find duplicated meshterms in different (parts of) tree
   difftree <- difftree |>
-    group_by(meshterm) |>
-    mutate(duplicated = n() > 1) |>
+    group_by(uid) |>
+    mutate(duplicated = n() > 1, nDup = n() - 1) |>
     ungroup()
 
-  # Group are created as follows:
-  # - Start with duplicates at the highest level (closest to tree root)
-  # - If a child is also a duplicate, it's part of the same group, if not the group ends
-  getDup <- difftree |>
-    filter(duplicated) |>
-    mutate(nDup = 1, groupID = mtrID) |>
-    select(meshterm, level, treenum, parent, nDup, groupID, mtrID)
+  # Step 2 - Start at bottom and work way up the tree. For each treenum add:
+  # - number of unique children
+  # - number of duplicated children
 
-  # Keep going from top to bottom until all duplicate groups have been defined
-  curLvl <- sort(unique(getDup$level))[2]
-  for (curLvl in sort(unique(getDup$level))) {
-    nextLvl <- getDup |> filter(level == {{ curLvl }})
+  difftree <- difftree |> mutate(uniqueChildren = 0, dupChildren = 0)
 
-    if (nrow(nextLvl) == 0) {
+  for(level in sort(unique(difftree$level), decreasing = T)){
+
+  # THe number of unique / dup children is the previous plus current 
+  currentNums <- difftree |> filter(level == {{level}}) |> 
+    select(treenum, duplicated, parent, uniqueChildren, dupChildren) |> 
+    mutate(
+      addUnique = uniqueChildren + !duplicated,
+      addDup = dupChildren + duplicated,
+    ) |> select(treenum = parent, addUnique, addDup) |>    
+    filter(treenum != "") |> 
+    group_by(treenum) |> 
+    summarise(addUnique = sum(addUnique), addDup = sum(addDup), .groups = "drop")
+
+
+  difftree <- difftree |> 
+    left_join(currentNums, by = "treenum") |> 
+    mutate(
+      uniqueChildren = ifelse(is.na(addUnique), uniqueChildren, 
+        uniqueChildren + addUnique),
+        dupChildren = ifelse(is.na(addDup), dupChildren, 
+        dupChildren + addDup)
+    ) |> select(-addUnique, -addDup)
+  }
+
+  # Step 3 - Pruning
+  # The highest level that is duplicated and has all duplicate children is removed 
+  # first
+  remainingDup <- data.frame(uid = c(), remaining = c())
+  pruned <- c()
+
+  toPrune <- difftree |> 
+    filter(!treenum %in% pruned) |> 
+    filter(duplicated, uniqueChildren == 0) |>
+    filter(dupChildren == max(dupChildren)) |> 
+    filter(level == min(level)) 
+
+  while(nrow(toPrune) > 0){
+
+  for(i in 1:nrow(toPrune)){
+
+    # Get the node of interest and all children (all should be duplicated)
+    x <- difftree |> filter(str_detect(treenum, paste(toPrune[i,]$treenum, collapse = "|")))
+    
+    # Check how many duplicates are left in the original dataset (don't prune last one)
+    remainingDup <- bind_rows(
+      remainingDup, 
+      x |> select(uid, remaining = nDup) |> 
+      group_by(uid) |> slice(1) |> ungroup() |> filter(!uid %in% remainingDup$uid)
+    )
+    
+    toRemove <- x |> select(treenum, uid) |> left_join(remainingDup, by = "uid") |>
+      filter(remaining > 0)
+
+    if(nrow(toRemove) == 0) {
       next
     }
 
-    nextLvl <- nextLvl |>
-      mutate(newGroupID = ifelse(groupID == 0, mtrID, groupID)) |>
-      select(parent = treenum, newGroupID)
+    # Check for rare case where child of to be removed has no remaining duplicates
+    toKeep <- x |> filter(str_detect(treenum, paste(toRemove$treenum, collapse = "|")))
+    if(nrow(toKeep) > nrow(toRemove)){
+      toRemove <- toRemove |> filter(!treenum %in% toKeep$treenum)
+      
+      if(nrow(toRemove) == 0){
+        next
+      }
+    }
 
-    getDup <- getDup |>
-      left_join(nextLvl, by = "parent") |>
-      mutate(groupID = ifelse(is.na(newGroupID), groupID, newGroupID)) |>
-      select(-newGroupID)
+    x <- toRemove
+
+    remainingDup <- remainingDup |> left_join(
+      x |> group_by(uid) |> summarise(n = n(), .groups = "drop"), by = "uid"
+    ) |> mutate(remaining = ifelse(is.na(n), remaining, remaining - n)) |> 
+      select(-n) 
+
+    toRemove <- x$treenum
+    # Rare case where duplicates are nested in the same part of the tree
+    # and would all be pruned removing them completely (keep at least one)
+    if(any(remainingDup$remaining < 0)){
+      toFix <- remainingDup$uid[remainingDup$remaining < 0]
+      for(y in toFix){
+        # Select one to keep (least nested)
+        toKeep <- x |> filter(uid == y) |> 
+          filter(nchar(treenum) == min(nchar(treenum))) |> 
+          slice(1)
+        toKeep <- c(missingTreeNums(toKeep$treenum), toKeep$treenum)
+        toRemove <- setdiff(toRemove, toKeep)
+      }
+      # Manually set the remaining to 0 to not trigger the same one next round
+      remainingDup$remaining[remainingDup$remaining < 0] = 0
+    }
+
+
+    difftree <- difftree |> filter(!treenum %in% toRemove)
   }
 
-  # Add all terms that have a duplicate parent but themselves are not duplicated to the group
-  duplicates <- getDup |>
-    pull(treenum) |>
-    unique()
-  duplicates <- difftree |>
-    filter(parent %in% duplicates, !treenum %in% duplicates) |>
-    pull(parent)
-  getDup$uniqueChild <- getDup$treenum %in% duplicates
+  toPrune <- difftree |> 
+    filter(!treenum %in% pruned) |> 
+    filter(duplicated, uniqueChildren == 0) |>
+    filter(dupChildren == max(dupChildren)) |> 
+    filter(level == min(level)) 
 
-  # Remove groups where there is another groupt that has a unique child
-  cutGroups <- getDup |>
-    group_by(groupID) |>
-    mutate(
-      uniqueChild = any(uniqueChild),
-      groupSize = n()
-    ) |>  group_by(meshterm) |> 
-    filter(any(uniqueChild) & !uniqueChild) |> pull(groupID)
-  
-  getDup <- getDup |> filter(!groupID %in% cutGroups)
-  
-  # Now remove redundant duplications according to the following rules
-  # - Every duplicated group that has a unique child is kept (non-redundant duplication)
-  # - For duplpicated groups with no unique children, keep the group with the largest size
-  #   (this will effectively prune small duplications in various places in favour of a large group
-  #    containing multiple duplications)
-  getDup <- getDup |>
-    group_by(groupID) |>
-    mutate(
-      uniqueChild = any(uniqueChild),
-      groupSize = n()
-    ) |>
-    group_by(meshterm) |>
-    arrange(desc(groupSize), treenum) |>
-    filter((!any(uniqueChild) & treenum == treenum[1]) | uniqueChild) |>
-    ungroup()
+  pruned <- c(pruned, toPrune$treenum)
 
-  # Now create the new difftree with (redundant) duplicates removed
-  difftree <- bind_rows(
-    difftree |> filter(!duplicated),
-    difftree |> filter(treenum %in% getDup$treenum)
-  )
+  }
 
   return(difftree)
 }
