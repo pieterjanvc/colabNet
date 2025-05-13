@@ -18,7 +18,10 @@ colabNet_v1 <- function() {
   df <- df %>%
     rowwise() %>%
     mutate(
-      Broad = paste(c(Broad, if (!is.na(Techniques)) "Techniques"), collapse = ", "),
+      Broad = paste(
+        c(Broad, if (!is.na(Techniques)) "Techniques"),
+        collapse = ", "
+      ),
       Broad = paste(c(Broad, if (!is.na(Model)) "Model"), collapse = ", ")
     )
 
@@ -48,10 +51,15 @@ colabNet_v1 <- function() {
   lvl2to3 <- map_df(unique(lvl2to3$name), function(x) {
     data.frame(
       lvl2 = x,
-      lvl3 = lvl2to3 %>% filter(name == x) %>% pull(value) %>%
-        str_split(", ") %>% unlist() %>% unique()
+      lvl3 = lvl2to3 %>%
+        filter(name == x) %>%
+        pull(value) %>%
+        str_split(", ") %>%
+        unlist() %>%
+        unique()
     )
-  }) %>% distinct()
+  }) %>%
+    distinct()
 
   # Generate key words table
   keywords <- bind_rows(
@@ -80,25 +88,32 @@ colabNet_v1 <- function() {
       data.frame(
         piId = pi[["MyID"]],
         keyword = str_split(pi[["MacroArea"]], ", ") %>% unlist()
-      ) %>% left_join(keywords %>% filter(lvl == 1), by = "keyword"),
+      ) %>%
+        left_join(keywords %>% filter(lvl == 1), by = "keyword"),
       data.frame(
         piId = pi[["MyID"]],
         keyword = str_split(pi[["Broad"]], ", ") %>% unlist()
-      ) %>% left_join(keywords %>% filter(lvl == 2), by = "keyword"),
+      ) %>%
+        left_join(keywords %>% filter(lvl == 2), by = "keyword"),
       data.frame(
         piId = pi[["MyID"]],
-        keyword = pi[-c(1:5, (length(pi) - 1):length(pi))] %>% unlist() %>%
-          str_split(", ") %>% unlist() %>% unique()
-      ) %>% distinct() %>% filter(!is.na(keyword)) %>%
+        keyword = pi[-c(1:5, (length(pi) - 1):length(pi))] %>%
+          unlist() %>%
+          str_split(", ") %>%
+          unlist() %>%
+          unique()
+      ) %>%
+        distinct() %>%
+        filter(!is.na(keyword)) %>%
         left_join(keywords %>% filter(lvl == 3), by = "keyword")
     )
-  }) %>% bind_rows()
+  }) %>%
+    bind_rows()
 
   # List of papers
   papers <- df_net %>%
     select(piId = MyID, title = Title, PMID) %>%
     distinct()
-
 
   # //////////////
   # ---- UI ----
@@ -122,21 +137,28 @@ colabNet_v1 <- function() {
     tags$footer(
       p(
         "This app was cretaed to support the Harvard Medical School BBS",
-        tags$a("Program in Genetics and Genomics",
-          href = "https://projects.iq.harvard.edu/pgg", target = "_blank"
+        tags$a(
+          "Program in Genetics and Genomics",
+          href = "https://projects.iq.harvard.edu/pgg",
+          target = "_blank"
         )
       ),
       p(
         "Content manager: Lorenzo Gesuita -",
-        tags$a("lorenzo_gesuita@hms.harvard.edu", href = "mailto:lorenzo_gesuita@hms.harvard.edu"),
+        tags$a(
+          "lorenzo_gesuita@hms.harvard.edu",
+          href = "mailto:lorenzo_gesuita@hms.harvard.edu"
+        ),
         "| App creator: PJ van Camp -",
-        tags$a("pjvancamp@hms.harvard.edu", href = "mailto:pjvancamp@hms.harvard.edu")
+        tags$a(
+          "pjvancamp@hms.harvard.edu",
+          href = "mailto:pjvancamp@hms.harvard.edu"
+        )
       ),
       style = "width: 100%;margin: auto;text-align: center;background-color: #f6f6f6;
     color:#787878;border-top: 0.2rem solid;"
     )
   )
-
 
   # //////////////////
   # ---- SERVER ----
@@ -148,21 +170,22 @@ colabNet_v1 <- function() {
       select(`Macro Area` = keyword)
 
     output$lvl1Key <- renderDT({
-      datatable(lvl1Key,
+      datatable(
+        lvl1Key,
         options = list(dom = "t"),
-        rownames = F, selection = "single"
+        rownames = F,
+        selection = "single"
       ) %>%
-        formatStyle(0,
-          target = "row",
-          backgroundColor = "#F9FAFF"
-        )
+        formatStyle(0, target = "row", backgroundColor = "#F9FAFF")
     })
-
 
     lvl2Key <- reactive({
       req(input$lvl1Key_rows_selected)
       id <- piKeywords %>%
-        filter(lvl == 1, keyword %in% c(lvl1Key[input$lvl1Key_rows_selected, ])) %>%
+        filter(
+          lvl == 1,
+          keyword %in% c(lvl1Key[input$lvl1Key_rows_selected, ])
+        ) %>%
         pull(piId)
       piKeywords %>%
         filter(lvl == 2, piId %in% id) %>%
@@ -172,33 +195,37 @@ colabNet_v1 <- function() {
     })
 
     output$lvl2Key <- renderDT({
-      datatable(lvl2Key() %>% select(`Broad Area` = keyword),
+      datatable(
+        lvl2Key() %>% select(`Broad Area` = keyword),
         options = list(
-          dom = "t", pageLength = nrow(keywords),
+          dom = "t",
+          pageLength = nrow(keywords),
           language = list(emptyTable = "No matching keywords")
         ),
-        rownames = F, selection = "single"
+        rownames = F,
+        selection = "single"
       ) %>%
-        formatStyle(0,
-          target = "row",
-          backgroundColor = "#FAFFF9"
-        )
+        formatStyle(0, target = "row", backgroundColor = "#FAFFF9")
     })
 
     lvl3Key <- reactive({
       req(input$lvl2Key_rows_selected)
       id <- piKeywords %>%
-        filter(keyword %in% c(
-          lvl1Key[input$lvl1Key_rows_selected, ],
-          lvl2Key()[input$lvl2Key_rows_selected, ]
-        )) %>%
+        filter(
+          keyword %in%
+            c(
+              lvl1Key[input$lvl1Key_rows_selected, ],
+              lvl2Key()[input$lvl2Key_rows_selected, ]
+            )
+        ) %>%
         group_by(piId) %>%
         filter(n() == 2) %>%
         ungroup() %>%
         pull(piId)
       piKeywords %>%
         filter(
-          lvl == 3, piId %in% id,
+          lvl == 3,
+          piId %in% id,
           parent %in% c(lvl2Key()[input$lvl2Key_rows_selected, ])
         ) %>%
         select(keyword, parent) %>%
@@ -208,24 +235,36 @@ colabNet_v1 <- function() {
 
     output$lvl3Key <- renderDT({
       req(input$lvl2Key_rows_selected)
-      datatable(lvl3Key() %>% select(`Specific Area` = keyword),
+      datatable(
+        lvl3Key() %>% select(`Specific Area` = keyword),
         options = list(
-          dom = "t", pageLength = nrow(keywords),
+          dom = "t",
+          pageLength = nrow(keywords),
           language = list(emptyTable = "No matching keywords")
         ),
-        rownames = F, selection = "single"
+        rownames = F,
+        selection = "single"
       ) %>%
-        formatStyle(0,
-          target = "row",
-          backgroundColor = "#FFF9FA"
-        )
+        formatStyle(0, target = "row", backgroundColor = "#FFF9FA")
     })
 
     PIsel <- reactive({
       x <- c(
-        ifelse(!is.null(input$lvl1Key_rows_selected), lvl1Key[input$lvl1Key_rows_selected, ], NA),
-        ifelse(!is.null(input$lvl2Key_rows_selected), lvl2Key()[input$lvl2Key_rows_selected, ], NA),
-        ifelse(!is.null(input$lvl3Key_rows_selected), lvl3Key()[input$lvl3Key_rows_selected, ], NA)
+        ifelse(
+          !is.null(input$lvl1Key_rows_selected),
+          lvl1Key[input$lvl1Key_rows_selected, ],
+          NA
+        ),
+        ifelse(
+          !is.null(input$lvl2Key_rows_selected),
+          lvl2Key()[input$lvl2Key_rows_selected, ],
+          NA
+        ),
+        ifelse(
+          !is.null(input$lvl3Key_rows_selected),
+          lvl3Key()[input$lvl3Key_rows_selected, ],
+          NA
+        )
       )
       x <- x[!is.na(x)]
       piKeywords %>%
@@ -242,13 +281,23 @@ colabNet_v1 <- function() {
       }
 
       if (!is.null(input$lvl2Key_rows_selected)) {
-        x <- paste(x, ">", (lvl2Key() %>% pull(keyword) %>%
-          unique())[input$lvl2Key_rows_selected])
+        x <- paste(
+          x,
+          ">",
+          (lvl2Key() %>% pull(keyword) %>% unique())[
+            input$lvl2Key_rows_selected
+          ]
+        )
       }
 
       if (!is.null(input$lvl3Key_rows_selected)) {
-        x <- paste(x, ">", (lvl3Key() %>% pull(keyword) %>%
-          unique())[input$lvl3Key_rows_selected])
+        x <- paste(
+          x,
+          ">",
+          (lvl3Key() %>% pull(keyword) %>% unique())[
+            input$lvl3Key_rows_selected
+          ]
+        )
       }
 
       h2(x)
@@ -256,9 +305,11 @@ colabNet_v1 <- function() {
 
     output$piTable <- renderDT({
       datatable(
-        PIs %>% filter(piId %in% PIsel()) %>%
+        PIs %>%
+          filter(piId %in% PIsel()) %>%
           select(`First Name` = fName, `Last Name` = lName),
-        select = "single", rownames = F
+        select = "single",
+        rownames = F
       )
     })
 
@@ -271,7 +322,8 @@ colabNet_v1 <- function() {
       select(MyID, First_Name, Last_Name) %>%
       distinct() %>%
       transmute(
-        id = MyID, label = paste(Last_Name, First_Name),
+        id = MyID,
+        label = paste(Last_Name, First_Name),
         color.highlight.background = "#d97526"
       ) %>%
       left_join(df %>% select(id = MyID, Link), by = "id") %>%
@@ -281,8 +333,10 @@ colabNet_v1 <- function() {
     collab <- df_net %>% select(MyID, PMID, Title)
     collab <- collab %>%
       select(p1 = MyID, PMID, Title) %>%
-      left_join(collab %>% select(p2 = MyID, PMID),
-        by = "PMID", relationship = "many-to-many"
+      left_join(
+        collab %>% select(p2 = MyID, PMID),
+        by = "PMID",
+        relationship = "many-to-many"
       ) %>%
       filter(p1 != p2) %>%
       group_by(PMID) %>%
@@ -299,13 +353,20 @@ colabNet_v1 <- function() {
 
     edges <- edges %>%
       transmute(
-        from = p1, to = p2, width = nPapers, label = as.character(nPapers),
-        color = "#6b948b", font.color = "blue", title = Title
+        from = p1,
+        to = p2,
+        width = nPapers,
+        label = as.character(nPapers),
+        color = "#6b948b",
+        font.color = "blue",
+        title = Title
       ) %>%
       mutate(id = 1:n())
 
     output$visGraph <- renderVisNetwork(
-      visNetwork(nodes, edges,
+      visNetwork(
+        nodes,
+        edges,
         height = "100vh",
         main = "Collaborations across PGG"
       ) %>%
@@ -315,10 +376,12 @@ colabNet_v1 <- function() {
         ) %>%
         visOptions(highlightNearest = list(enabled = TRUE, degree = 1)) %>%
         # Custom function to be able to select nodes AND edges
-        visEvents(select = "function(data) {
+        visEvents(
+          select = "function(data) {
                 Shiny.onInputChange('nodes_selection', data.nodes);
                 Shiny.onInputChange('edges_selection', data.edges);
-                ;}") %>%
+                ;}"
+        ) %>%
         visInteraction(zoomView = F)
     )
 
@@ -331,7 +394,8 @@ colabNet_v1 <- function() {
 
     authors <- reactiveVal(c())
 
-    observeEvent(input$piTable_rows_selected,
+    observeEvent(
+      input$piTable_rows_selected,
       {
         piId <- PIs %>%
           filter(piId %in% PIsel()) %>%
@@ -344,7 +408,8 @@ colabNet_v1 <- function() {
       ignoreNULL = F
     )
 
-    observeEvent(c(input$nodes_selection, input$edges_selection),
+    observeEvent(
+      c(input$nodes_selection, input$edges_selection),
       {
         sel <- c()
 
@@ -382,13 +447,19 @@ colabNet_v1 <- function() {
     output$authorTable <- renderDT({
       req(authors())
       datatable(
-        nodes %>% filter(id %in% authors()) %>%
-          mutate(Link = sprintf(
-            '<a href="%s" target="_blank">%s</a>',
-            Link, Link
-          )) %>%
+        nodes %>%
+          filter(id %in% authors()) %>%
+          mutate(
+            Link = sprintf(
+              '<a href="%s" target="_blank">%s</a>',
+              Link,
+              Link
+            )
+          ) %>%
           select(Name = label, Website = Link),
-        rownames = F, escape = F, selection = "none",
+        rownames = F,
+        escape = F,
+        selection = "none",
         options = list(dom = "t", pageLength = 2)
       )
     })
@@ -407,11 +478,17 @@ colabNet_v1 <- function() {
       }
       datatable(
         x %>%
-          mutate(PMID = sprintf(
-            '<a href="%s%s" target="_blank">%s</a>',
-            "https://pubmed.ncbi.nlm.nih.gov/", PMID, PMID
-          )),
-        escape = F, selection = "none", rownames = F
+          mutate(
+            PMID = sprintf(
+              '<a href="%s%s" target="_blank">%s</a>',
+              "https://pubmed.ncbi.nlm.nih.gov/",
+              PMID,
+              PMID
+            )
+          ),
+        escape = F,
+        selection = "none",
+        rownames = F
       )
     })
   }

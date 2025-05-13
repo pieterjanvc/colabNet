@@ -4,17 +4,31 @@
 \alias{ncbi_author}
 \title{Get the best matching Pubmed author name}
 \usage{
-ncbi_author(lastName, firstName, showWarnings = T)
+ncbi_author(
+  lastName,
+  firstName,
+  searchInitials = F,
+  samples = 10,
+  showWarnings = T
+)
 }
 \arguments{
 \item{lastName}{Last name}
 
 \item{firstName}{First name}
 
+\item{searchInitials}{(Default  = F), If true, don't match on first name but
+use initials instead (in case of multiple spellings of first name)}
+
+\item{samples}{(Default = 10). Number of papers to check for variations in
+name spelling}
+
 \item{showWarnings}{(Default = T) Show warnings}
 }
 \value{
-A data frame with lastName, firstName, initials based on top hit article
+A data frame with lastName, firstName, initials based on top hit
+articles. If there are multiple name versions, they are grouped based on
+similarity (using simpleText function)
 }
 \description{
 Get the best matching Pubmed author name

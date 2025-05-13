@@ -12,6 +12,7 @@ ncbi_authorArticleList(
   searchInitials = F,
   returnHistory = F,
   PMIDonly = F,
+  simpletext = T,
   stopFetching = 1000
 )
 }
