@@ -5,30 +5,77 @@
 # library("colabNet")
 
 #devtools::load_all()
-dbSetup("dev/colabNet.db", checkSchema = T)
+dbSetup("data/test.db", checkSchema = T)
 
-# authors = data.frame(
-#   firstName = c("PJ", "Lorenzo", "Cristina", "Irene", "Grey", "Kayla", "Lauren"),
-#   lastName = c("Van Camp", "Gesuita","Deoliveira", "Wong", 'Kuling', "Nygaard", "Essler")
-# )
-# i = 2
-# authorPublications <- lapply(1:nrow(authors), function(i){
-#   print("Next one")
-#   firstName = authors$firstName[i]
-#   lastName = authors$lastName[i]
-#   authorinfo <- ncbi_author(lastName, firstName)
-#   result <- ncbi_authorArticleList(authorinfo$lastName, authorinfo$firstName,
-#     authorinfo$initials, PMIDonly = T)
+authors = data.frame(
+  First_name = c("PJ", "Lorenzo", "Cristina", "Irene", "Grey", "Kayla", "Lauren"),
+  Last_name = c("Van Camp", "Gesuita","Deoliveira", "Wong", 'Kuling', "Nygaard", "Essler")
+)
+i = 1
+authorPublications <- lapply(1:nrow(authors), function(i){
+  firstName = authors$First_name[i]
+  lastName = authors$Last_name[i]
+  print(paste(firstName, lastName))
+  authorinfo <- ncbi_author(lastName, firstName)
 
-#   if(result$statusCode != 2){
-#     warning("Too many results for ", firstName, " ", lastName)
-#     return(NULL)
-#   }
-#   ncbi_publicationDetails(PMIDs = result$PMID, lastNameOfInterest = authorinfo$lastName)
-# })
+  if (n_distinct(authorinfo$group) > 1) {
+    authorinfo <- authorinfo[1, ]
+    warning(sprintf(
+      "Multiple matches for %s, %s [%i]. Best match: %s, %s",
+      lastName,
+      firstName,
+      i,
+      authorinfo$lastName,
+      authorinfo$firstName
+    ))
+  }
+
+  result <- ncbi_authorArticleList(
+    authorinfo$lastName[1],
+    authorinfo$firstName[1],
+    authorinfo$initials[1],
+    PMIDonly = T,
+    stopFetching = 1000,
+    returnHistory = T,
+    searchInitials = F,
+    simpletext = T
+  )
+
+  if (!result$success) {
+    warning(sprintf(
+      "Too many results for %s, %s [%i]. Skipped",
+      lastName,
+      firstName,
+      i
+    ))
+    return(NULL)
+  }
+  # publicationDetails <- authorPublications
+  # regex <- affiliationFilter
+  # includeMissing <- T
+  authorPublications <- ncbi_publicationDetails(
+    PMIDs = result$PMID,
+    lastName = authorinfo$lastName[1],
+    firstName = authorinfo$firstName[1],
+    initials = authorinfo$initials[1],
+    history = result$history
+  ) 
+
+  if (nrow(authorPublications$articles) == 0) {
+    warning(sprintf(
+      "No articles found for %s, %s [%i]. Skipped",
+      lastName,
+      firstName,
+      i
+    ))
+    return(NULL)
+  }
+  # authorPublications_all[[14]] <- authorPublications
+  authorPublications
+})
 
 # authorPublications <- authorPublications[!sapply(authorPublications, is.null)]
-# saveRDS(authorPublications, "data/ap.rds")
+# saveRDS(authorPublications, "data/test.rds")
 authorPublications <- readRDS("data/ap.rds")
 
 # authorPublications <- readRDS("data/ap.rds")[[2]]

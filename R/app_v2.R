@@ -246,7 +246,7 @@ colabNet_v2 <- function(colabNetDB) {
         textfont = list(
           color = textBW(plotData$colour)
         ),
-        maxdepth = -1,
+        maxdepth = 3,
         source = "mtPlot"
       )
     })
