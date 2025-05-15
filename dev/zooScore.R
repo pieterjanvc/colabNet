@@ -57,8 +57,8 @@ nodeEval <- function(auID, n, allID, carry) {
   # Col 3-4 are number of papers for each pair
   m <- cbind(
     m,
-    n[m[, 1]],
-    n[m[, 2]]
+    n[match(m[, 1], auID)],
+    n[match(m[, 2], auID)]
   )
   # Add any remainders from previous levels
   if (length(carry) > 0) {
@@ -136,3 +136,64 @@ while (curLvl > 0) {
 }
 
 finalScore
+
+### TEST WITH ACTUAL DATA
+
+dbSetup("data/PGG.db", checkSchema = T)
+conn <- dbGetConn()
+auIDs <- tbl(conn, "author") |>
+  filter(authorOfInterest == 1) |>
+  pull(auID)
+
+# Get the full diftree
+difftree <- diffTree(auIDs, pruneDuplicates = T)
+
+# Only consider tree D (Chemicals and Drugs) for test
+simpleTree <- difftree |> filter(str_detect(treenum, "^D"))
+
+# Transform into table compatible with algorithm
+dummy <- simpleTree |> select(x = parent, nodeID = mtrID, auID = auIDs, lvl = level)
+dummy <- dummy |>
+  left_join(
+    simpleTree |> select(x = treenum, parent = mtrID),
+    by = "x"
+  ) |>
+  select(-x) |>
+  mutate(
+    parent = ifelse(is.na(parent), 0, parent),
+    lvl = lvl + 1
+  ) |>
+  separate_rows(auID, sep = ",") |>
+  mutate(
+    n = 1,
+    across(everything(), as.integer)
+  )
+
+# Add the root
+dummy <- bind_rows(data.frame(
+  nodeID = as.integer(0), auID = 1, lvl = 1, parent = NA, n = as.integer(0)
+), dummy)
+
+test <- as.data.frame(finalScore)
+
+au <- tbl(conn, "author") |>
+  filter(auID %in% c(test$au1, test$au2)) |>
+  select(auID) |>
+  left_join(
+    tbl(conn, "authorName") |> filter(default == 1)
+  ) |>
+  collect() |>
+  rowwise() |>
+  mutate(name = paste(lastName, firstName, sep = ", ")) |>
+  select(auID, name)
+
+test <- test |>
+  left_join(
+    au |> select(au1 = auID, au1Name = name),
+    by = "au1"
+  ) |>
+  left_join(
+    au |> select(au2 = auID, au2Name = name),
+    by = "au2"
+  ) |>
+  arrange(desc(score))
