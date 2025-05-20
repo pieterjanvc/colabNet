@@ -74,210 +74,78 @@ nodeEval <- function(auID, n, allID, carry) {
   return(m)
 }
 
-# Setup the run
-auIDs <- sort(unique(dummy$auID))
-finalScore <- combn(sort(auIDs), 2) |> t()
-finalScore <- cbind(finalScore, 0)
-colnames(finalScore) <- c("au1", "au2", "score")
+zooScore <- function(auID, nodeID, parent, lvl, n) {
+  # Not enough data to build a tree
+  if (n_distinct(auID) < 2) {
+    return(NULL)
+  }
 
-# Start at leaves
-curLvl <- max(dummy$lvl)
-result <- list()
+  # Setup the run
+  auIDs <- sort(unique(auID))
+  finalScore <- combn(auIDs, 2) |> t()
+  finalScore <- cbind(finalScore, 0)
+  colnames(finalScore) <- c("au1", "au2", "score")
 
-# Process the tree level by level for all author pairs
-while (curLvl > 0) {
-  # Get data for all nodes at lowest current level
-  lvlData <- dummy |>
-    filter(lvl == curLvl)
+  # Start at leaves
+  curLvl <- max(lvl)
+  result <- list()
 
-  currentNodes <- lvlData |>
-    select(nodeID, parent) |>
-    distinct()
+  # Process the tree level by level for all author pairs
+  while (curLvl > 0) {
+    # Get data for all nodes at lowest current level
+    lvlData <- data.frame(auID, nodeID, parent, lvl, n) |>
+      filter(lvl == curLvl)
 
-  # Run the node eval function for all nodes
-  result <- map(currentNodes$nodeID, function(nodeID) {
-    nodeEval(
-      auID = lvlData$auID[lvlData$nodeID == nodeID],
-      n = lvlData$n[lvlData$nodeID == nodeID],
-      allID = auIDs,
-      carry = result[[as.character(nodeID)]]
-    )
-  })
+    currentNodes <- lvlData |>
+      select(nodeID, parent) |>
+      distinct()
 
-  # If there are multiple nodes feeding into the same parent, merge them
-  #  this cannot happen when you are at the root
-  if (curLvl > 1) {
-    result <- map(currentNodes$parent |> unique(), function(parent) {
-      matches <- which(currentNodes$parent == parent)
-      matches <- result[matches]
-
-      if (length(matches) == 1) {
-        return(matches[[1]])
-      }
-
-      cbind(
-        matches[[1]][, 1:2],
-        Reduce(
-          `+`,
-          lapply(matches, function(x) {
-            x[, 3:5]
-          })
-        )
+    # Run the node eval function for all nodes
+    result <- map(currentNodes$nodeID, function(nodeID) {
+      nodeEval(
+        auID = lvlData$auID[lvlData$nodeID == nodeID],
+        n = lvlData$n[lvlData$nodeID == nodeID],
+        allID = auIDs,
+        carry = result[[as.character(nodeID)]]
       )
     })
+
+    # If there are multiple nodes feeding into the same parent, merge them
+    #  this cannot happen when you are at the root
+    if (curLvl > 1) {
+      result <- map(currentNodes$parent |> unique(), function(parent) {
+        matches <- which(currentNodes$parent == parent)
+        matches <- result[matches]
+
+        if (length(matches) == 1) {
+          return(matches[[1]])
+        }
+
+        cbind(
+          matches[[1]][, 1:2],
+          Reduce(
+            `+`,
+            lapply(matches, function(x) {
+              x[, 3:5]
+            })
+          )
+        )
+      })
+    }
+
+    names(result) <- currentNodes$parent |> unique()
+
+    # Add the level scores to the final score
+    finalScore[, "score"] <- finalScore[, "score"] +
+      rowSums(sapply(result, function(x) x[, "score"])) *
+        curLvl
+
+    # Next level
+    curLvl <- curLvl - 1
   }
 
-  names(result) <- currentNodes$parent |> unique()
-
-  # Add the level scores to the final score
-  finalScore[, "score"] <- finalScore[, "score"] +
-    rowSums(sapply(result, function(x) x[, "score"])) *
-      curLvl
-
-  # Next level
-  curLvl <- curLvl - 1
+  as.data.frame(finalScore)
 }
-
-finalScore
-
-### TEST WITH ACTUAL DATA
-
-dbSetup("data/PGG.db", checkSchema = T)
-conn <- dbGetConn()
-auIDs <- tbl(conn, "author") |>
-  filter(authorOfInterest == 1) |>
-  pull(auID)
-
-# Get the full diftree
-difftree <- diffTree(auIDs, pruneDuplicates = F)
-
-# Only consider tree D (Chemicals and Drugs) for test
-simpleTree <- difftree |> filter(str_detect(treenum, "^D"))
-
-# Transform into table compatible with algorithm
-dummy <- simpleTree |>
-  select(x = parent, nodeID = mtrID, auID = auIDs, lvl = level, hasArticle)
-dummy <- dummy |>
-  left_join(
-    simpleTree |> select(x = treenum, parent = mtrID),
-    by = "x"
-  ) |>
-  select(-x) |>
-  mutate(
-    parent = ifelse(is.na(parent), 0, parent),
-    lvl = lvl + 1
-  ) |>
-  separate_rows(auID, sep = ",") |>
-  mutate(
-    n = 1,
-    across(everything(), as.integer)
-  )
-
-# Add the root
-dummy <- bind_rows(
-  data.frame(
-    nodeID = as.integer(0),
-    auID = 1,
-    lvl = 1,
-    parent = NA,
-    n = as.integer(0)
-  ),
-  dummy
-)
-
-# --- now run the algorithm above ...
-
-test <- as.data.frame(finalScore)
-
-au <- tbl(conn, "author") |>
-  filter(auID %in% c(test$au1, test$au2)) |>
-  select(auID) |>
-  left_join(
-    tbl(conn, "authorName") |> filter(default == 1)
-  ) |>
-  collect() |>
-  rowwise() |>
-  mutate(name = paste(lastName, firstName, sep = ", ")) |>
-  select(auID, name)
-
-test <- test |>
-  left_join(
-    au |> select(au1 = auID, au1Name = name),
-    by = "au1"
-  ) |>
-  left_join(
-    au |> select(au2 = auID, au2Name = name),
-    by = "au2"
-  ) |>
-  arrange(desc(score))
-
-## COUNT papers
-toCheck <- auIDs
-toCheck <- c(59, 1084)
-test <- tbl(conn, "coauthor") |>
-  filter(auID %in% toCheck) |>
-  left_join(
-    tbl(conn, "mesh_article"),
-    by = "arID"
-  ) |>
-  filter(!is.na(maID)) |>
-  left_join(
-    tbl(conn, "meshLink"),
-    by = "meshui"
-  ) |>
-  collect()
-# left_join(
-#   tbl(conn, "meshTree") |> select(mtrID, uid),
-#   by = "uid"
-# ) |>
-#   left_join(
-#     tbl(conn, "meshTerm") |> select(meshui, meshterm),
-#     by = "meshui"
-#   ) |>
-#   collect()
-
-test1 <- tbl(conn, "meshTree") |>
-  filter(uid %in% local(unique(test$uid))) |>
-  collect()
-missingTreeNums(test1$treenum)
-
-treenums <- c("D08.811.682.047.820.475")
-
-treeIntegrityCheck <- function(treenums) {
-  toAdd = c()
-  # Check if a treenum exists and any missing previous nodes
-  while (length(treenums) > 0) {
-    missing = setdiff(
-      treenums,
-      tbl(conn, "meshTree") |> filter(treenum %in% treenums) |> pull(treenum)
-    )
-
-    # Keep track of missing ones
-    toAdd = c(toAdd, missing)
-
-    # Go up one level for remaining
-    treenums <- str_remove(missing, "\\.\\d+$|^[^.]+$")
-    treenums <- treenums[treenums != ""]
-  }
-}
-
-
-## Build tree for authors - new method
-toCheck <- auIDs
-toCheck <- c(59, 1084)
-# Get all MeshTerms for papers
-paperMesh <- tbl(conn, "coauthor") |>
-  filter(auID %in% toCheck) |>
-  left_join(
-    tbl(conn, "mesh_article"),
-    by = "arID"
-  ) |>
-  filter(!is.na(maID)) |>
-  left_join(
-    tbl(conn, "meshLink"),
-    by = "meshui"
-  ) |>
-  collect()
 
 treeFromID <- function(uids) {
   treenums <- tbl(conn, "meshTree") |>
@@ -292,54 +160,7 @@ treeFromID <- function(uids) {
     collect()
 }
 
-tree <- treeFromID(paperMesh$uid)
-tree <- tree |>
-  left_join(
-    tbl(conn, "meshTerm") |>
-      filter(meshui %in% local(unique(tree$meshui))) |>
-      group_by(meshui) |>
-      filter(row_number() == 1) |>
-      collect(),
-    by = "meshui"
-  )
-
-meshRoots <- data.frame(
-  treenum = c(LETTERS[1:14], "V", "Z"),
-  meshterm = c(
-    "Anatomy",
-    "Organisms",
-    "Diseases",
-    "Chemicals and Drugs",
-    "Analytical, Diagnostic and Therapeutic Techniques, and Equipment",
-    "Psychiatry and Psychology",
-    "Phenomena and Processes",
-    "Disciplines and Occupations",
-    "Anthropology, Education, Sociology, and Social Phenomena",
-    "Technology, Industry, and Agriculture",
-    "Humanities",
-    "Information Science",
-    "Named Groups",
-    "Health Care",
-    "Publication Characteristics",
-    "Geographicals"
-  )
-)
-
-tree <- bind_rows(meshRoots, tree)
-
-tree <- tree |>
-  mutate(
-    level = str_count(treenum, "\\.") + 2,
-    level = as.integer(ifelse(is.na(uid), 1, level)),
-    parent = str_remove(treenum, "\\.\\d+$"),
-    parent = case_when(
-      parent == treenum & is.na(uid) ~ "root",
-      parent == treenum ~ str_extract(parent, "^\\w"),
-      TRUE ~ parent
-    )
-  )
-
-branchID <- function(parent, child, total_value = 100) {
+branchID <- function(parent, child, total_value = 1000) {
   if (length(parent) != length(child)) {
     stop("Error: 'parent' and 'child' vectors must be the same length.")
   }
@@ -394,60 +215,142 @@ branchID <- function(parent, child, total_value = 100) {
   return(list(branch_id = node_to_id, node_value = node_values))
 }
 
-branchIDs = branchID(
-  tree$parent,
-  tree$treenum
-)
+paperMesh <- function(auIDs, dbInfo) {
+  # Get all MeshTerms for papers
+  tbl(conn, "coauthor") |>
+    filter(auID %in% auIDs) |>
+    left_join(
+      tbl(conn, "mesh_article"),
+      by = "arID"
+    ) |>
+    filter(!is.na(maID)) |>
+    left_join(
+      tbl(conn, "meshLink"),
+      by = "meshui"
+    ) |>
+    collect()
+}
 
-tree <- tree |>
-  left_join(
-    data.frame(
-      treenum = names(branchIDs$branch_id),
-      branchID = unname(branchIDs$branch_id),
-      value = unname(branchIDs$node_value)
-    ),
-    by = "treenum"
+authorMeshTree <- function(paperMesh, dbInfo) {
+  tree <- treeFromID(paperMesh$uid)
+  tree <- tree |>
+    left_join(
+      tbl(conn, "meshTerm") |>
+        filter(meshui %in% local(unique(tree$meshui))) |>
+        group_by(meshui) |>
+        filter(row_number() == 1) |>
+        collect(),
+      by = "meshui"
+    )
+
+  meshRoots <- data.frame(
+    treenum = c(LETTERS[1:14], "V", "Z"),
+    meshterm = c(
+      "Anatomy",
+      "Organisms",
+      "Diseases",
+      "Chemicals and Drugs",
+      "Analytical, Diagnostic and Therapeutic Techniques, and Equipment",
+      "Psychiatry and Psychology",
+      "Phenomena and Processes",
+      "Disciplines and Occupations",
+      "Anthropology, Education, Sociology, and Social Phenomena",
+      "Technology, Industry, and Agriculture",
+      "Humanities",
+      "Information Science",
+      "Named Groups",
+      "Health Care",
+      "Publication Characteristics",
+      "Geographicals"
+    )
   )
 
-test <- tree |>
-  left_join(
-    tree |> select(parent = treenum, parentBranchID = branchID),
-    by = "parent"
+  tree <- bind_rows(meshRoots, tree)
+
+  tree <- tree |>
+    mutate(
+      level = str_count(treenum, "\\.") + 2,
+      level = as.integer(ifelse(is.na(uid), 1, level)),
+      parent = str_remove(treenum, "\\.\\d+$"),
+      parent = case_when(
+        parent == treenum & is.na(uid) ~ "root",
+        parent == treenum ~ str_extract(parent, "^\\w"),
+        TRUE ~ parent
+      )
+    )
+
+  branchIDs = branchID(
+    tree$parent,
+    tree$treenum
   )
 
-# Merge branches with only one child into a single node
-test <- test |>
-  group_by(branchID) |>
-  summarise(
-    parentBranchID = min(parentBranchID),
-    leafNodeTreenum = treenum[n()],
-    treenum = paste(treenum, collapse = " -> <br>"),
-    meshterm = paste(meshterm, collapse = " -> <br>"),
-    value = sum(value),
-    .groups = "drop"
-  )
+  tree <- tree |>
+    left_join(
+      data.frame(
+        treenum = names(branchIDs$branch_id),
+        branchID = unname(branchIDs$branch_id),
+        value = unname(branchIDs$node_value)
+      ),
+      by = "treenum"
+    )
 
-# Get the new parent info for the collapsed data and the root
-test <- test |>
-  left_join(
-    test |>
-      select(
-        parent = treenum,
-        parentBranchID = branchID,
-        parentMeshterm = meshterm
-      ) |>
-      distinct(),
-    by = "parentBranchID"
-  ) |>
-  mutate(
-    parentMeshterm = ifelse(
-      is.na(parentMeshterm),
-      "MeSH Tree",
-      parentMeshterm
-    ),
-    root = str_extract(test$treenum, "^[^\\.\\s]+")
-  )
+  tree <- tree |>
+    left_join(
+      tree |> select(parent = treenum, parentBranchID = branchID),
+      by = "parent"
+    )
 
+  return(tree)
+}
+
+mergeTree <- function(tree) {
+  # Merge branches with only one child into a single node
+  tree <- tree |>
+    group_by(branchID) |>
+    summarise(
+      parentBranchID = min(parentBranchID),
+      leafNodeTreenum = treenum[n()],
+      treenum = paste(treenum, collapse = " -> <br>"),
+      meshterm = paste(meshterm, collapse = " -> <br>"),
+      value = sum(value),
+      .groups = "drop"
+    )
+
+  # Get the new parent info for the collapsed data and the root
+  tree <- tree |>
+    left_join(
+      tree |>
+        select(
+          parent = treenum,
+          parentBranchID = branchID,
+          parentMeshterm = meshterm
+        ) |>
+        distinct(),
+      by = "parentBranchID"
+    ) |>
+    mutate(
+      parentMeshterm = ifelse(
+        is.na(parentMeshterm),
+        "MeSH Tree",
+        parentMeshterm
+      ),
+      root = str_extract(tree$treenum, "^[^\\.\\s]+")
+    )
+
+  return(tree)
+}
+
+### TEST WITH ACTUAL DATA
+
+dbSetup("data/PGG.db", checkSchema = T)
+conn <- dbGetConn()
+auIDs <- tbl(conn, "author") |>
+  filter(authorOfInterest == 1) |>
+  pull(auID)
+
+papermesh <- paperMesh(auIDs)
+test <- authorMeshTree(papermesh)
+plotData <- mergeTree(test)
 
 # Treemap
 plot_ly(
@@ -459,26 +362,71 @@ plot_ly(
   values = plotData$value,
   textinfo = "text",
   hovertext = plotData$meshterm,
-  hoverinfo = "values",
+  hoverinfo = "text",
   maxdepth = 2,
 )
 
-parents <- c("A", "A", "B", "C", "C", "A", "A", "E", "E")
-labels <- c("B", 'C', "D", "E", 'F', "G", "H", "E1", "E2")
+# SCORE CALCULATION
 
-values <- rep(1, length(parents))
-values[c(3)] <- 80
+# Use this tree for author tree
+dummy <- papermesh |>
+  group_by(auID, meshui) |>
+  summarise(n = n(), .groups = "drop") |>
+  full_join(
+    tree |>
+      mutate(root = str_extract(treenum, "^.")),
+    select(
+      meshui,
+      nodeID = branchID,
+      parent = parentBranchID,
+      lvl = level,
+      root
+    ) |>
+      distinct(),
+    by = "meshui",
+    relationship = "many-to-many"
+  ) |>
+  mutate(
+    auID = ifelse(is.na(auID), auID[1], auID),
+    n = ifelse(is.na(n), 0, n),
+  )
 
-values <- c(0, 0, 2, 0, 1, 2, 2, 0.5, 0.5)
+# Zoo score by tree
+root <- unique(dummy$root)[1]
+zooscore <- lapply(unique(dummy$root), function(root) {
+  x <- dummy |> filter(root == {{ root }})
+  zooScore(x$auID, x$treenum, x$parent, x$level, x$n)
+})
 
-plot_ly(
-  type = "treemap",
-  labels = labels,
-  parents = parents,
-  values = values,
-  textinfo = "values",
-  maxdepth =
-)
+test <- Reduce(rbind, zooscore) |>
+  as.data.frame() |>
+  group_by(au1, au2) |>
+  summarise(zooscore = sum(score), .groups = "drop")
+
+zooscore <- zooScore(dummy$auID, dummy$nodeID, dummy$parent, dummy$lvl, dummy$n)
+
+# Add author names to zoo score for easier reading
+au <- tbl(conn, "author") |>
+  filter(auID %in% c(zooscore$au1, zooscore$au2)) |>
+  select(auID) |>
+  left_join(
+    tbl(conn, "authorName") |> filter(default == 1)
+  ) |>
+  collect() |>
+  rowwise() |>
+  mutate(name = paste(lastName, firstName, sep = ", ")) |>
+  select(auID, name)
+
+zooscore <- zooscore |>
+  left_join(
+    au |> select(au1 = auID, au1Name = name),
+    by = "au1"
+  ) |>
+  left_join(
+    au |> select(au2 = auID, au2Name = name),
+    by = "au2"
+  ) |>
+  arrange(desc(score))
 
 # branchID <- function(parent, child) {
 #   # Build adjacency list
@@ -520,4 +468,92 @@ plot_ly(
 
 #   dfs(root)
 #   return(node_to_id)
+# }
+
+# # Get the full diftree
+# difftree <- diffTree(auIDs, pruneDuplicates = F)
+
+# # Only consider tree D (Chemicals and Drugs) for test
+# simpleTree <- difftree |> filter(str_detect(treenum, "^D"))
+
+# # Transform into table compatible with algorithm
+# dummy <- simpleTree |>
+#   select(x = parent, nodeID = mtrID, auID = auIDs, lvl = level, hasArticle)
+# dummy <- dummy |>
+#   left_join(
+#     simpleTree |> select(x = treenum, parent = mtrID),
+#     by = "x"
+#   ) |>
+#   select(-x) |>
+#   mutate(
+#     parent = ifelse(is.na(parent), 0, parent),
+#     lvl = lvl + 1
+#   ) |>
+#   separate_rows(auID, sep = ",") |>
+#   mutate(
+#     n = 1,
+#     across(everything(), as.integer)
+#   )
+
+# # Add the root
+# dummy <- bind_rows(
+#   data.frame(
+#     nodeID = as.integer(0),
+#     auID = 1,
+#     lvl = 1,
+#     parent = NA,
+#     n = as.integer(0)
+#   ),
+#   dummy
+# )
+
+## COUNT papers
+# toCheck <- auIDs
+# toCheck <- c(1084, 4924)
+# test <- tbl(conn, "coauthor") |>
+#   filter(auID %in% toCheck) |>
+#   left_join(
+#     tbl(conn, "mesh_article"),
+#     by = "arID"
+#   ) |>
+#   filter(!is.na(maID)) |>
+#   left_join(
+#     tbl(conn, "meshLink"),
+#     by = "meshui"
+#   ) |>
+#   collect()
+
+# left_join(
+#   tbl(conn, "meshTree") |> select(mtrID, uid),
+#   by = "uid"
+# ) |>
+#   left_join(
+#     tbl(conn, "meshTerm") |> select(meshui, meshterm),
+#     by = "meshui"
+#   ) |>
+#   collect()
+
+# test1 <- tbl(conn, "meshTree") |>
+#   filter(uid %in% local(unique(test$uid))) |>
+#   collect()
+# missingTreeNums(test1$treenum)
+
+# treenums <- c("D08.811.682.047.820.475")
+
+# treeIntegrityCheck <- function(treenums) {
+#   toAdd = c()
+#   # Check if a treenum exists and any missing previous nodes
+#   while (length(treenums) > 0) {
+#     missing = setdiff(
+#       treenums,
+#       tbl(conn, "meshTree") |> filter(treenum %in% treenums) |> pull(treenum)
+#     )
+
+#     # Keep track of missing ones
+#     toAdd = c(toAdd, missing)
+
+#     # Go up one level for remaining
+#     treenums <- str_remove(missing, "\\.\\d+$|^[^.]+$")
+#     treenums <- treenums[treenums != ""]
+#   }
 # }
