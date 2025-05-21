@@ -44,6 +44,9 @@ dbSetup <- function(dbInfo, newDBMsg = T, checkSchema = F, returnConn = F) {
       unlist() |>
       paste(collapse = ";")
 
+    # Remove the INSERT statements as they are not part of the schema
+    sqlFile <- str_remove(sqlFile, ";INSERT.*")
+
     if (dbSchema != sqlFile) {
       dbDisconnect(myConn)
       stop(
@@ -117,10 +120,10 @@ dbAddAuthors <- function(authors, dbInfo) {
       conn <- dbGetConn(dbInfo)
 
       if (sqliteIsTransacting(conn)) {
-        endTransaction = F
+        endTransaction <- F
       } else {
         dbBegin(conn)
-        endTransaction = T
+        endTransaction <- T
       }
 
       # Get all distinct author names, but assume same author is last name and initials are the same
@@ -255,10 +258,10 @@ dbDeleteAuthors <- function(auIDs, dbInfo) {
       conn <- dbGetConn(dbInfo)
 
       if (sqliteIsTransacting(conn)) {
-        endTransaction = F
+        endTransaction <- F
       } else {
         dbBegin(conn)
-        endTransaction = T
+        endTransaction <- T
       }
 
       # Get all articles and authors to remove
@@ -290,7 +293,7 @@ dbDeleteAuthors <- function(auIDs, dbInfo) {
 
       toRemove <- toRemove |> filter(!auID %in% toKeep)
 
-      #Delete authors
+      # Delete authors
       q <- dbExecute(
         conn,
         sprintf(
@@ -342,10 +345,10 @@ dbAddMesh <- function(values, type, dbInfo) {
       conn <- dbGetConn(dbInfo)
 
       if (sqliteIsTransacting(conn)) {
-        endTransaction = F
+        endTransaction <- F
       } else {
         dbBegin(conn)
-        endTransaction = T
+        endTransaction <- T
       }
 
       meshInfo <- ncbi_meshInfo(values, type)
@@ -462,19 +465,18 @@ dbAddMesh <- function(values, type, dbInfo) {
 #' @export
 #'
 dbAddAuthorPublications <- function(
-  authorPublications,
-  matchOnFirst = F,
-  dbInfo
-) {
+    authorPublications,
+    matchOnFirst = F,
+    dbInfo) {
   tryCatch(
     {
       conn <- dbGetConn(dbInfo)
 
       if (sqliteIsTransacting(conn)) {
-        endTransaction = F
+        endTransaction <- F
       } else {
         dbBegin(conn)
-        endTransaction = T
+        endTransaction <- T
       }
 
       ### ADD ARTICLES
@@ -740,10 +742,10 @@ dbDeleteArticle <- function(arIDs, dbInfo) {
       conn <- dbGetConn(dbInfo)
 
       if (sqliteIsTransacting(conn)) {
-        endTransaction = F
+        endTransaction <- F
       } else {
         dbBegin(conn)
-        endTransaction = T
+        endTransaction <- T
       }
 
       # Get all articles and authors to remove

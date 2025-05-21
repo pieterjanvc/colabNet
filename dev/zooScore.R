@@ -177,11 +177,12 @@ branchID <- function(parent, child) {
 
   # Find root (a node that is never a child)
   root <- setdiff(parent, child)
-  if (length(root) != 1)
+  if (length(root) != 1) {
     stop(
       "Tree must have exactly one root. Found: ",
       paste(root, collapse = ", ")
     )
+  }
 
   # Initialize maps
   node_to_id <- setNames(all_nodes, all_nodes)
@@ -203,8 +204,11 @@ branchID <- function(parent, child) {
     }
 
     # Safe child lookup
-    child_nodes <- if (!is.null(children[[node]])) children[[node]] else
+    child_nodes <- if (!is.null(children[[node]])) {
+      children[[node]]
+    } else {
       character(0)
+    }
     num_children <- length(child_nodes)
 
     if (num_children > 0) {
@@ -273,7 +277,7 @@ authorMeshTree <- function(papermesh, dbInfo) {
   #   )
   # )
 
-  #tree <- bind_rows(meshRoots, tree)
+  # tree <- bind_rows(meshRoots, tree)
 
   tree <- tree |>
     mutate(
@@ -295,7 +299,7 @@ authorMeshTree <- function(papermesh, dbInfo) {
     select(-link) |>
     mutate(parent = ifelse(is.na(parent), as.integer(0), parent))
 
-  branchIDs = branchID(
+  branchIDs <- branchID(
     parent = tree$parent,
     child = tree$mtrID
   )
@@ -311,10 +315,14 @@ authorMeshTree <- function(papermesh, dbInfo) {
     )
 
   tree <- tree |>
+    group_by(branchID) |>
+    mutate(link = parent[1]) |>
+    ungroup() |>
     left_join(
-      tree |> select(parent = mtrID, parentBranchID = branchID),
-      by = "parent"
-    )
+      tree |> select(link = mtrID, parentBranchID = branchID),
+      by = "link"
+    ) |>
+    select(-link)
 
   return(
     tree |>
@@ -361,7 +369,7 @@ mergeTree <- function(tree) {
 
 ### TEST WITH ACTUAL DATA
 
-dbSetup("data/PGG.db", checkSchema = T)
+dbSetup(dbInfo = "data/PGG.db", checkSchema = T)
 conn <- dbGetConn()
 auIDs <- tbl(conn, "author") |>
   filter(authorOfInterest == 1) |>
@@ -411,17 +419,17 @@ dummy <- papermesh |>
   )
 
 # Zoo score by tree
-root <- unique(dummy$root)[1]
-zooscore <- lapply(unique(dummy$root), function(root) {
-  x <- dummy |> filter(root == {{ root }})
-  zooScore(
-    auID = x$auID,
-    nodeID = x$treenum,
-    parent = x$parent,
-    lvl = x$level,
-    n = x$nPapers
-  )
-})
+# root <- unique(dummy$root)[1]
+# zooscore <- lapply(unique(dummy$root), function(root) {
+#   x <- dummy |> filter(root == {{ root }})
+#   zooScore(
+#     auID = x$auID,
+#     nodeID = x$treenum,
+#     parent = x$parent,
+#     lvl = x$level,
+#     n = x$nPapers
+#   )
+# })
 
 roots <- setNames(unique(dummy$root), unique(dummy$root))
 zooscore <- map_df(
@@ -467,11 +475,11 @@ zooscore <- zooscore |>
   ) |>
   arrange(desc(score))
 
-authorTree <- dummy
+authortree <- dummy
 
 # Add author names to zoo score for easier reading
 au <- tbl(conn, "author") |>
-  filter(auID %in% local(unique(authorTree$auID))) |>
+  filter(auID %in% local(unique(authortree$auID))) |>
   select(auID) |>
   left_join(
     tbl(conn, "authorName") |> filter(default == 1),
@@ -482,13 +490,13 @@ au <- tbl(conn, "author") |>
   mutate(name = paste(lastName, firstName, sep = ", ")) |>
   select(auID, name)
 
-authorTree <- authorTree |>
+authortree <- authortree |>
   left_join(
     au |> select(auID, name),
     by = "auID"
   ) |>
   mutate(
-    name = ifelse(n == 0, "", name)
+    name = ifelse(nPapers == 0, "", name)
   )
 
 nodeSum <- function(parent, child, value) {
@@ -508,11 +516,12 @@ nodeSum <- function(parent, child, value) {
 
   # Find root (a node that is never a child)
   root <- setdiff(parent, child)
-  if (length(root) != 1)
+  if (length(root) != 1) {
     stop(
       "Tree must have exactly one root. Found: ",
       paste(root, collapse = ", ")
     )
+  }
   root <- root[1]
 
   # Map values to child nodes
@@ -541,37 +550,41 @@ nodeSum <- function(parent, child, value) {
 }
 
 
-treemap <- function(authorTree) {
+treeMap <- function(authortree) {
   # Merge branches with only one child into a single node
-  tree <- authorTree |>
+  treemap <- authortree |>
     arrange(treenum) |>
+    mutate(
+      parentBranchID = ifelse(
+        is.na(parentBranchID),
+        as.integer(0),
+        parentBranchID
+      )
+    ) |>
     group_by(branchID) |>
     summarise(
       parentBranchID = min(parentBranchID),
       meshterm = paste(unique(meshterm), collapse = " -> "),
       value = sum(value),
-      n = sum(n),
+      nPapers = sum(nPapers),
       authors = paste(
-        sort(unique(sprintf("%s (%i)", name, n))),
+        sort(unique(sprintf("%s", name))),
         collapse = "\n"
       ),
       root = root[1],
       .groups = "drop"
-    ) |>
-    mutate(
-      authors = ifelse(authors == " (0)", "", authors)
     )
 
-  tree <- tree |>
+  treemap <- treemap |>
     mutate(parentBranchID = ifelse(is.na(parentBranchID), 0, parentBranchID))
   meshSum <- nodeSum(
-    parent = tree$parentBranchID,
-    child = tree$branchID,
-    value = tree$n
+    parent = treemap$parentBranchID,
+    child = treemap$branchID,
+    value = treemap$nPapers
   ) |>
     transmute(branchID = as.integer(node), meshSum = value)
 
-  tree <- tree |> left_join(meshSum, by = "branchID")
+  treemap <- treemap |> left_join(meshSum, by = "branchID")
 
   # # Get the new parent info for the collapsed data and the root
   # tree <- tree |>
@@ -594,12 +607,31 @@ treemap <- function(authorTree) {
   #     root = str_extract(tree$treenum, "^[^\\.\\s]+")
   #   )
 
-  return(tree)
+  return(treemap)
 }
 
-plotData <- treemap(authorTree)
+plotData <- treeMap(authortree)
+# plotData <- bind_rows(
+#   data.frame(
+#     branchID = as.integer(0),
+#     parentBranchID = NA,
+#     meshterm = "MeSH Tree",
+#     value = 0,
+#     nPapers = 0,
+#     meshSum = 0
+#   ),
+#   plotData
+# )
 
-# Treemap
+# Treemap Colour scale
+mapColour <- function(vals, minCol = "#f2f3f5", maxCol = "#4682B4") {
+  val2col <- colorRamp(c(minCol, maxCol))
+  vals_norm <- (vals - min(vals)) / (max(vals) - min(vals))
+  rgb_matrix <- val2col(vals_norm)
+  rgb(rgb_matrix[, 1], rgb_matrix[, 2], rgb_matrix[, 3], maxColorValue = 255)
+}
+
+# Render Treemap
 plot_ly(
   type = "treemap",
   ids = plotData$branchID,
@@ -607,6 +639,7 @@ plot_ly(
   labels = paste(plotData$meshSum, plotData$meshterm, sep = " | "),
   text = str_wrap(paste(plotData$meshSum, plotData$meshterm, sep = " | "), 12),
   values = plotData$value,
+  marker = list(colors = mapColour(log(plotData$meshSum + 1))),
   textinfo = "text",
   hovertext = plotData$authors,
   hoverinfo = "text",
