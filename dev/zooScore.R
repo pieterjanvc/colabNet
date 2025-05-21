@@ -152,7 +152,7 @@ treeFromID <- function(uids) {
     filter(uid %in% local(unique(uids))) |>
     pull(treenum)
 
-  treenums <- c(treenums, missingTreeNums(treenums))
+  treenums <- missingTreeNums(treenums, includeOriginal = T, includeRoots = T)
 
   treenums <- tbl(conn, "meshTree") |>
     filter(treenum %in% local(treenums)) |>
@@ -160,10 +160,14 @@ treeFromID <- function(uids) {
     collect()
 }
 
-branchID <- function(parent, child, total_value = 1000) {
+branchID <- function(parent, child) {
   if (length(parent) != length(child)) {
     stop("Error: 'parent' and 'child' vectors must be the same length.")
   }
+
+  # Check the data type
+  parent <- as.character(parent)
+  child <- as.character(child)
 
   # Build adjacency list
   children <- split(child, parent)
@@ -178,21 +182,24 @@ branchID <- function(parent, child, total_value = 1000) {
       "Tree must have exactly one root. Found: ",
       paste(root, collapse = ", ")
     )
-  root <- root[1]
 
   # Initialize maps
-  node_to_id <- setNames(rep(NA, length(all_nodes)), all_nodes)
+  node_to_id <- setNames(all_nodes, all_nodes)
   node_values <- setNames(rep(0, length(all_nodes)), all_nodes)
   id_counter <- 0
 
   # Recursive DFS function
-  dfs <- function(node, parent = NULL, value = total_value) {
+  dfs <- function(
+    node,
+    parent = NULL,
+    value = 2^ceiling(log2(length(all_nodes)))
+  ) {
     # Branch ID assignment
     if (!is.null(parent) && length(children[[parent]]) == 1) {
       node_to_id[[node]] <<- node_to_id[[parent]]
     } else {
-      node_to_id[[node]] <<- id_counter
-      id_counter <<- id_counter + 1
+      # node_to_id[[node]] <<- id_counter
+      # id_counter <<- id_counter + 1
     }
 
     # Safe child lookup
@@ -231,8 +238,8 @@ paperMesh <- function(auIDs, dbInfo) {
     collect()
 }
 
-authorMeshTree <- function(paperMesh, dbInfo) {
-  tree <- treeFromID(paperMesh$uid)
+authorMeshTree <- function(papermesh, dbInfo) {
+  tree <- treeFromID(papermesh$uid)
   tree <- tree |>
     left_join(
       tbl(conn, "meshTerm") |>
@@ -243,64 +250,76 @@ authorMeshTree <- function(paperMesh, dbInfo) {
       by = "meshui"
     )
 
-  meshRoots <- data.frame(
-    treenum = c(LETTERS[1:14], "V", "Z"),
-    meshterm = c(
-      "Anatomy",
-      "Organisms",
-      "Diseases",
-      "Chemicals and Drugs",
-      "Analytical, Diagnostic and Therapeutic Techniques, and Equipment",
-      "Psychiatry and Psychology",
-      "Phenomena and Processes",
-      "Disciplines and Occupations",
-      "Anthropology, Education, Sociology, and Social Phenomena",
-      "Technology, Industry, and Agriculture",
-      "Humanities",
-      "Information Science",
-      "Named Groups",
-      "Health Care",
-      "Publication Characteristics",
-      "Geographicals"
-    )
-  )
+  # meshRoots <- data.frame(
+  #   uid = 1:16,
+  #   treenum = c(LETTERS[1:14], "V", "Z"),
+  #   meshterm = c(
+  #     "Anatomy",
+  #     "Organisms",
+  #     "Diseases",
+  #     "Chemicals and Drugs",
+  #     "Analytical, Diagnostic and Therapeutic Techniques, and Equipment",
+  #     "Psychiatry and Psychology",
+  #     "Phenomena and Processes",
+  #     "Disciplines and Occupations",
+  #     "Anthropology, Education, Sociology, and Social Phenomena",
+  #     "Technology, Industry, and Agriculture",
+  #     "Humanities",
+  #     "Information Science",
+  #     "Named Groups",
+  #     "Health Care",
+  #     "Publication Characteristics",
+  #     "Geographicals"
+  #   )
+  # )
 
-  tree <- bind_rows(meshRoots, tree)
+  #tree <- bind_rows(meshRoots, tree)
 
   tree <- tree |>
     mutate(
       level = str_count(treenum, "\\.") + 2,
-      level = as.integer(ifelse(is.na(uid), 1, level)),
-      parent = str_remove(treenum, "\\.\\d+$"),
-      parent = case_when(
-        parent == treenum & is.na(uid) ~ "root",
-        parent == treenum ~ str_extract(parent, "^\\w"),
-        TRUE ~ parent
+      level = as.integer(ifelse(str_length(treenum) == 1, 1, level)),
+      link = str_remove(treenum, "\\.\\d+$"),
+      link = case_when(
+        link == treenum & str_length(link) == 1 ~ "root",
+        link == treenum ~ str_extract(link, "^\\w"),
+        TRUE ~ link
       )
     )
 
+  tree <- tree |>
+    left_join(
+      tree |> select(link = treenum, parent = mtrID),
+      by = "link"
+    ) |>
+    select(-link) |>
+    mutate(parent = ifelse(is.na(parent), as.integer(0), parent))
+
   branchIDs = branchID(
-    tree$parent,
-    tree$treenum
+    parent = tree$parent,
+    child = tree$mtrID
   )
 
   tree <- tree |>
     left_join(
       data.frame(
-        treenum = names(branchIDs$branch_id),
-        branchID = unname(branchIDs$branch_id),
+        mtrID = as.integer(names(branchIDs$branch_id)),
+        branchID = as.integer(unname(branchIDs$branch_id)),
         value = unname(branchIDs$node_value)
       ),
-      by = "treenum"
+      by = "mtrID"
     )
 
   tree <- tree |>
     left_join(
-      tree |> select(parent = treenum, parentBranchID = branchID),
+      tree |> select(parent = mtrID, parentBranchID = branchID),
       by = "parent"
     )
 
-  return(tree)
+  return(
+    tree |>
+      select(mtrID, parent, treenum, branchID, parentBranchID, everything())
+  )
 }
 
 mergeTree <- function(tree) {
@@ -350,28 +369,28 @@ auIDs <- tbl(conn, "author") |>
 
 papermesh <- paperMesh(auIDs)
 tree <- authorMeshTree(papermesh)
-plotData <- mergeTree(tree)
+# plotData <- mergeTree(tree)
 
-# Treemap
-plot_ly(
-  type = "treemap",
-  ids = plotData$branchID,
-  parents = plotData$parentBranchID,
-  labels = plotData$meshterm,
-  text = str_wrap(plotData$meshterm, 12),
-  values = plotData$value,
-  textinfo = "text",
-  hovertext = plotData$meshterm,
-  hoverinfo = "text",
-  maxdepth = 2,
-)
+# # Treemap
+# plot_ly(
+#   type = "treemap",
+#   ids = plotData$branchID,
+#   parents = plotData$parentBranchID,
+#   labels = plotData$meshterm,
+#   text = str_wrap(plotData$meshterm, 12),
+#   values = plotData$value,
+#   textinfo = "text",
+#   hovertext = plotData$meshterm,
+#   hoverinfo = "text",
+#   maxdepth = 2,
+# )
 
 # SCORE CALCULATION
 
 # Use this tree for author tree
 dummy <- papermesh |>
   group_by(auID, meshui) |>
-  summarise(n = n(), .groups = "drop") |>
+  summarise(nPapers = n(), .groups = "drop") |>
   full_join(
     tree |>
       mutate(root = str_extract(treenum, "^.")),
@@ -388,22 +407,42 @@ dummy <- papermesh |>
   ) |>
   mutate(
     auID = ifelse(is.na(auID), auID[1], auID),
-    n = ifelse(is.na(n), 0, n),
+    nPapers = ifelse(is.na(nPapers), as.integer(0), nPapers),
   )
 
 # Zoo score by tree
 root <- unique(dummy$root)[1]
 zooscore <- lapply(unique(dummy$root), function(root) {
   x <- dummy |> filter(root == {{ root }})
-  zooScore(x$auID, x$treenum, x$parent, x$level, x$n)
+  zooScore(
+    auID = x$auID,
+    nodeID = x$treenum,
+    parent = x$parent,
+    lvl = x$level,
+    n = x$nPapers
+  )
 })
 
-test <- Reduce(rbind, zooscore) |>
-  as.data.frame() |>
-  group_by(au1, au2) |>
-  summarise(zooscore = sum(score), .groups = "drop")
+roots <- setNames(unique(dummy$root), unique(dummy$root))
+zooscore <- map_df(
+  roots,
+  function(root) {
+    x <- dummy |> filter(root == {{ root }})
+    zooScore(
+      auID = x$auID,
+      nodeID = x$treenum,
+      parent = x$parent,
+      lvl = x$level,
+      n = x$nPapers
+    )
+  },
+  .id = "tree"
+)
 
-zooscore <- zooScore(dummy$auID, dummy$nodeID, dummy$parent, dummy$lvl, dummy$n)
+# Now summarise by author pair (adjust for tree depth in future?)
+zooscore <- zooscore |>
+  group_by(au1, au2) |>
+  summarise(score = sum(score), .groups = "drop")
 
 # Add author names to zoo score for easier reading
 au <- tbl(conn, "author") |>

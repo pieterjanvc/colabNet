@@ -47,13 +47,17 @@ checkTreeNums <- function(treenums, output = "errorOnly") {
 #'
 #' @param treenums A vector of MeshTreeNumbers (e.g. N.06.850.290.200).
 #' Use checkTreeNums() is you want to make sure the numbers are in valid format
+#' @param includeOriginal Default = FALSE. If TRUE, the provided treenums will be
+#' part of the result
+#' @param includeRoots Default = FALSE. If TRUE, the provided root (category)
+#' letter will be part of the result
 #'
 #' @importFrom stringr str_remove
 #'
 #' @return vector of treenums representing missing nodes between leaves and root
 #'
 #' @export
-missingTreeNums <- function(treenums) {
+missingTreeNums <- function(treenums, includeOriginal = F, includeRoots = F) {
   treenums <- unique(treenums)
 
   currentNodes <- treenums
@@ -68,7 +72,14 @@ missingTreeNums <- function(treenums) {
   }
 
   allNodes <- allNodes %>% unique()
-  allNodes <- allNodes[!allNodes %in% treenums]
+
+  if (includeRoots) {
+    allNodes <- c(unique(str_extract(allNodes, "^\\w")), allNodes)
+  }
+
+  if (!includeOriginal) {
+    allNodes <- allNodes[!allNodes %in% treenums]
+  }
 
   if (length(allNodes) == 0) {
     return(NULL)
@@ -378,7 +389,7 @@ diffTree <- function(auIDs, pruneDuplicates = T, dbInfo) {
             filter(uid == y) |>
             filter(nchar(treenum) == min(nchar(treenum))) |>
             slice(1)
-          toKeep <- c(missingTreeNums(toKeep$treenum), toKeep$treenum)
+          toKeep <- missingTreeNums(toKeep$treenum, includeOriginal = T)
           toRemove <- setdiff(toRemove, toKeep)
         }
         # Manually set the remaining to 0 to not trigger the same one next round

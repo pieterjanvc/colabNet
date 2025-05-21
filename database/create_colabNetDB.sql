@@ -81,3 +81,57 @@ CREATE TABLE "mesh_article" (
 );
 
 CREATE UNIQUE INDEX "idx_treenum" ON "meshTree" ("treenum");
+
+INSERT INTO meshLink ("uid", "meshui") VALUES
+  (1,'R000001'),
+  (2,'R000002'),
+  (3,'R000003'),
+  (4,'R000004'),
+  (5,'R000005'),
+  (6,'R000006'),
+  (7,'R000007'),
+  (8,'R000008'),
+  (9,'R000009'),
+  (10,'R000010'),
+  (11,'R000011'),
+  (12,'R000012'),
+  (13,'R000013'),
+  (14,'R000014'),
+  (15,'R000015'),
+  (16,'R000016');
+
+INSERT INTO meshTree ("uid", "treenum") VALUES
+  (1, 'A'),
+  (2, 'B'),
+  (3, 'C'),
+  (4, 'D'),
+  (5, 'E'),
+  (6, 'F'),
+  (7, 'G'),
+  (8, 'H'),
+  (9, 'I'),
+  (10, 'J'),
+  (11, 'K'),
+  (12, 'L'),
+  (13, 'M'),
+  (14, 'N'),
+  (15, 'V'),
+  (16, 'Z');
+
+INSERT INTO meshTerm ("meshui", "meshterm") VALUES
+  ('R000001', 'Anatomy'),
+  ('R000002', 'Organisms'),
+  ('R000003', 'Diseases'),
+  ('R000004', 'Chemicals and Drugs'),
+  ('R000005', 'Analytical, Diagnostic and Therapeutic Techniques, and Equipment'),
+  ('R000006', 'Psychiatry and Psychology'),
+  ('R000007', 'Phenomena and Processes'),
+  ('R000008', 'Disciplines and Occupations'),
+  ('R000009', 'Anthropology, Education, Sociology, and Social Phenomena'),
+  ('R000010', 'Technology, Industry, and Agriculture'),
+  ('R000011', 'Humanities'),
+  ('R000012', 'Information Science'),
+  ('R000013', 'Named Groups'),
+  ('R000014', 'Health Care'),
+  ('R000015', 'Publication Characteristics'),
+  ('R000016', 'Geographicals');
