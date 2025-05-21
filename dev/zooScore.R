@@ -349,8 +349,8 @@ auIDs <- tbl(conn, "author") |>
   pull(auID)
 
 papermesh <- paperMesh(auIDs)
-test <- authorMeshTree(papermesh)
-plotData <- mergeTree(test)
+tree <- authorMeshTree(papermesh)
+plotData <- mergeTree(tree)
 
 # Treemap
 plot_ly(
@@ -427,6 +427,152 @@ zooscore <- zooscore |>
     by = "au2"
   ) |>
   arrange(desc(score))
+
+authorTree <- dummy
+
+# Add author names to zoo score for easier reading
+au <- tbl(conn, "author") |>
+  filter(auID %in% local(unique(authorTree$auID))) |>
+  select(auID) |>
+  left_join(
+    tbl(conn, "authorName") |> filter(default == 1),
+    by = "auID"
+  ) |>
+  collect() |>
+  rowwise() |>
+  mutate(name = paste(lastName, firstName, sep = ", ")) |>
+  select(auID, name)
+
+authorTree <- authorTree |>
+  left_join(
+    au |> select(auID, name),
+    by = "auID"
+  ) |>
+  mutate(
+    name = ifelse(n == 0, "", name)
+  )
+
+nodeSum <- function(parent, child, value) {
+  # Coerce to character to avoid indexing issues
+  parent <- as.character(parent)
+  child <- as.character(child)
+
+  if (length(parent) != length(child)) {
+    stop("Error: 'parent' and 'child' vectors must be the same length.")
+  }
+
+  # Build adjacency list
+  children <- split(child, parent)
+
+  # Identify all nodes
+  all_nodes <- unique(c(parent, child))
+
+  # Find root (a node that is never a child)
+  root <- setdiff(parent, child)
+  if (length(root) != 1)
+    stop(
+      "Tree must have exactly one root. Found: ",
+      paste(root, collapse = ", ")
+    )
+  root <- root[1]
+
+  # Map values to child nodes
+  node_values_raw <- c(setNames(0, "0"), setNames(value, child))
+
+  # Initialize result container
+  node_values <- setNames(rep(0, length(all_nodes)), all_nodes)
+
+  # Recursive DFS
+  dfs <- function(node) {
+    node_value <- node_values_raw[[node]]
+    if (is.null(node_value)) node_value <- 0
+
+    total <- node_value
+
+    for (child_node in children[[node]]) {
+      total <- total + dfs(child_node)
+    }
+
+    node_values[[node]] <<- total
+    return(total)
+  }
+
+  dfs(root)
+  return(data.frame(node = names(node_values), value = unname(node_values)))
+}
+
+
+treemap <- function(authorTree) {
+  # Merge branches with only one child into a single node
+  tree <- authorTree |>
+    arrange(treenum) |>
+    group_by(branchID) |>
+    summarise(
+      parentBranchID = min(parentBranchID),
+      meshterm = paste(unique(meshterm), collapse = " -> "),
+      value = sum(value),
+      n = sum(n),
+      authors = paste(
+        sort(unique(sprintf("%s (%i)", name, n))),
+        collapse = "\n"
+      ),
+      root = root[1],
+      .groups = "drop"
+    ) |>
+    mutate(
+      authors = ifelse(authors == " (0)", "", authors)
+    )
+
+  tree <- tree |>
+    mutate(parentBranchID = ifelse(is.na(parentBranchID), 0, parentBranchID))
+  meshSum <- nodeSum(
+    parent = tree$parentBranchID,
+    child = tree$branchID,
+    value = tree$n
+  ) |>
+    transmute(branchID = as.integer(node), meshSum = value)
+
+  tree <- tree |> left_join(meshSum, by = "branchID")
+
+  # # Get the new parent info for the collapsed data and the root
+  # tree <- tree |>
+  #   left_join(
+  #     tree |>
+  #       select(
+  #         parent = treenum,
+  #         parentBranchID = branchID,
+  #         parentMeshterm = meshterm
+  #       ) |>
+  #       distinct(),
+  #     by = "parentBranchID"
+  #   ) |>
+  #   mutate(
+  #     parentMeshterm = ifelse(
+  #       is.na(parentMeshterm),
+  #       "MeSH Tree",
+  #       parentMeshterm
+  #     ),
+  #     root = str_extract(tree$treenum, "^[^\\.\\s]+")
+  #   )
+
+  return(tree)
+}
+
+plotData <- treemap(authorTree)
+
+# Treemap
+plot_ly(
+  type = "treemap",
+  ids = plotData$branchID,
+  parents = plotData$parentBranchID,
+  labels = paste(plotData$meshSum, plotData$meshterm, sep = " | "),
+  text = str_wrap(paste(plotData$meshSum, plotData$meshterm, sep = " | "), 12),
+  values = plotData$value,
+  textinfo = "text",
+  hovertext = plotData$authors,
+  hoverinfo = "text",
+  maxdepth = 3,
+)
 
 # branchID <- function(parent, child) {
 #   # Build adjacency list
