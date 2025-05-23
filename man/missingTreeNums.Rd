@@ -4,11 +4,17 @@
 \alias{missingTreeNums}
 \title{Extract all missing Mesh tree numbers for leaf nodes to reach their root}
 \usage{
-missingTreeNums(treenums)
+missingTreeNums(treenums, includeOriginal = F, includeRoots = F)
 }
 \arguments{
 \item{treenums}{A vector of MeshTreeNumbers (e.g. N.06.850.290.200).
 Use checkTreeNums() is you want to make sure the numbers are in valid format}
+
+\item{includeOriginal}{Default = FALSE. If TRUE, the provided treenums will be
+part of the result}
+
+\item{includeRoots}{Default = FALSE. If TRUE, the provided root (category)
+letter will be part of the result}
 }
 \value{
 vector of treenums representing missing nodes between leaves and root

@@ -465,9 +465,10 @@ dbAddMesh <- function(values, type, dbInfo) {
 #' @export
 #'
 dbAddAuthorPublications <- function(
-    authorPublications,
-    matchOnFirst = F,
-    dbInfo) {
+  authorPublications,
+  matchOnFirst = F,
+  dbInfo
+) {
   tryCatch(
     {
       conn <- dbGetConn(dbInfo)
