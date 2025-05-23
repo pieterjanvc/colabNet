@@ -39,39 +39,65 @@ visNetwork(nodes, edges, width = "100%", height = "1000px") %>%
 
 # ---- Algorithm ----
 
-# Function to calculate node score and remainder to be pushed up to parent
-nodeEval <- function(auID, n, allID, carry) {
+paperMat <- function(auID, allID, n, m) {
   # Fill in missing authors with 0 papers
   missing <- setdiff(allID, auID)
   auID <- c(auID, missing)
   n <- c(n, rep(0, length(missing)))
+
   # Order by ID for easier merge later
   o <- order(auID)
   auID <- auID[o]
   n <- n[o]
 
-  # Create the scoring matrix
-  # Cols 1-2 are author ID combinations
-  m <- combn(auID, 2) |> t()
-  # Col 3-4 are number of papers for each pair
-  m <- cbind(
+  # Create the scoring array
+  # Cols 1-2 are author ID combinations (m)
+  # Col 3-4 are number of papers for each pair, 5 is the score
+  cbind(
     m,
     n[match(m[, 1], auID)],
-    n[match(m[, 2], auID)]
+    n[match(m[, 2], auID)],
+    0
   )
+}
+
+# Function to calculate node score and remainder to be pushed up to parent
+nodeEval <- function(lvlData, allID, carry, carryOrder, m) {
+  a <- lvlData |>
+    select(auID, mtrID, nPapers) |>
+    group_by(mtrID) |>
+    group_map(~ paperMat(.x$auID, allID, .x$nPapers, m)) |>
+    simplify2array()
+
   # Add any remainders from previous levels
   if (length(carry) > 0) {
-    m[, 3:4] <- m[, 3:4] + carry[, c("rem1", "rem2")]
+    # a[, 3:4, ] <- a[, 3:4, ] + carry[, 3:4, , ]
+    # Make sure the order is the same fro children carrying on to parents
+    mtrIDs <- lvlData$mtrID |> unique() |> sort()
+    a[, 3:4, mtrIDs %in% carryOrder] <- a[,
+      3:4,
+      mtrIDs %in% carryOrder,
+      drop = F
+    ] +
+      carry[, 3:4, order(carryOrder), drop = F]
   }
 
-  # Col 5 is score for the pair
-  m <- cbind(m, apply(matrix(m[, 3:4], ncol = 2), 1, min))
+  #Update Score (col 5) for each pair
+  a[, 5, ] <- (a[, 3, ] + a[, 4, ] - abs(a[, 3, ] - a[, 4, ])) / 2
+
   # Update col 3-4 with remainder
-  m[, 3:4] <- m[, 3:4] - m[, 5]
-
-  colnames(m) <- c("au1", "au2", "rem1", "rem2", "score")
-
-  return(m)
+  if (dim(a)[3] == 1) {
+    # If only one element in 3rd dim, slightly different operation needed
+    a[, 3:4, ] <- a[, 3:4, , drop = F] -
+      array(matrix(rep(a[, 5, ], 2), ncol = 2), dim = c(dim(a)[1], 2, 1))
+  } else {
+    a[, 3:4, ] <- a[, 3:4, ] -
+      array(
+        a[, 5, ][, rep(1:dim(a)[3], each = 2)],
+        dim = c(dim(a)[1], 2, dim(a)[3])
+      )
+  }
+  return(a)
 }
 
 zooScore_tree <- function(tree, auIDs) {
@@ -82,12 +108,14 @@ zooScore_tree <- function(tree, auIDs) {
 
   # Setup the run
   finalScore <- combn(auIDs, 2) |> t()
+  m <- finalScore # This will prevent need for recalculation below
   finalScore <- cbind(finalScore, 0)
   colnames(finalScore) <- c("au1", "au2", "score")
 
   # Start at leaves
   curLvl <- max(tree$level)
-  result <- list()
+  result <- NULL
+  carryOrder <- NULL
 
   # Process the tree level by level for all author pairs
   while (curLvl > 0) {
@@ -99,45 +127,49 @@ zooScore_tree <- function(tree, auIDs) {
       select(mtrID, parent) |>
       distinct()
 
-    # Run the node eval function for all nodes
-    result <- map(currentNodes$mtrID, function(mtrID) {
-      nodeEval(
-        auID = lvlData$auID[lvlData$mtrID == mtrID],
-        n = lvlData$nPapers[lvlData$mtrID == mtrID],
-        allID = auIDs,
-        carry = result[[as.character(mtrID)]]
-      )
-    })
+    result <- nodeEval(
+      lvlData = lvlData,
+      allID = auIDs,
+      carry = result,
+      carryOrder = carryOrder,
+      m = m
+    )
 
     # If there are multiple nodes feeding into the same parent, merge them
     #  this cannot happen when you are at the root
     if (curLvl > 1) {
-      result <- map(currentNodes$parent |> unique(), function(parent) {
+      result <- lapply(currentNodes$parent |> unique(), function(parent) {
         matches <- which(currentNodes$parent == parent)
-        matches <- result[matches]
 
         if (length(matches) == 1) {
-          return(matches[[1]])
+          return(result[,, matches])
         }
 
+        matches <- result[,, matches]
+
         cbind(
-          matches[[1]][, 1:2],
+          matches[, 1:2, 1],
           Reduce(
             `+`,
-            lapply(matches, function(x) {
-              x[, 3:5]
-            })
+            apply(
+              matches,
+              3,
+              function(m) {
+                m[, 3:5]
+              },
+              simplify = F
+            )
           )
         )
-      })
+      }) |>
+        simplify2array()
     }
 
-    names(result) <- currentNodes$parent |> unique()
+    carryOrder <- currentNodes$parent |> unique()
 
     # Add the level scores to the final score
     finalScore[, "score"] <- finalScore[, "score"] +
-      rowSums(sapply(result, function(x) x[, "score"])) *
-        curLvl
+      rowSums(result[, 5, , drop = F]) * curLvl
 
     # Next level
     curLvl <- curLvl - 1
@@ -149,6 +181,8 @@ zooScore_tree <- function(tree, auIDs) {
 zooScore <- function(papermeshtree) {
   roots <- setNames(unique(papermeshtree$root), unique(papermeshtree$root))
   auIDs <- sort(unique(papermeshtree$auID))
+
+  # Get results for each tree (if multiple roots)
   map_df(
     roots,
     function(root) {
@@ -599,25 +633,24 @@ plot_ly(
 #   )
 # })
 
-roots <- setNames(unique(papermeshtree$root), unique(papermeshtree$root))
-zooscore <- map_df(
-  roots,
-  function(root) {
-    x <- papermeshtree |> filter(root == {{ root }})
-    zooScore(
-      auID = x$auID,
-      nodeID = x$treenum,
-      parent = x$parent,
-      lvl = x$level,
-      n = x$nPapers
-    )
-  },
-  .id = "tree"
-)
+# roots <- setNames(unique(papermeshtree$root), unique(papermeshtree$root))
+# zooscore <- map_df(
+#   roots,
+#   function(root) {
+#     x <- papermeshtree |> filter(root == {{ root }})
+#     zooScore(
+#       auID = x$auID,
+#       nodeID = x$treenum,
+#       parent = x$parent,
+#       lvl = x$level,
+#       n = x$nPapers
+#     )
+#   },
+#   .id = "tree"
+# )
 
-x <- Sys.time()
 zooscore <- zooScore(papermeshtree)
-print(difftime(Sys.time(), x))
+
 
 # Now summarise by author pair (adjust for tree depth in future?)
 zooscore <- zooscore |>
