@@ -74,39 +74,38 @@ nodeEval <- function(auID, n, allID, carry) {
   return(m)
 }
 
-zooScore <- function(auID, nodeID, parent, lvl, n) {
+zooScore_tree <- function(tree, auIDs) {
   # Not enough data to build a tree
-  if (n_distinct(auID) < 2) {
+  if (n_distinct(tree$auID) < 2) {
     return(NULL)
   }
 
   # Setup the run
-  auIDs <- sort(unique(auID))
   finalScore <- combn(auIDs, 2) |> t()
   finalScore <- cbind(finalScore, 0)
   colnames(finalScore) <- c("au1", "au2", "score")
 
   # Start at leaves
-  curLvl <- max(lvl)
+  curLvl <- max(tree$level)
   result <- list()
 
   # Process the tree level by level for all author pairs
   while (curLvl > 0) {
     # Get data for all nodes at lowest current level
-    lvlData <- data.frame(auID, nodeID, parent, lvl, n) |>
-      filter(lvl == curLvl)
+    lvlData <- tree |>
+      filter(level == curLvl)
 
     currentNodes <- lvlData |>
-      select(nodeID, parent) |>
+      select(mtrID, parent) |>
       distinct()
 
     # Run the node eval function for all nodes
-    result <- map(currentNodes$nodeID, function(nodeID) {
+    result <- map(currentNodes$mtrID, function(mtrID) {
       nodeEval(
-        auID = lvlData$auID[lvlData$nodeID == nodeID],
-        n = lvlData$n[lvlData$nodeID == nodeID],
+        auID = lvlData$auID[lvlData$mtrID == mtrID],
+        n = lvlData$nPapers[lvlData$mtrID == mtrID],
         allID = auIDs,
-        carry = result[[as.character(nodeID)]]
+        carry = result[[as.character(mtrID)]]
       )
     })
 
@@ -145,6 +144,18 @@ zooScore <- function(auID, nodeID, parent, lvl, n) {
   }
 
   as.data.frame(finalScore)
+}
+
+zooScore <- function(papermeshtree) {
+  roots <- setNames(unique(papermeshtree$root), unique(papermeshtree$root))
+  auIDs <- sort(unique(papermeshtree$auID))
+  map_df(
+    roots,
+    function(root) {
+      zooScore_tree(tree = papermeshtree |> filter(root == {{ root }}), auIDs)
+    },
+    .id = "tree"
+  )
 }
 
 treeFromID <- function(uids) {
@@ -242,7 +253,7 @@ paperMesh <- function(auIDs, dbInfo) {
     collect()
 }
 
-authorMeshTree <- function(papermesh, dbInfo) {
+meshTree <- function(papermesh, dbInfo) {
   tree <- treeFromID(papermesh$uid)
   tree <- tree |>
     left_join(
@@ -376,110 +387,38 @@ auIDs <- tbl(conn, "author") |>
   pull(auID)
 
 papermesh <- paperMesh(auIDs)
-tree <- authorMeshTree(papermesh)
-# plotData <- mergeTree(tree)
 
-# # Treemap
-# plot_ly(
-#   type = "treemap",
-#   ids = plotData$branchID,
-#   parents = plotData$parentBranchID,
-#   labels = plotData$meshterm,
-#   text = str_wrap(plotData$meshterm, 12),
-#   values = plotData$value,
-#   textinfo = "text",
-#   hovertext = plotData$meshterm,
-#   hoverinfo = "text",
-#   maxdepth = 2,
-# )
+meshtree <- meshTree(papermesh)
 
-# SCORE CALCULATION
-
-# Use this tree for author tree
-dummy <- papermesh |>
-  group_by(auID, meshui) |>
-  summarise(nPapers = n(), .groups = "drop") |>
-  full_join(
-    tree |>
-      mutate(root = str_extract(treenum, "^.")),
-    select(
-      meshui,
-      nodeID = branchID,
-      parent = parentBranchID,
-      lvl = level,
-      root
+paperMeshTree <- function(papermesh, meshtree) {
+  papermesh |>
+    group_by(auID, meshui) |>
+    summarise(nPapers = n(), .groups = "drop") |>
+    full_join(
+      meshtree |>
+        mutate(root = str_extract(treenum, "^.")),
+      select(
+        meshui,
+        nodeID = branchID,
+        parent = parentBranchID,
+        lvl = level,
+        root
+      ) |>
+        distinct(),
+      by = "meshui",
+      relationship = "many-to-many"
     ) |>
-      distinct(),
-    by = "meshui",
-    relationship = "many-to-many"
-  ) |>
-  mutate(
-    auID = ifelse(is.na(auID), auID[1], auID),
-    nPapers = ifelse(is.na(nPapers), as.integer(0), nPapers),
-  )
-
-# Zoo score by tree
-# root <- unique(dummy$root)[1]
-# zooscore <- lapply(unique(dummy$root), function(root) {
-#   x <- dummy |> filter(root == {{ root }})
-#   zooScore(
-#     auID = x$auID,
-#     nodeID = x$treenum,
-#     parent = x$parent,
-#     lvl = x$level,
-#     n = x$nPapers
-#   )
-# })
-
-roots <- setNames(unique(dummy$root), unique(dummy$root))
-zooscore <- map_df(
-  roots,
-  function(root) {
-    x <- dummy |> filter(root == {{ root }})
-    zooScore(
-      auID = x$auID,
-      nodeID = x$treenum,
-      parent = x$parent,
-      lvl = x$level,
-      n = x$nPapers
+    mutate(
+      auID = ifelse(is.na(auID), auID[1], auID),
+      nPapers = ifelse(is.na(nPapers), as.integer(0), nPapers),
     )
-  },
-  .id = "tree"
-)
+}
 
-# Now summarise by author pair (adjust for tree depth in future?)
-zooscore <- zooscore |>
-  group_by(au1, au2) |>
-  summarise(score = sum(score), .groups = "drop")
+papermeshtree <- paperMeshTree(papermesh, meshtree)
 
-# Add author names to zoo score for easier reading
+# Add author names
 au <- tbl(conn, "author") |>
-  filter(auID %in% c(zooscore$au1, zooscore$au2)) |>
-  select(auID) |>
-  left_join(
-    tbl(conn, "authorName") |> filter(default == 1)
-  ) |>
-  collect() |>
-  rowwise() |>
-  mutate(name = paste(lastName, firstName, sep = ", ")) |>
-  select(auID, name)
-
-zooscore <- zooscore |>
-  left_join(
-    au |> select(au1 = auID, au1Name = name),
-    by = "au1"
-  ) |>
-  left_join(
-    au |> select(au2 = auID, au2Name = name),
-    by = "au2"
-  ) |>
-  arrange(desc(score))
-
-authortree <- dummy
-
-# Add author names to zoo score for easier reading
-au <- tbl(conn, "author") |>
-  filter(auID %in% local(unique(authortree$auID))) |>
+  filter(auID %in% local(unique(papermeshtree$auID))) |>
   select(auID) |>
   left_join(
     tbl(conn, "authorName") |> filter(default == 1),
@@ -490,7 +429,7 @@ au <- tbl(conn, "author") |>
   mutate(name = paste(lastName, firstName, sep = ", ")) |>
   select(auID, name)
 
-authortree <- authortree |>
+papermeshtree <- papermeshtree |>
   left_join(
     au |> select(auID, name),
     by = "auID"
@@ -550,9 +489,9 @@ nodeSum <- function(parent, child, value) {
 }
 
 
-treeMap <- function(authortree) {
+treemapData <- function(papermeshtree) {
   # Merge branches with only one child into a single node
-  treemap <- authortree |>
+  treemap <- papermeshtree |>
     arrange(treenum) |>
     mutate(
       parentBranchID = ifelse(
@@ -576,7 +515,11 @@ treeMap <- function(authortree) {
     )
 
   treemap <- treemap |>
-    mutate(parentBranchID = ifelse(is.na(parentBranchID), 0, parentBranchID))
+    mutate(
+      parentBranchID = ifelse(is.na(parentBranchID), 0, parentBranchID),
+      hasChildren = branchID %in% parentBranchID
+    )
+
   meshSum <- nodeSum(
     parent = treemap$parentBranchID,
     child = treemap$branchID,
@@ -586,65 +529,123 @@ treeMap <- function(authortree) {
 
   treemap <- treemap |> left_join(meshSum, by = "branchID")
 
-  # # Get the new parent info for the collapsed data and the root
-  # tree <- tree |>
-  #   left_join(
-  #     tree |>
-  #       select(
-  #         parent = treenum,
-  #         parentBranchID = branchID,
-  #         parentMeshterm = meshterm
-  #       ) |>
-  #       distinct(),
-  #     by = "parentBranchID"
-  #   ) |>
-  #   mutate(
-  #     parentMeshterm = ifelse(
-  #       is.na(parentMeshterm),
-  #       "MeSH Tree",
-  #       parentMeshterm
-  #     ),
-  #     root = str_extract(tree$treenum, "^[^\\.\\s]+")
-  #   )
-
-  return(treemap)
+  bind_rows(
+    data.frame(
+      branchID = as.integer(0),
+      parentBranchID = NA,
+      meshterm = "MeSH Tree",
+      value = 0,
+      nPapers = 0,
+      meshSum = NA
+    ),
+    treemap
+  )
 }
 
-plotData <- treeMap(authortree)
-# plotData <- bind_rows(
-#   data.frame(
-#     branchID = as.integer(0),
-#     parentBranchID = NA,
-#     meshterm = "MeSH Tree",
-#     value = 0,
-#     nPapers = 0,
-#     meshSum = 0
-#   ),
-#   plotData
-# )
+plotData <- treemapData(papermeshtree)
 
 # Treemap Colour scale
 mapColour <- function(vals, minCol = "#f2f3f5", maxCol = "#4682B4") {
+  result <- rep("#FFFFFF", length(vals))
+  nas <- is.na(vals)
+  vals <- vals[!nas]
+  vals <- log(vals + 1)
   val2col <- colorRamp(c(minCol, maxCol))
   vals_norm <- (vals - min(vals)) / (max(vals) - min(vals))
   rgb_matrix <- val2col(vals_norm)
-  rgb(rgb_matrix[, 1], rgb_matrix[, 2], rgb_matrix[, 3], maxColorValue = 255)
+  vals <- rgb(
+    rgb_matrix[, 1],
+    rgb_matrix[, 2],
+    rgb_matrix[, 3],
+    maxColorValue = 255
+  )
+  result[!nas] = vals
+  result
 }
 
 # Render Treemap
+boxText <- str_wrap(paste(plotData$meshSum, plotData$meshterm, sep = " | "), 12)
+boxText <- ifelse(plotData$hasChildren, paste(boxText, "<b>+</b>"), boxText)
+
 plot_ly(
   type = "treemap",
   ids = plotData$branchID,
   parents = plotData$parentBranchID,
-  labels = paste(plotData$meshSum, plotData$meshterm, sep = " | "),
-  text = str_wrap(paste(plotData$meshSum, plotData$meshterm, sep = " | "), 12),
+  labels = ifelse(
+    is.na(plotData$meshSum),
+    plotData$meshterm,
+    paste(plotData$meshSum, plotData$meshterm, sep = " | ")
+  ),
+  text = boxText,
   values = plotData$value,
-  marker = list(colors = mapColour(log(plotData$meshSum + 1))),
+  marker = list(colors = mapColour(plotData$meshSum)),
   textinfo = "text",
   hovertext = plotData$authors,
   hoverinfo = "text",
   maxdepth = 3,
 )
+
+
+# Zoo score by tree
+# root <- unique(dummy$root)[1]
+# zooscore <- lapply(unique(dummy$root), function(root) {
+#   x <- dummy |> filter(root == {{ root }})
+#   zooScore(
+#     auID = x$auID,
+#     nodeID = x$treenum,
+#     parent = x$parent,
+#     lvl = x$level,
+#     n = x$nPapers
+#   )
+# })
+
+roots <- setNames(unique(papermeshtree$root), unique(papermeshtree$root))
+zooscore <- map_df(
+  roots,
+  function(root) {
+    x <- papermeshtree |> filter(root == {{ root }})
+    zooScore(
+      auID = x$auID,
+      nodeID = x$treenum,
+      parent = x$parent,
+      lvl = x$level,
+      n = x$nPapers
+    )
+  },
+  .id = "tree"
+)
+
+x <- Sys.time()
+zooscore <- zooScore(papermeshtree)
+print(difftime(Sys.time(), x))
+
+# Now summarise by author pair (adjust for tree depth in future?)
+zooscore <- zooscore |>
+  group_by(au1, au2) |>
+  summarise(score = sum(score), .groups = "drop")
+
+# Add author names to zoo score for easier reading
+au <- tbl(conn, "author") |>
+  filter(auID %in% c(zooscore$au1, zooscore$au2)) |>
+  select(auID) |>
+  left_join(
+    tbl(conn, "authorName") |> filter(default == 1)
+  ) |>
+  collect() |>
+  rowwise() |>
+  mutate(name = paste(lastName, firstName, sep = ", ")) |>
+  select(auID, name)
+
+zooscore <- zooscore |>
+  left_join(
+    au |> select(au1 = auID, au1Name = name),
+    by = "au1"
+  ) |>
+  left_join(
+    au |> select(au2 = auID, au2Name = name),
+    by = "au2"
+  ) |>
+  arrange(desc(score))
 
 # branchID <- function(parent, child) {
 #   # Build adjacency list
