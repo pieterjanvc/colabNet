@@ -8,11 +8,27 @@
 dbSetup("data/test.db", checkSchema = T)
 
 authors = data.frame(
-  First_name = c("PJ", "Lorenzo", "Cristina", "Irene", "Grey", "Kayla", "Lauren"),
-  Last_name = c("Van Camp", "Gesuita","Deoliveira", "Wong", 'Kuling', "Nygaard", "Essler")
+  First_name = c(
+    "PJ",
+    "Lorenzo",
+    "Cristina",
+    "Irene",
+    "Grey",
+    "Kayla",
+    "Lauren"
+  ),
+  Last_name = c(
+    "Van Camp",
+    "Gesuita",
+    "Deoliveira",
+    "Wong",
+    'Kuling',
+    "Nygaard",
+    "Essler"
+  )
 )
 i = 1
-authorPublications <- lapply(1:nrow(authors), function(i){
+authorPublications <- lapply(1:nrow(authors), function(i) {
   firstName = authors$First_name[i]
   lastName = authors$Last_name[i]
   print(paste(firstName, lastName))
@@ -59,7 +75,7 @@ authorPublications <- lapply(1:nrow(authors), function(i){
     firstName = authorinfo$firstName[1],
     initials = authorinfo$initials[1],
     history = result$history
-  ) 
+  )
 
   if (nrow(authorPublications$articles) == 0) {
     warning(sprintf(

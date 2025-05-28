@@ -203,13 +203,3 @@ zooScore2 <- function(papermeshtree) {
     .id = "tree"
   )
 }
-
-profvisRender <- function(expr) {
-  test <- profvis::profvis(
-    rlang::eval_tidy(rlang::enquo(expr)),
-    prof_output = "D:/Desktop/proftest.Rprofvis"
-  )
-
-  htmlwidgets::saveWidget(test, "D:/Desktop/proftest.html")
-  browseURL("D:/Desktop/proftest.html")
-}

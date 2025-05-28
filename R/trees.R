@@ -1,29 +1,76 @@
-#' Build a MeSH Tree from a list of MeSH IDs
-#' Missing nodes will be filled in and the tree will be built until the root
+#' Check if MeSH tree numbers are valid
 #'
-#' @param uids Vector of Mesh uid to buidll the tree
-#' @param dbInfo (optional if dbSetup() has been run)
-#'  Path to the ColabNet database or existing connection
+#' @param treenums vector of MeSH tree numbers
+#' @param output "errorOnly" (Default) will only raise error, not output.
+#' Alternatively "bool" will return TRUE / FALSE for no errors / errors respectively
+#' "vector" will return a list of TRUE / FALSE with the check for each number
 #'
-#' @import RSQLite
-#' @import dplyr
+#' @importFrom stringr str_detect
 #'
-#' @return Dataframe with tree info (mtrID, uid, meshui, treenum)
+#' @return Dependent on output argument
 #' @export
 #'
-dbTreeFromMesh <- function(uids, dbInfo) {
-  conn <- dbGetConn(dbInfo)
-  treenums <- tbl(conn, "meshTree") |>
-    filter(uid %in% local(unique(uids))) |>
-    pull(treenum)
+checkTreeNums <- function(treenums, output = "errorOnly") {
+  check <- str_detect(treenums, r"(^[A-Z]\d{2}(\.\d{3}){0,}$)")
 
-  treenums <- missingTreeNums(treenums, includeOriginal = T, includeRoots = T)
+  if (output == "vector") {
+    return(check)
+  } else if (output == "bool") {
+    return(all(check))
+  } else if (!all(check)) {
+    stop(
+      "Invalid tree numbers: ",
+      paste(treenums[!check], collapse = ", ")
+    )
+  }
+}
 
-  tbl(conn, "meshTree") |>
-    filter(treenum %in% local(treenums)) |>
-    left_join(tbl(conn, "meshLink"), by = "uid") |>
-    collect() |>
-    select(mtrID, uid, meshui, treenum)
+#' Extract all missing Mesh tree numbers for leaf nodes to reach their root
+#'
+#' This will allow to reconstruct the MeSH tree later by filling in gaps from
+#' leaves to the root
+#'
+#' @param treenums A vector of MeshTreeNumbers (e.g. N.06.850.290.200).
+#' Use checkTreeNums() is you want to make sure the numbers are in valid format
+#' @param includeOriginal Default = FALSE. If TRUE, the provided treenums will be
+#' part of the result
+#' @param includeRoots Default = FALSE. If TRUE, the provided root (category)
+#' letter will be part of the result
+#'
+#' @importFrom stringr str_remove
+#'
+#' @return vector of treenums representing missing nodes between leaves and root
+#'
+#' @export
+missingTreeNums <- function(treenums, includeOriginal = F, includeRoots = F) {
+  treenums <- unique(treenums)
+
+  currentNodes <- treenums
+  allNodes <- currentNodes
+
+  # Chop off the last node from the treenum to get parent, then repeat until root
+  while (length(currentNodes) > 0) {
+    nextUp <- str_remove(currentNodes, "\\.\\d+$")
+    nextUp <- nextUp[nextUp != currentNodes]
+    allNodes <- c(allNodes, nextUp)
+    currentNodes <- nextUp
+  }
+
+  allNodes <- allNodes %>% unique()
+
+  if (includeRoots) {
+    allNodes <- c(unique(str_extract(allNodes, "^\\w")), allNodes)
+  }
+
+  if (!includeOriginal) {
+    allNodes <- allNodes[!allNodes %in% treenums]
+  }
+
+  if (length(allNodes) == 0) {
+    return(NULL)
+  } else {
+    allNodes
+  }
 }
 
 #' Find and label linear branches (single chain of nodes)
@@ -54,10 +101,10 @@ branchID <- function(node, parent) {
   children <- split(node, parent)
 
   # Identify all nodes
-  all_nodes <- unique(c(parent, child))
+  all_nodes <- unique(c(parent, node))
 
   # Find root (a node that is never a child)
-  root <- setdiff(parent, child)
+  root <- setdiff(parent, node)
   if (length(root) != 1) {
     stop(
       "Tree must have exactly one root. Found: ",
@@ -106,6 +153,34 @@ branchID <- function(node, parent) {
   return(list(branchID = branchIDs, treemapVal = nodeValues))
 }
 
+#' Build a MeSH Tree from a list of MeSH IDs
+#' Missing nodes will be filled in and the tree will be built until the root
+#'
+#' @param uids Vector of Mesh uid to buidll the tree
+#' @param dbInfo (optional if dbSetup() has been run)
+#'  Path to the ColabNet database or existing connection
+#'
+#' @import RSQLite
+#' @import dplyr
+#'
+#' @return Dataframe with tree info (mtrID, uid, meshui, treenum)
+#' @export
+#'
+dbTreeFromMesh <- function(uids, dbInfo) {
+  conn <- dbGetConn(dbInfo)
+  treenums <- tbl(conn, "meshTree") |>
+    filter(uid %in% local(unique(uids))) |>
+    pull(treenum)
+
+  treenums <- missingTreeNums(treenums, includeOriginal = T, includeRoots = T)
+
+  tbl(conn, "meshTree") |>
+    filter(treenum %in% local(treenums)) |>
+    left_join(tbl(conn, "meshLink"), by = "uid") |>
+    collect() |>
+    select(mtrID, uid, meshui, treenum)
+}
+
 #' Get all of the MeSH terms from papers by a set of authors
 #'
 #' @param auIDs Vector auIDs
@@ -119,6 +194,8 @@ branchID <- function(node, parent) {
 #'
 #' @export
 dbPaperMesh <- function(auIDs, dbInfo) {
+  conn <- dbGetConn(dbInfo)
+
   # Get all MeshTerms for papers
   tbl(conn, "coauthor") |>
     filter(auID %in% auIDs) |>
@@ -134,7 +211,7 @@ dbPaperMesh <- function(auIDs, dbInfo) {
     collect()
 }
 
-#' Build a full MeSH tree from papermesh data frame
+#' Build a full MeSH tree from a papermesh data frame
 #'
 #' @param papermesh Data frame generated by dbPaperMesh()
 #' @param dbInfo (optional if dbSetup() has been run)
@@ -149,6 +226,8 @@ dbPaperMesh <- function(auIDs, dbInfo) {
 #'
 #' @export
 dbMeshTree <- function(papermesh, dbInfo) {
+  conn <- dbGetConn(dbInfo)
+
   # Build the basic MeSH tree
   tree <- dbTreeFromMesh(papermesh$uid)
 
@@ -226,51 +305,36 @@ dbMeshTree <- function(papermesh, dbInfo) {
   )
 }
 
-#' Collapse a Mesh Tree based on the branchIDs
-#'  All nodes in the same linear branch are merged to reduce unnecessary nesting
+#' Expand a MeSH tree with author level info from papermesh
 #'
+#' @param papermesh Data frame generated by dbPaperMesh()
 #' @param meshtree Data frame generated by dbMeshTree()
-#' @param sep. Default = " -> <br>". Separator to use for MeSH terms when
-#' collapsing them across nodes
 #'
 #' @import dplyr
 #'
-#' @return Dataframe containing the collapsed MeSH tree
+#' @return Dataframe containing the MeSH tree expanded with author details
 #'
 #' @export
-collapseTree <- function(meshtree, sep = " -> <br>") {
-  # Collapse branches into a single node
-  tree <- meshtree |>
-    group_by(branchID) |>
-    summarise(
-      parentBranchID = min(parentBranchID),
-      leafNodeTreenum = treenum[n()],
-      treenum = paste(treenum, collapse = sep),
-      meshterm = paste(meshterm, collapse = sep),
-      treemapVal = sum(treemapVal),
-      root = root[1],
-      .groups = "drop"
-    )
-
-  # Get the new parent info for the collapsed data and the root
-  tree <- tree |>
-    left_join(
-      tree |>
-        select(
-          parent = treenum,
-          parentBranchID = branchID,
-          parentMeshterm = meshterm
-        ) |>
+paperMeshTree <- function(papermesh, meshtree) {
+  papermesh |>
+    group_by(auID, meshui) |>
+    summarise(nPapers = n(), .groups = "drop") |>
+    full_join(
+      meshtree |>
+        mutate(root = str_extract(treenum, "^.")),
+      select(
+        meshui,
+        nodeID = branchID,
+        parent = parentBranchID,
+        lvl = level,
+        root
+      ) |>
         distinct(),
-      by = "parentBranchID"
+      by = "meshui",
+      relationship = "many-to-many"
     ) |>
     mutate(
-      parentMeshterm = ifelse(
-        is.na(parentMeshterm),
-        "MeSH Tree",
-        parentMeshterm
-      )
+      auID = ifelse(is.na(auID), auID[1], auID),
+      nPapers = ifelse(is.na(nPapers), as.integer(0), nPapers),
     )
-
-  return(tree)
 }

@@ -420,11 +420,11 @@ auIDs <- tbl(conn, "author") |>
   filter(authorOfInterest == 1) |>
   pull(auID)
 
-papermesh <- paperMesh(auIDs)
+papermesh <- dbPaperMesh(auIDs)
 
-meshtree <- meshTree(papermesh)
+meshtree <- dbMeshTree(papermesh)
 
-paperMeshTree <- function(papermesh, meshtree) {
+paperMeshTree_old <- function(papermesh, meshtree) {
   papermesh |>
     group_by(auID, meshui) |>
     summarise(nPapers = n(), .groups = "drop") |>
@@ -448,7 +448,8 @@ paperMeshTree <- function(papermesh, meshtree) {
     )
 }
 
-papermeshtree <- paperMeshTree(papermesh, meshtree)
+papermeshtree <- paperMeshTree_old(papermesh, meshtree)
+# papermeshtree <- paperMeshTree(papermesh, meshtree)
 
 # Add author names
 au <- tbl(conn, "author") |>
@@ -538,7 +539,7 @@ treemapData <- function(papermeshtree) {
     summarise(
       parentBranchID = min(parentBranchID),
       meshterm = paste(unique(meshterm), collapse = " -> "),
-      value = sum(value),
+      treemapVal = sum(treemapVal),
       nPapers = sum(nPapers),
       authors = paste(
         sort(unique(sprintf("%s", name))),
@@ -568,7 +569,7 @@ treemapData <- function(papermeshtree) {
       branchID = as.integer(0),
       parentBranchID = NA,
       meshterm = "MeSH Tree",
-      value = 0,
+      treemapVal = 0,
       nPapers = 0,
       meshSum = NA
     ),
@@ -611,7 +612,7 @@ plot_ly(
     paste(plotData$meshSum, plotData$meshterm, sep = " | ")
   ),
   text = boxText,
-  values = plotData$value,
+  values = plotData$treemapVal,
   marker = list(colors = mapColour(plotData$meshSum)),
   textinfo = "text",
   hovertext = plotData$authors,
@@ -619,35 +620,6 @@ plot_ly(
   maxdepth = 3,
 )
 
-
-# Zoo score by tree
-# root <- unique(dummy$root)[1]
-# zooscore <- lapply(unique(dummy$root), function(root) {
-#   x <- dummy |> filter(root == {{ root }})
-#   zooScore(
-#     auID = x$auID,
-#     nodeID = x$treenum,
-#     parent = x$parent,
-#     lvl = x$level,
-#     n = x$nPapers
-#   )
-# })
-
-# roots <- setNames(unique(papermeshtree$root), unique(papermeshtree$root))
-# zooscore <- map_df(
-#   roots,
-#   function(root) {
-#     x <- papermeshtree |> filter(root == {{ root }})
-#     zooScore(
-#       auID = x$auID,
-#       nodeID = x$treenum,
-#       parent = x$parent,
-#       lvl = x$level,
-#       n = x$nPapers
-#     )
-#   },
-#   .id = "tree"
-# )
 
 zooscore <- zooScore(papermeshtree)
 

@@ -2,7 +2,7 @@
 % Please edit documentation in R/trees.R
 \name{dbMeshTree}
 \alias{dbMeshTree}
-\title{Build a full MeSH tree from papermesh data frame}
+\title{Build a full MeSH tree from a papermesh data frame}
 \usage{
 dbMeshTree(papermesh, dbInfo)
 }
@@ -18,5 +18,5 @@ This will also contain parentIDs, branchIDs and parentBranchIDs
 the tree root name and treemapVals
 }
 \description{
-Build a full MeSH tree from papermesh data frame
+Build a full MeSH tree from a papermesh data frame
 }
