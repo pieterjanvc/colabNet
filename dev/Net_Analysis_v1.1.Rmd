@@ -1,0 +1,379 @@
+---
+title: "Collaboration Network Analysis"
+output: html_document
+date: "`r Sys.Date()`"
+---
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+
+if (!("visNetwork" %in% installed.packages())) { install.packages("visNetwork") }
+if (!("dplyr" %in% installed.packages())) { install.packages("dplyr") }
+if (!("igraph" %in% installed.packages())) { install.packages("igraph") }
+if (!("DT" %in% installed.packages())) { install.packages("DT") }
+if (!("viridis" %in% installed.packages())) { install.packages("viridis") }
+if (!("ggraph" %in% installed.packages())) { install.packages("ggraph") }
+
+
+
+library(igraph)
+library(visNetwork)
+library(dplyr)
+library(DT)
+library(viridis)
+library(ggraph)
+
+```
+
+```{r, echo = FALSE}
+
+# Functions to create an igraph element
+
+create_network <- function(df) {
+
+    # Create a unique list of MyID
+    unique_MyID <- unique(df$MyID)
+    
+    # Create the edge list with weights using combn to avoid duplicate edges
+    edge_list <- t(combn(unique_MyID, 2)) %>%
+      as.data.frame() %>%
+      rowwise() %>%
+      mutate(weight = length(intersect(df$PMID[df$MyID == V1], df$PMID[df$MyID == V2]))) %>%
+      filter(weight > 0) %>%
+      rename(from = V1, to = V2)
+    
+    edge_list$weight <- as.numeric(edge_list$weight)
+    
+    # Create nodes and edges dataframes for visNetwork
+    nodes <- data.frame(id = unique_MyID, label = unique_MyID)
+    edges <- data.frame(from = edge_list$from, to = edge_list$to, value = edge_list$weight)
+    
+    # Create a network element using  igraph
+    g <- graph_from_data_frame(d = edges, vertices = nodes, directed = FALSE)
+    E(g)$weight <- edge_list$weight
+    
+    return(g)
+    }
+
+```
+
+```{r, echo = FALSE}
+
+# Functions to plot the igraph element
+# PJ, this plotting function should be replaced with your interactive one
+
+plot_network <- function(g) {
+  
+  par(mar = c(0, 0, 0, 0)) # Increase the plotting area size
+
+  plot <- plot(g, 
+     vertex.label = NA, 
+     vertex.size = 5, 
+     edge.arrow.size = 0.5, 
+     layout = layout_with_fr, 
+     edge.width = E(g)$weight)
+  
+  return(plot)
+  }
+
+```
+
+```{r, echo = FALSE}
+
+# Functions to compute basic networks metrics
+basic_metrics <- function(g, df) {
+  
+  results <- data.frame(
+  metric = character(),
+  value = numeric(),
+  sd = numeric(),
+  percent = numeric(),
+  stringsAsFactors = FALSE
+  )
+
+  # Number of nodes
+  new <- data.frame(
+    metric = "number of principal authors (nodes)",
+    value = vcount(g),
+    sd = NA,
+    percent = NA
+  )
+  results <- rbind(results, new)
+  
+  # number of components
+  new <- data.frame(
+    metric = "number of components",
+    value = components(g)$no,
+    sd = NA,
+    percent = NA
+    )
+    results <- rbind(results, new)
+  
+  # largest component
+  new <- data.frame(
+    metric = "size largest component",
+    value = max(components(g)$csize),
+    sd = NA,
+    percent = max(components(g)$csize)/vcount(g)*100
+    )
+    results <- rbind(results, new)
+    
+  # number of unconnected nodes
+  new <- data.frame(
+    metric = "number of unconnected principal authors (nodes)",
+    value = sum(components(g)$csize == 1),
+    sd = NA,
+    percent = sum(components(g)$csize == 1)/vcount(g)*100
+    )
+    results <- rbind(results, new)
+  
+  # Number of edges
+  new <- data.frame(
+    metric = "number of collaborations (edges)",
+    value = ecount(g),
+    sd = NA,
+    percent = ecount(g)/choose(vcount(g), 2)*100 # num_edges/max_num_edges
+  )
+  results <- rbind(results, new)
+  
+  # mean collaborators per principal author
+  new <- data.frame(
+    metric = "mean number of collaborators per principal author",
+    value = mean(degree(g, mode="all", normalized=FALSE)),
+    sd = sd(degree(g, mode="all", normalized=FALSE)),
+    percent = mean(degree(g, mode="all", normalized=FALSE))/(vcount(g)-1)*100 #(mean collaborators per author/max numbers of possible collaborators)
+    )
+    results <- rbind(results, new)
+  
+  # mean papers per collaboration
+  new <- data.frame(
+    metric = "mean papers per collaboration (per edge)",
+    value = mean(E(g)$weight),
+    sd = sd(E(g)$weight),
+    percent = mean(E(g)$weight)/length(unique(df$PMID))*100 #mean papers per collaboration/total number of available papers
+    )
+    results <- rbind(results, new)
+  
+  # mean authors participating to a paper
+  new <- data.frame(
+  metric = "mean authors participating to a paper",
+  value = mean(table(df$PMID)),
+  sd = sd(table(df$PMID)),
+  percent = mean(table(df$PMID))/vcount(g)*100 #mean authors participating into a paper/total number of authors
+  )
+  results <- rbind(results, new)
+  
+  # mean distance between authors (excluding unconnected)
+  new <- data.frame(
+  metric = "mean distance between authors",
+  value = mean_distance(g,weights = NA,unconnected = TRUE),
+  sd = sd(as.vector(distances(g, weights = NA))[is.finite(as.vector(distances(g, weights = NA))) & as.vector(distances(g, weights = NA)) != 0]),
+  percent = NA
+  )
+  results <- rbind(results, new)
+
+  return(results)
+  }
+
+```
+
+```{r, echo = FALSE}
+
+# Functions to compute centrality metrics (not weighted)
+
+centrality_metrics <- function(g) {
+
+results <- data.frame(
+      node = V(g)$name,
+      degree = degree(g, mode = "all", normalized = FALSE),
+      betweenness = betweenness(g, directed = FALSE, weights = NULL, normalized = FALSE),
+      closeness = closeness(g, mode = "all", weights = NULL, normalized = FALSE),
+     
+      norm_degree = degree(g, mode = "all", normalized = TRUE),
+      norm_betweenness = betweenness(g, directed = FALSE, weights = NULL, normalized = TRUE),
+      norm_closeness = closeness(g, mode = "all", weights = NULL, normalized = TRUE),
+      
+      centrality_score = degree(g, mode = "all", normalized = TRUE) + betweenness(g, directed = FALSE, weights = NULL, normalized = TRUE) + closeness(g, mode = "all", weights = NULL, normalized = TRUE)
+  )
+
+results <- results[order(-results$centrality_score), ]
+  
+  return(results)
+}
+  
+```
+
+
+```{r, echo = FALSE}
+
+# Functions to compute advanced network metrics
+advanced_metrics <- function(g, df) {
+
+  results <- data.frame(
+  metric = character(),
+  value = numeric(),
+  sd = numeric(),
+  percent = numeric(),
+  stringsAsFactors = FALSE
+  )
+  
+
+  # network efficiency (not weighted)
+  new <- data.frame(
+    metric = "network efficiency (not weighted)",
+    value = global_efficiency(g, weights = NA, directed = FALSE),
+    sd = NA,
+    percent = NA
+  )
+  results <- rbind(results, new)
+  
+  
+  # clustering coefficient
+  new <- data.frame(
+    metric = "clustering coefficient",
+    value = transitivity(g, weights = NULL, type = "global"),
+    sd = NA,
+    percent = NA
+  )
+  results <- rbind(results, new)
+  
+  
+  # assortativity coefficient
+  new <- data.frame(
+    metric = "assortativity coefficient",
+    value = assortativity_degree(g),
+    sd = NA,
+    percent = NA
+  )
+  results <- rbind(results, new)
+  
+  # number of communities
+  communities <- cluster_louvain(g, weights = NA)
+  membership <- membership(communities)
+  
+  new <- data.frame(
+    metric = "number of communities",
+    value = length(unique(membership)),
+    sd = NA,
+    percent = NA
+  )
+  results <- rbind(results, new)
+  
+  return(results)
+  }
+
+```
+
+
+
+
+# MAIN CODE
+
+```{r, echo = FALSE}
+
+df <- read.csv("/Users/lorenzogesuita/Documents/Job_Harvard/PGG_Program in Genetics and Genomics/PGG_App_Upgraded for Paper/Full_Authors test.csv", header = TRUE)
+
+g <- create_network(df)
+
+```
+
+## Network Plot
+```{r, echo = FALSE}
+plot_network(g)
+```
+
+## Basic Metrics
+```{r, echo = FALSE}
+datatable(basic_metrics(g, df), options = list(pageLength = 10)) %>%
+  formatRound(columns = c('value','sd','percent'), digits = 2)
+```
+
+## Centrality Metrics (key players in each component)
+
+```{r, echo = FALSE, results = 'asis'}
+# Identify components with more than one node
+large_components <- which(table(components(g)$membership) > 1)
+
+# Iterate over each large component
+for (i in large_components) {
+  # Extract authors in the current component
+  authors <- V(g)[components(g)$membership == i]$name
+  
+  # Filter df to include only authors in the current component
+  df_component <- df[df$MyID %in% authors, ]
+  
+  # Create a network element only for the current component
+  g_component <- create_network(df_component)
+  
+  # Compute centrality metrics for the current component
+  centrality <- centrality_metrics(g_component)
+  
+ # Print the datatable
+  cat("### Component", i, "\n\n")
+  datatable(centrality, options = list(pageLength = 10))
+  cat("\n\n")
+}
+
+```
+
+## Advanced Network Metrics
+```{r, echo = FALSE}
+datatable(advanced_metrics(g, df), options = list(pageLength = 10))
+```
+
+```{r, echo = FALSE}
+# This code computes weights in a different way, based on Newman 2001
+
+create_network_Newman_2001 <- function(df) {
+
+    # Create a unique list of MyID
+    unique_MyID <- unique(df$MyID)
+    
+    # Create the edge list with weights using combn to avoid duplicate edges
+    edge_list <- t(combn(unique_MyID, 2)) %>%
+      as.data.frame() %>%
+      rowwise() %>%
+      mutate(weight = Newman_2001(df,V1,V2)) %>%
+      filter(weight > 0) %>%
+      rename(from = V1, to = V2)
+    
+    edge_list$weight <- as.numeric(edge_list$weight)
+    
+    # Create nodes and edges dataframes for visNetwork
+    nodes <- data.frame(id = unique_MyID, label = unique_MyID)
+    edges <- data.frame(from = edge_list$from, to = edge_list$to, value = edge_list$weight)
+    
+    # Create a network element using  igraph
+    g <- graph_from_data_frame(d = edges, vertices = nodes, directed = FALSE)
+    E(g)$weight <- edge_list$weight
+    
+    return(g)
+}
+
+
+Newman_2001 <- function(df,V1,V2) {
+    # Step 1: Identify the PMIDs that intersect for V1 and V2
+    intersecting_pmids <- intersect(df$PMID[df$MyID == V1], df$PMID[df$MyID == V2])
+    
+    # Step 2: Initialize a variable to store the total weight
+    total_weight <- 0
+    
+    # Step 3: Loop through each intersecting PMID
+    for (pmid in intersecting_pmids) {
+    
+    # Step 4: Find the corresponding row in df
+    row <- df[df$PMID == pmid, ][1, ]
+    
+        
+    # Step 5: Count the number of authors (assuming they are comma-separated)
+    authors <- strsplit(as.character(row$All_Authors), ",")[[1]]
+    n_authors <- length(authors)
+        
+    # Step 6: Calculate 1/(n-1) and add it to total_weight
+    weight_contrib <- 1/(n_authors - 1)
+    total_weight <- total_weight + weight_contrib
+    
+    }
+    return(total_weight)
+}
+
+```
