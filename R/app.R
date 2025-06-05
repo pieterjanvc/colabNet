@@ -206,29 +206,45 @@ colabNet <- function(colabNetDB) {
 
     # ---- Colab Network ----
 
-    output$networkPlot <- renderVisNetwork({
-      nodes <- tbl(pool, "author") |>
-        filter(authorOfInterest == 1, auID != 163) |>
-        left_join(tbl(pool, "authorName") |> filter(default), by = "auID") |>
-        select(id = auID, lastName, firstName, collectiveName) |>
-        collect() |>
-        mutate(
-          label = case_when(
-            !is.na(collectiveName) ~ collectiveName,
-            is.na(firstName) ~ lastName,
-            TRUE ~ sprintf("%s\n%s", lastName, firstName)
-          )
-        ) |>
-        select(id, label)
+    #CHECK BOTH DF LATER TO SHARE BETTER
+    coPub <- tbl(pool, "author") |>
+      filter(authorOfInterest == 1) |>
+      left_join(
+        tbl(pool, "coAuthor"),
+        by = "auID"
+      ) |>
+      group_by(arID) |>
+      filter(n() > 1) |>
+      ungroup() |>
+      left_join(
+        tbl(pool, "authorName") |> filter(default) |> select(-anID),
+        by = "auID"
+      ) |>
+      collect() |>
+      mutate(name = sprintf("%s %s", lastName, firstName))
 
-      edges <- isolate(preCompData()$authorsimscore) |>
-        transmute(
-          from = au1,
-          to = au1,
-          width = score / max(score),
-          color = colorRamp(c("#feffb3", "#12b725"))(width) |>
-            rgb(maxColorValue = 255),
-          width = width * 8
+    pairInfo <- coPub |>
+      group_by(arID) |>
+      reframe(
+        as.data.frame(combn(auID, 2) |> t())
+      ) |>
+      rename(from = V1, to = V2) |>
+      group_by(from, to) |>
+      mutate(id = cur_group_id()) |>
+      ungroup()
+
+    output$networkPlot <- renderVisNetwork({
+      nodes <- coPub |> select(id = auID, label = name) |> distinct()
+
+      edges <- pairInfo |>
+        group_by(id, from, to) |>
+        summarise(width = n(), label = as.character(n()), .groups = "drop") |>
+        mutate(
+          color = case_when(
+            width == 1 ~ "#ffcc33",
+            width == 2 ~ "#ee6600",
+            width > 2 ~ "#990000",
+          )
         )
 
       # Create a simple visNetwork graph
@@ -248,8 +264,55 @@ colabNet <- function(colabNetDB) {
             # damping = 0.4,                  # Optional: adjust damping
             repulsion = 1000 # Increased repulsion value
           )
+        ) |>
+        visEvents(
+          select = "function(data) {
+                  Shiny.onInputChange('coPub_selection', data);
+                  ;}"
         )
     })
+
+    observeEvent(
+      input$coPub_selection,
+      {
+        clicked <- input$coPub_selection
+
+        if (class(clicked) == "NULL") {
+          replaceData(proxy, allArticles |> select(-arID), rownames = F)
+          return()
+        }
+
+        toFilter <- pairInfo |>
+          filter(id %in% unlist(clicked$edges)) |>
+          pull(arID)
+
+        if (length(toFilter) == 0) {
+          replaceData(proxy, allArticles |> select(-arID), rownames = F)
+          return()
+        }
+
+        replaceData(
+          proxy,
+          allArticles |>
+            filter(arID %in% toFilter) |>
+            select(-arID) |>
+            group_by(PMID) |>
+            mutate(lastName = paste(sort(lastName), collapse = " & ")) |>
+            ungroup() |>
+            distinct(),
+          rownames = F
+        )
+
+        ## Keep to see what the clicked data list contains if needed in future
+        # showModal(modalDialog(
+        #   HTML(paste(
+        #     capture.output(print(clicked)),
+        #     collapse = "<br>"
+        #   ))
+        # ))
+      },
+      ignoreNULL = F
+    )
 
     # ---- Colab MeSH Tree ----
 
