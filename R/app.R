@@ -147,11 +147,15 @@ colabNet <- function(colabNetDB) {
               wellPanel(
                 tags$h3("Find articles on Pubmed"),
                 textInput("lastName", "Last name"),
-                textInput("firstName", "First name"),
-                checkboxInput(
-                  "includeInitials",
-                  "Extend search with initials (broader)"
-                ),
+                textInput("firstName", "First name + middle initials"),
+                tags$i(HTML(
+                  "Use the first name and add any middle name initials the author uses to publish.",
+                  "<br>- For a more specific search use full first name and then middle initials: ",
+                  "Joseph E Murray &rarr; Joseph E<br>- For a broader search, use initals only",
+                  "Joseph E Murray &rarr; JE"
+                )),
+                br(),
+                br(),
                 textAreaInput(
                   "PMIDs",
                   "(optional) Limit search by PMID (comma separated)"
@@ -468,7 +472,9 @@ colabNet <- function(colabNetDB) {
     })
 
     authorArticles <- reactive({
-      if (input$auID == "0") return(data.frame())
+      if (input$auID == "0") {
+        return(data.frame())
+      }
       # Reset UI
       pubmedSearch(NULL)
       elementMsg("pubmedByAuthor")
@@ -535,7 +541,9 @@ colabNet <- function(colabNetDB) {
       }
 
       # Get info from Pubmed
-      author <- ncbi_author(input$lastName, input$firstName, showWarnings = F)
+      author <- ncbi_author(input$lastName, input$firstName, showWarnings = F)[
+        1,
+      ]
 
       # If no author found
       if (length(author$lastName) == 0) {
@@ -550,29 +558,20 @@ colabNet <- function(colabNetDB) {
 
       # Look for articles in Pubmed
       search <- ncbi_authorArticleList(
-        author$lastName,
-        author$firstName,
-        author$initials,
+        input$lastName,
+        input$firstName,
         str_split(input$PMIDs, ",")[[1]] |> str_trim(),
-        input$includeInitials
       )
 
-      if (search$statusCode == 0) {
+      if (!search$success) {
         elementMsg(
           "pubmedByAuthor",
           sprintf(
-            "This search yielded too many (%i) results. Please add PMIDs",
+            "This search yielded too many (%i) results. Please use PMIDs instead",
             search$n
           )
         )
         df <- NULL
-      } else if (search$statusCode == 1 & input$includeInitials) {
-        elementMsg(
-          "pubmedByAuthor",
-          "It's possible that this name is ambiguous as many results were found. 
-          Consider limiting by PMID to only return relevant articles."
-        )
-        df <- search$articles
       } else {
         elementMsg("pubmedByAuthor")
         df <- search$articles

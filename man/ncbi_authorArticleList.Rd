@@ -7,9 +7,7 @@
 ncbi_authorArticleList(
   lastName,
   firstName,
-  initials,
   PMIDs,
-  searchInitials = F,
   returnHistory = F,
   PMIDonly = F,
   simpletext = T,
@@ -19,14 +17,11 @@ ncbi_authorArticleList(
 \arguments{
 \item{lastName}{Author last name}
 
-\item{firstName}{Author first name}
-
-\item{initials}{Author initials (ignored when searchInitials = F)}
+\item{firstName}{First name. Add any middle initials the author uses to publish.
+E.g. 'Joseph E Murray' --> 'Joseph E'. To be broader in case of multiple spellings,
+only supply initials e.g. 'Joseph E Murray' --> 'JE'.}
 
 \item{PMIDs}{(optional) If set limit the search to the PMIDs for the given author}
-
-\item{searchInitials}{Default = F. Include additional search on initials.
-This is helpful if author has used multiple versions of first name}
 
 \item{returnHistory}{(Default = False). If true, will return rentrez web history object}
 
@@ -38,8 +33,8 @@ found. In this case is might be better to manually provide the PMID instead}
 }
 \value{
 List with 4 elements
-success: TRUE if success; If FALSE, number of matches > stopFetching, nothing returned
 \itemize{
+\item success: TRUE if success; If FALSE, number of matches > stopFetching, nothing returned
 \item n: Total number of articles found (returned even when stopFetching reached)
 \item PMIDs: when not stopFetching
 \item articles: Data frame with basic article info (when PMIDonly = F and not stopFetching)
