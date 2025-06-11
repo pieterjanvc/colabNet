@@ -70,17 +70,20 @@ nodeEval <- function(lvlData, allID, carry, carryOrder, m) {
   a[, 5, ] <- (a[, 3, ] + a[, 4, ] - abs(a[, 3, ] - a[, 4, ])) / 2
 
   # Update col 3-4 with remainder to carry over
-  if (dim(a)[3] == 1) {
-    # If only one element in 3rd dim, slightly different operation needed
-    a[, 3:4, ] <- a[, 3:4, , drop = F] -
-      array(matrix(rep(a[, 5, ], 2), ncol = 2), dim = c(dim(a)[1], 2, 1))
-  } else {
-    a[, 3:4, ] <- a[, 3:4, ] -
-      array(
-        a[, 5, ][, rep(1:dim(a)[3], each = 2)],
-        dim = c(dim(a)[1], 2, dim(a)[3])
-      )
-  }
+  a[, 3, ] <- a[, 3, ] - a[, 5, ]
+  a[, 4, ] <- a[, 4, ] - a[, 5, ]
+
+  # if (dim(a)[3] == 1) {
+  #   # If only one element in 3rd dim, slightly different operation needed
+  #   a[, 3:4, ] <- a[, 3:4, , drop = F] -
+  #     array(matrix(rep(a[, 5, ], 2), ncol = 2), dim = c(dim(a)[1], 2, 1))
+  # } else {
+  #   a[, 3:4, ] <- a[, 3:4, ] -
+  #     array(
+  #       a[, 5, ][, rep(1:dim(a)[3], each = 2)],
+  #       dim = c(dim(a)[1], 2, dim(a)[3])
+  #     )
+  # }
 
   return(a)
 }
@@ -139,20 +142,21 @@ zooScore_tree <- function(tree) {
         matches <- which(currentNodes$parent == parent)
 
         if (length(matches) == 1) {
-          return(result[,, matches])
+          x <- array(result[,, matches], dim = c(dim(result)[1], 5))
+          return(x)
         }
 
-        matches <- result[,, matches]
+        matches <- result[,, matches, drop = F]
 
         cbind(
-          matches[, 1:2, 1],
+          array(matches[, 1:2, 1], dim = c(dim(matches)[1], 2)),
           Reduce(
             `+`,
             apply(
               matches,
               3,
               function(m) {
-                m[, 3:5]
+                m[, 3:5, drop = F]
               },
               simplify = F
             )

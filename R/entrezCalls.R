@@ -130,7 +130,6 @@ ncbi_authorArticleList <- function(
   if (simpletext) {
     lastName = simpleText(lastName)
     firstName = simpleText(firstName)
-    initials = simpleText(initials)
   }
 
   # Search on Pubmed for author
@@ -152,7 +151,7 @@ ncbi_authorArticleList <- function(
     history = NA
   }
 
-  # Chheck if the search had too many results
+  # Check if the search had too many results
   if (searchResult$count > stopFetching) {
     return(list(
       success = F,
@@ -166,7 +165,7 @@ ncbi_authorArticleList <- function(
   PMID = searchResult$ids
 
   # Don't fetch more data if PMIDonly = T
-  if (PMIDonly) {
+  if (PMIDonly | length(PMID) == 0) {
     return(list(
       success = T,
       n = length(PMID),
