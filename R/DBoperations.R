@@ -585,7 +585,7 @@ dbAddAuthorPublications <- function(
           }
         }
 
-        return(arInfo)
+        return(arInfo %>% mutate(auID = {{auID}}))
       }
 
       # Only continue with new article data from authorPublications
@@ -751,7 +751,7 @@ dbAddAuthorPublications <- function(
         }
       }
 
-      return(arInfo)
+      return(arInfo %>% mutate(auID = {{auID}}))
     },
     error = function(e) {
       # If an error occurs, rollback the current transaction

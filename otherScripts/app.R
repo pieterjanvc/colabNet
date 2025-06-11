@@ -1,7 +1,11 @@
 # ///////////////
 # ---- DATA ----
 # //////////////
-# colabNetDB <- "C:/Users/pj/Desktop/test.db"
+
+if(!exists("colabNetDB")){
+  print("DEV TEST")
+  colabNetDB <- "C:/Users/pj/Desktop/test2.db"
+}
 
 # Setup for functions in the package
 dbSetup(colabNetDB, checkSchema = T)
@@ -449,26 +453,31 @@ server <- function(input, output, session) {
 
   # ---- Existing authors ----
   authorList <- reactiveVal({
-    tbl(pool, "author") |>
-      filter(authorOfInterest == 1) |>
-      left_join(
-        tbl(pool, "authorName"),
-        by = "auID"
-      ) |>
-      collect() |>
-      arrange(lastName, firstName)
+    list(
+      authors = tbl(pool, "author") |>
+        filter(authorOfInterest == 1) |>
+        left_join(
+          tbl(pool, "authorName"),
+          by = "auID"
+        ) |>
+        collect() |>
+        arrange(lastName, firstName),
+      selected = NULL
+    )
+
   })
 
   observeEvent(authorList(), {
-    newVals <- authorList() |> filter(default == 1)
+    newVals <- authorList()$authors |> filter(default == 1)
     updateSelectInput(
       session,
       "auID",
       choices = setNames(
-        c(0, newVals$auID),
-        c("Unknown", paste(newVals$lastName, newVals$firstName, sep = ", "))
+        c(newVals$auID),
+        c(paste(newVals$lastName, newVals$firstName, sep = ", "))
       ),
-      selected = newVals$auID[1]
+      selected = ifelse(is.null(authorList()$selected), newVals$auID[1],
+                        authorList()$selected)
     )
   })
 
@@ -554,203 +563,227 @@ server <- function(input, output, session) {
   )
 
   authorArticleList_proxy <- dataTableProxy("authorArticleList")
+  pubmedSearch <- reactiveValues(author = NULL, articles = NULL)
 
   nSearches <- reactiveVal(0)
+  pauseRefresh <- reactiveVal(F)
 
-  observeEvent(
-    c(input$auID, input$pubmedByAuthor),
+  # observeEvent(input$pubmedByAuthor,
+  #   {
+  #
+  #     print("Search")
+  #
+  #     if (str_trim(input$lastName) == "" | str_trim(input$firstName) == "") {
+  #       elementMsg(
+  #         "pubmedByAuthor",
+  #         "You need to provide both last name and first name"
+  #       )
+  #       replaceData(authorArticleList_proxy, emptyTable, rownames = F)
+  #
+  #       pubmedSearch$author <- NULL
+  #       pubmedSearch$articles <- NULL
+  #
+  #       return()
+  #     }
+  #
+  #     # Don't allow clicking button again while searching
+  #     disable("pubmedByAuthor")
+  #
+  #     # Check if the author is already in the database
+  #     inDB <- tbl(pool, "authorName") |>
+  #       collect() |>
+  #       filter(
+  #         simpleText(lastName) %in% simpleText(input$lastName),
+  #         simpleText(firstName) %in%
+  #           simpleText(input$firstName) |
+  #           simpleText(initials) %in% simpleText(input$firstName)
+  #       )
+  #
+  #     # Get info from Pubmed
+  #     author <- ncbi_author(
+  #       input$lastName,
+  #       input$firstName,
+  #       showWarnings = F
+  #     ) %>% filter(group == 1 ) %>% slice(1)
+  #
+  #     # If no author found
+  #     if (length(author$lastName) == 0) {
+  #       elementMsg(
+  #         "pubmedByAuthor",
+  #         sprintf(
+  #           "No results for the author with last name '%s' and first name '%s'",
+  #           input$lastName,
+  #           input$firstName
+  #         )
+  #       )
+  #       enable("pubmedByAuthor")
+  #       updateSelectInput(session, "auID", selected = "0")
+  #       replaceData(authorArticleList_proxy, emptyTable, rownames = F)
+  #
+  #       pubmedSearch$author <- NULL
+  #       pubmedSearch$articles <- NULL
+  #
+  #       return()
+  #     }
+  #
+  #     # Look for articles in Pubmed
+  #     search <- ncbi_authorArticleList(
+  #       input$lastName,
+  #       input$firstName,
+  #       str_split(input$PMIDs, ",")[[1]] |> str_trim(),
+  #     )
+  #
+  #     if (!search$success) {
+  #       elementMsg(
+  #         "pubmedByAuthor",
+  #         sprintf(
+  #           "This search yielded too many (%i) results. Please use PMIDs instead",
+  #           search$n
+  #         )
+  #       )
+  #       df <- emptyTable
+  #     } else if (search$n == 0) {
+  #       elementMsg(
+  #         "pubmedByAuthor",
+  #         sprintf(
+  #           "No results for the author with last name '%s' and first name '%s'",
+  #           input$lastName,
+  #           input$firstName
+  #         )
+  #       )
+  #       df <- emptyTable
+  #     } else {
+  #       elementMsg("pubmedByAuthor")
+  #       df <- search$articles |>
+  #         transmute(
+  #           PMID,
+  #           Title = title,
+  #           Info = sprintf(
+  #             "%s | <i>%s</i> (%s)",
+  #             relevantAuthors(authors, author$lastName),
+  #             journal,
+  #             as.Date(date) |> format("%Y")
+  #           )
+  #         )
+  #     }
+  #
+  #     existing <- tbl(pool, "article") |>
+  #       filter(PMID %in% local(df$PMID)) |>
+  #       pull(PMID)
+  #
+  #     if (nrow(df) == length(existing)) {
+  #       elementMsg(
+  #         "pubmedByAuthor",
+  #         "No new articles found that aren't already
+  #           in the database",
+  #         "info"
+  #       )
+  #     }
+  #
+  #     df <- df |>
+  #       mutate(
+  #         InDB = ifelse(PMID %in% existing, "YES", "NO"),
+  #         PMID = sprintf(
+  #           '<a href="https://pubmed.ncbi.nlm.nih.gov/%s" target="_blank">%s</a>',
+  #           PMID,
+  #           PMID
+  #         )
+  #       )
+  #
+  #     toSelect <- ifelse(
+  #       nrow(inDB) > 0,
+  #       inDB |> filter(default == 1) |> pull(auID) |> as.character(),
+  #       "0"
+  #     )
+  #
+  #     pauseRefresh(T)
+  #
+  #     updateSelectInput(session, "auID", selected = toSelect)
+  #
+  #     enable("pubmedByAuthor")
+  #
+  #     replaceData(
+  #       authorArticleList_proxy,
+  #       df %>% select(InDB, PMID, Title, Info),
+  #       rownames = F
+  #     )
+  #
+  #     pubmedSearch$author <- author
+  #     pubmedSearch$articles <- df
+  #   },
+  #   ignoreInit = T
+  # )
+
+  observeEvent(input$auID,
     {
-      print("RUN ARTICLES")
-      if (input$auID == "0") {
-        replaceData(authorArticleList_proxy, emptyTable, rownames = F)
+
+
+      # if(input$pubmedByAuthor > nSearches()){
+      #   nSearches(nSearches() + 1)
+      #   return()
+      # }
+
+      if(pauseRefresh()){
+        pauseRefresh(F)
         return()
       }
 
-      # New author search
-      if (input$pubmedByAuthor > nSearches()) {
-        if (str_trim(input$lastName) == "" | str_trim(input$firstName) == "") {
-          elementMsg(
-            "pubmedByAuthor",
-            "You need to provide both last name and first name"
-          )
-          replaceData(authorArticleList_proxy, emptyTable, rownames = F)
-          return()
-        }
+      elementMsg("pubmedByAuthor")
 
-        # Don't allow clicking button again while searching
-        disable("pubmedByAuthor")
-
-        # If the author is not in the database, set to unknown
-
-        inDB <- tbl(pool, "authorName") |>
-          collect() |>
-          filter(
-            simpleText(lastName) %in% simpleText(input$lastName),
-            simpleText(firstName) %in%
-              simpleText(input$firstName) |
-              simpleText(initials) %in% simpleText(input$firstName)
-          )
-
-        # Get info from Pubmed
-        author <- ncbi_author(
-          input$lastName,
-          input$firstName,
-          showWarnings = F
-        )[
-          1,
-        ]
-
-        # If no author found
-        if (length(author$lastName) == 0) {
-          elementMsg(
-            "pubmedByAuthor",
-            sprintf(
-              "No results for the author with last name '%s' and first name '%s'",
-              input$lastName,
-              input$firstName
-            )
-          )
-          enable("pubmedByAuthor")
-          updateSelectInput(session, "auID", selected = "0")
-          replaceData(authorArticleList_proxy, emptyTable, rownames = F)
-          return()
-        }
-
-        # Look for articles in Pubmed
-        search <- ncbi_authorArticleList(
-          input$lastName,
-          input$firstName,
-          str_split(input$PMIDs, ",")[[1]] |> str_trim(),
+      authors <- tbl(pool, "coAuthor") |>
+        group_by(arID) |>
+        filter(any(local(as.integer(input$auID)) == auID)) |>
+        ungroup() |>
+        left_join(
+          tbl(pool, "authorName") |>
+            filter(default) |>
+            select(auID, lastName, initials),
+          by = "auID"
+        ) |>
+        arrange(arID, authorOrder) |>
+        mutate(name = paste(lastName, initials)) |>
+        collect() |>
+        group_by(arID) |>
+        summarise(
+          auID = local(input$auID),
+          authors = paste(name, collapse = ", "),
+          .groups = "drop"
         )
 
-        if (!search$success) {
-          elementMsg(
-            "pubmedByAuthor",
-            sprintf(
-              "This search yielded too many (%i) results. Please use PMIDs instead",
-              search$n
-            )
-          )
-          df <- emptyTable
-        } else if (search$n == 0) {
-          elementMsg(
-            "pubmedByAuthor",
-            sprintf(
-              "No results for the author with last name '%s' and first name '%s'",
-              input$lastName,
-              input$firstName
-            )
-          )
-          df <- emptyTable
-        } else {
-          elementMsg("pubmedByAuthor")
-          df <- search$articles |>
-            transmute(
-              PMID,
-              Title = title,
-              Info = sprintf(
-                "%s | <i>%s</i> (%s)",
-                relevantAuthors(authors, author$lastName),
-                journal,
-                as.Date(date) |> format("%Y")
-              )
-            )
-        }
-
-        existing <- tbl(pool, "article") |>
-          filter(PMID %in% local(df$PMID)) |>
-          pull(PMID)
-
-        if (nrow(df) == length(existing)) {
-          elementMsg(
-            "pubmedByAuthor",
-            "No new articles found that aren't already
-            in the database",
-            "info"
-          )
-        }
-
-        df <- df |>
-          mutate(
-            InDB = ifelse(PMID %in% existing, "YES", "NO"),
-            PMID = sprintf(
-              '<a href="https://pubmed.ncbi.nlm.nih.gov/%s" target="_blank">%s</a>',
-              PMID,
-              PMID
-            )
-          )
-
-        toSelect <- ifelse(
-          length(existing) > 0,
-          inDB |> filter(default == 1) |> pull(auID) |> as.character(),
-          "0"
-        )
-
-        updateSelectInput(session, "auID", selected = toSelect)
-
-        enable("pubmedByAuthor")
-
-        replaceData(
-          authorArticleList_proxy,
-          df %>% select(InDB, PMID, Title, Info),
-          rownames = F
-        )
-        nSearches(nSearches() + 1)
-      } else {
-        elementMsg("pubmedByAuthor")
-
-        authors <- tbl(pool, "coAuthor") |>
-          group_by(arID) |>
-          filter(any(local(as.integer(input$auID)) == auID)) |>
-          ungroup() |>
-          left_join(
+      df <- tbl(pool, "article") |>
+        filter(arID %in% local(authors$arID)) |>
+        collect() |>
+        left_join(authors, by = "arID") |>
+        transmute(
+          InDB = "YES",
+          PMID = sprintf(
+            '<a href="https://pubmed.ncbi.nlm.nih.gov/%s" target="_blank">%s</a>',
+            PMID,
+            PMID
+          ),
+          Title = title,
+          Info = relevantAuthors(
+            authors,
             tbl(pool, "authorName") |>
-              filter(default) |>
-              select(auID, lastName, initials),
-            by = "auID"
-          ) |>
-          arrange(arID, authorOrder) |>
-          mutate(name = paste(lastName, initials)) |>
-          collect() |>
-          group_by(arID) |>
-          summarise(
-            auID = local(input$auID),
-            authors = paste(name, collapse = ", "),
-            .groups = "drop"
+              filter(default == 1, auID == as.integer(input$auID)) |>
+              pull(lastName)
           )
-
-        df <- tbl(pool, "article") |>
-          filter(arID %in% local(authors$arID)) |>
-          collect() |>
-          left_join(authors, by = "arID") |>
-          transmute(
-            InDB = "YES",
-            PMID = sprintf(
-              '<a href="https://pubmed.ncbi.nlm.nih.gov/%s" target="_blank">%s</a>',
-              PMID,
-              PMID
-            ),
-            Title = title,
-            Info = relevantAuthors(
-              authors,
-              tbl(pool, "authorName") |>
-                filter(default == 1, auID == as.integer(input$auID)) |>
-                pull(lastName)
-            )
-          )
-        print("RUN ARTICLES2")
-        replaceData(
-          authorArticleList_proxy,
-          df %>% select(InDB, PMID, Title, Info),
-          rownames = F
         )
-      }
-    },
-    ignoreInit = T
+
+      replaceData(
+        authorArticleList_proxy,
+        df %>% select(InDB, PMID, Title, Info),
+        rownames = F
+      )
+
+      # pubmedSearch$author <- author
+      pubmedSearch$articles <- df
+
+    }, ignoreInit = T
   )
 
   observe({
-    PMIDs <- auArtList()[input$authorArticleList_rows_selected, ] |>
+    PMIDs <- pubmedSearch$articles[input$authorArticleList_rows_selected, ] |>
       filter(InDB == "NO") |>
       pull(PMID)
 
@@ -772,11 +805,26 @@ server <- function(input, output, session) {
 
     new <- dbAddAuthorPublications(new, dbInfo = localCheckout(pool))
 
-    updatedTable <- auArtList() |>
-      mutate(
-        InDB = ifelse(PMID %in% PMIDs, "YES", InDB)
+    # updatedTable <- pubmedSearch$articles |>
+    #   mutate(
+    #     InDB = ifelse(PMID %in% PMIDs, "YES", InDB)
+    #   )
+    # replaceData(authorArticleList_proxy, updatedTable)
+
+    authorList(
+      list(
+        authors = tbl(pool, "author") |>
+          filter(authorOfInterest == 1) |>
+          left_join(
+            tbl(pool, "authorName"),
+            by = "auID"
+          ) |>
+          collect() |>
+          arrange(lastName, firstName),
+        selected = as.character(new$auID[1])
       )
-    replaceData(authorArticleList_proxy, updatedTable)
+    )
+
     enable("artAdd")
   }) |>
     bindEvent(input$artAdd)
