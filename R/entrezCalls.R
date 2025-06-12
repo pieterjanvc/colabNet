@@ -40,7 +40,8 @@ ncbi_author <- function(
     return(data.frame(
       lastName = character(0),
       firstName = character(0),
-      initials = character(0)
+      initials = character(0),
+      group = integer(0)
     ))
   }
 
