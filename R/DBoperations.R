@@ -15,7 +15,11 @@
 #'
 dbSetup <- function(dbInfo, newDBMsg = T, checkSchema = F, returnConn = F) {
   # Get the reference schema
-  sqlFile <- readLines("database/create_colabNetDB.sql") |>
+  sqlFile <- readLines(system.file(
+    "otherScripts",
+    "create_colabNetDB.sql",
+    package = "colabNet"
+  )) |>
     paste(collapse = "") |>
     str_remove(";\\s*$")
 
@@ -85,15 +89,20 @@ dbSetup <- function(dbInfo, newDBMsg = T, checkSchema = F, returnConn = F) {
 #'
 dbGetConn <- function(dbInfo, checkSchema = T) {
   if (missing(dbInfo)) {
+    # getOption("dbInfo") has  database info in global environment
     if (is.null(getOption("dbInfo", default = NULL))) {
       stop("There is no database set up, please run dbSetup() first")
     }
 
     conn <- dbConnect(SQLite(), getOption("dbInfo"))
+    # Keep track of whether an existing connection was passed into the function
+    attr(conn, "existing") <- F
   } else if (inherits(dbInfo, "DBIConnection")) {
     conn <- dbInfo
+    attr(conn, "existing") <- T
   } else {
     conn <- dbSetup(dbInfo, checkSchema = checkSchema, returnConn = T)
+    attr(conn, "existing") <- F
   }
 
   # Make sure that foreign key constraints and cascading are enforced
@@ -226,15 +235,20 @@ dbAddAuthors <- function(authors, dbInfo) {
 
       if (endTransaction) {
         dbCommit(conn)
-        dbDisconnect(conn)
+
+        if (!attr(conn, "existing")) {
+          dbDisconnect(conn)
+        }
       }
 
       return(bind_rows(new, updated, existing) |> select(-tempId))
     },
     error = function(e) {
       # If an error occurs, rollback the current transaction
-      dbRollback(myConn)
-      dbDisconnect(conn)
+      dbRollback(conn)
+      if (!attr(conn, "existing")) {
+        dbDisconnect(conn)
+      }
       stop(e)
     }
   )
@@ -313,15 +327,19 @@ dbDeleteAuthors <- function(auIDs, dbInfo) {
 
       if (endTransaction) {
         dbCommit(conn)
-        dbDisconnect(conn)
+        if (!attr(conn, "existing")) {
+          dbDisconnect(conn)
+        }
       }
 
       return(toRemove)
     },
     error = function(e) {
       # If an error occurs, rollback the current transaction
-      dbRollback(myConn)
-      dbDisconnect(conn)
+      dbRollback(conn)
+      if (!attr(conn, "existing")) {
+        dbDisconnect(conn)
+      }
       stop(e)
     }
   )
@@ -435,7 +453,9 @@ dbAddMesh <- function(values, type, dbInfo) {
 
       if (endTransaction) {
         dbCommit(conn)
-        dbDisconnect(conn)
+        if (!attr(conn, "existing")) {
+          dbDisconnect(conn)
+        }
       }
 
       return(bind_rows(
@@ -445,8 +465,10 @@ dbAddMesh <- function(values, type, dbInfo) {
     },
     error = function(e) {
       # If an error occurs, rollback the current transaction
-      dbRollback(myConn)
-      dbDisconnect(conn)
+      dbRollback(conn)
+      if (!attr(conn, "existing")) {
+        dbDisconnect(conn)
+      }
       stop(e)
     }
   )
@@ -535,7 +557,9 @@ dbAddAuthorPublications <- function(
 
         if (length(auID) != 1) {
           dbRollback(conn)
-          dbDisconnect(conn)
+          if (!attr(conn, "existing")) {
+            dbDisconnect(conn)
+          }
           stop(ifelse(
             length(auID) > 1,
             "Ambiguous author of interest",
@@ -549,12 +573,19 @@ dbAddAuthorPublications <- function(
           params = list(auID)
         )
 
+        q <- dbExecute(
+          conn,
+          "INSERT INTO updateData (\"timestamp\", \"action\") VALUES (datetime('now', 'localtime'), 1)"
+        )
+
         if (endTransaction) {
           dbCommit(conn)
-          dbDisconnect(conn)
+          if (!attr(conn, "existing")) {
+            dbDisconnect(conn)
+          }
         }
 
-        return(arInfo)
+        return(arInfo %>% mutate(auID = {{auID}}))
       }
 
       # Only continue with new article data from authorPublications
@@ -584,7 +615,9 @@ dbAddAuthorPublications <- function(
 
       if (length(auID) != 1) {
         dbRollback(conn)
-        dbDisconnect(conn)
+        if (!attr(conn, "existing")) {
+          dbDisconnect(conn)
+        }
         stop(ifelse(
           length(auID) > 1,
           "Ambiguous author of interest",
@@ -706,17 +739,26 @@ dbAddAuthorPublications <- function(
         )
       }
 
+      q <- dbExecute(
+        conn,
+        "INSERT INTO updateData (\"timestamp\", \"action\") VALUES (datetime('now', 'localtime'), 1)"
+      )
+
       if (endTransaction) {
         dbCommit(conn)
-        dbDisconnect(conn)
+        if (!attr(conn, "existing")) {
+          dbDisconnect(conn)
+        }
       }
 
-      return(arInfo)
+      return(arInfo %>% mutate(auID = {{auID}}))
     },
     error = function(e) {
       # If an error occurs, rollback the current transaction
-      dbRollback(myConn)
-      dbDisconnect(conn)
+      dbRollback(conn)
+      if (!attr(conn, "existing")) {
+        dbDisconnect(conn)
+      }
       stop(e)
     }
   )
@@ -818,15 +860,19 @@ dbDeleteArticle <- function(arIDs, dbInfo) {
 
       if (endTransaction) {
         dbCommit(conn)
-        dbDisconnect(conn)
+        if (!attr(conn, "existing")) {
+          dbDisconnect(conn)
+        }
       }
 
       return(removeAuth)
     },
     error = function(e) {
       # If an error occurs, rollback the current transaction
-      dbRollback(myConn)
-      dbDisconnect(conn)
+      dbRollback(conn)
+      if (!attr(conn, "existing")) {
+        dbDisconnect(conn)
+      }
       stop(e)
     }
   )

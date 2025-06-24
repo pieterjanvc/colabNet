@@ -243,3 +243,25 @@ profvisRender <- function(expr, folder = "local") {
   # A URL always has forward slash
   browseURL(normalizePath(file.path(folder, "proftest.html"), winslash = "/"))
 }
+
+#' Run the colabNet Shiny App
+#'
+#' @param colabNetDB Path to the ColabNet database (will be created if needed)
+#'
+#' @import shiny dplyr stringr tidyr purrr visNetwork pool plotly
+#' @importFrom shinyjs useShinyjs enable disable
+#' @importFrom RSQLite SQLite
+#' @importFrom DT DTOutput renderDT datatable dataTableProxy replaceData
+#'
+#' @return Start the Shiny app
+#'
+#' @export
+#'
+colabNet <- function(colabNetDB) {
+  normalizePath(dirname(colabNetDB), mustWork = T)
+  sys.source(
+    system.file("otherScripts", "app.R", package = "colabNet"),
+    envir = environment()
+  )
+  shinyApp(ui, server)
+}

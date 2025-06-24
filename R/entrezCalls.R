@@ -1,9 +1,9 @@
 #' Get the best matching Pubmed author name
 #'
 #' @param lastName Last name
-#' @param firstName First name
-#' @param searchInitials (Default  = F), If true, don't match on first name but
-#' use initials instead (in case of multiple spellings of first name)
+#' @param firstName First name. Add any middle initials the author uses to publish.
+#' E.g. 'Joseph E Murray' --> 'Joseph E'. To be broader in case of multiple spellings,
+#' only supply initials e.g. 'Joseph E Murray' --> 'JE'.
 #' @param samples (Default = 10). Number of papers to check for variations in
 #' name spelling
 #' @param showWarnings (Default = T) Show warnings
@@ -19,7 +19,6 @@
 ncbi_author <- function(
   lastName,
   firstName,
-  searchInitials = F,
   samples = 10,
   showWarnings = T
 ) {
@@ -27,9 +26,7 @@ ncbi_author <- function(
   result <- entrez_search(
     "pubmed",
     term = sprintf(
-      '("%s %s *"[Author]) OR (%s %s"[Author])',
-      lastName,
-      firstName,
+      '"%s %s"[Author]',
       lastName,
       firstName
     ),
@@ -37,11 +34,14 @@ ncbi_author <- function(
   )
 
   if (length(result$ids) == 0) {
-    if (showWarnings) warning("This name might not get good PubMed matches")
+    if (showWarnings) {
+      warning("This name might not get good PubMed matches")
+    }
     return(data.frame(
       lastName = character(0),
       firstName = character(0),
-      initials = character(0)
+      initials = character(0),
+      group = integer(0)
     ))
   }
 
@@ -58,19 +58,12 @@ ncbi_author <- function(
       initials = xml_find_all(x, "./Author/Initials") |> xml_text()
     )
 
-    if (searchInitials) {
-      authorinfo <- authorinfo |>
-        filter(
-          str_detect(simpleText(lastName), simpleText({{ lastName }})),
+    authorinfo <- authorinfo |>
+      filter(
+        str_detect(simpleText(lastName), simpleText({{ lastName }})),
+        str_detect(simpleText(initials), simpleText({{ firstName }})) |
           str_detect(simpleText(firstName), simpleText({{ firstName }}))
-        )
-    } else {
-      authorinfo <- authorinfo |>
-        filter(
-          str_detect(simpleText(lastName), simpleText({{ lastName }})),
-          str_detect(simpleText(firstName), simpleText({{ firstName }}))
-        )
-    }
+      )
 
     authorinfo
   }) |>
@@ -90,10 +83,9 @@ ncbi_author <- function(
 #' Get basic article info for an author if name is likely unique
 #'
 #' @param lastName Author last name
-#' @param firstName Author first name
-#' @param initials Author initials (ignored when searchInitials = F)
-#' @param searchInitials Default = F. Include additional search on initials.
-#' This is helpful if author has used multiple versions of first name
+#' @param firstName First name. Add any middle initials the author uses to publish.
+#' E.g. 'Joseph E Murray' --> 'Joseph E'. To be broader in case of multiple spellings,
+#' only supply initials e.g. 'Joseph E Murray' --> 'JE'.
 #' @param PMIDs (optional) If set limit the search to the PMIDs for the given author
 #' @param PMIDonly Return only valid PMID, not the data table
 #' @param returnHistory (Default = False). If true, will return rentrez web history object
@@ -105,7 +97,7 @@ ncbi_author <- function(
 #' @importFrom stringr str_extract
 #'
 #' @return List with 4 elements
-#' success: TRUE if success; If FALSE, number of matches > stopFetching, nothing returned
+#' - success: TRUE if success; If FALSE, number of matches > stopFetching, nothing returned
 #' - n: Total number of articles found (returned even when stopFetching reached)
 #' - PMIDs: when not stopFetching
 #' - articles: Data frame with basic article info (when PMIDonly = F and not stopFetching)
@@ -116,9 +108,7 @@ ncbi_author <- function(
 ncbi_authorArticleList <- function(
   lastName,
   firstName,
-  initials,
   PMIDs,
-  searchInitials = F,
   returnHistory = F,
   PMIDonly = F,
   simpletext = T,
@@ -141,23 +131,15 @@ ncbi_authorArticleList <- function(
   if (simpletext) {
     lastName = simpleText(lastName)
     firstName = simpleText(firstName)
-    initials = simpleText(initials)
-  }
-
-  if (searchInitials) {
-    searchInitials = sprintf(' OR "%s %s"[Author]', lastName, initials)
-  } else {
-    searchInitials = ""
   }
 
   # Search on Pubmed for author
   searchResult <- entrez_search(
     "pubmed",
     term = sprintf(
-      '("%s %s"[Author]%s)%s',
+      '("%s %s"[Author])%s',
       lastName,
       firstName,
-      searchInitials,
       addFilter
     ),
     retmax = stopFetching,
@@ -170,7 +152,7 @@ ncbi_authorArticleList <- function(
     history = NA
   }
 
-  # Chheck if the search had too many results
+  # Check if the search had too many results
   if (searchResult$count > stopFetching) {
     return(list(
       success = F,
@@ -184,7 +166,7 @@ ncbi_authorArticleList <- function(
   PMID = searchResult$ids
 
   # Don't fetch more data if PMIDonly = T
-  if (PMIDonly) {
+  if (PMIDonly | length(PMID) == 0) {
     return(list(
       success = T,
       n = length(PMID),
@@ -211,8 +193,7 @@ ncbi_authorArticleList <- function(
     title = sapply(result, "[[", "title"),
     journal = sapply(result, "[[", "source"),
     authors = sapply(result, "[[", c("authors", "name"), simplify = T) |>
-      sapply(paste, collapse = ", "),
-    matchOnFirstName = PMID %in% withFirst$ids
+      sapply(paste, collapse = ", ")
   )
 
   return(list(

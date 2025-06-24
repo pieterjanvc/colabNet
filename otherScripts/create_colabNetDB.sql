@@ -80,6 +80,12 @@ CREATE TABLE "mesh_article" (
   FOREIGN KEY("meshui") REFERENCES "meshLink"("meshui") ON DELETE CASCADE
 );
 
+CREATE TABLE "updateData" (
+  "uID" INTEGER PRIMARY KEY AUTOINCREMENT,
+  "timestamp" TEXT NOT NULL,
+  "action" INTEGER
+);
+
 CREATE UNIQUE INDEX "idx_treenum" ON "meshTree" ("treenum");
 
 INSERT INTO meshLink ("uid", "meshui") VALUES
@@ -135,3 +141,6 @@ INSERT INTO meshTerm ("meshui", "meshterm") VALUES
   ('R000014', 'Health Care'),
   ('R000015', 'Publication Characteristics'),
   ('R000016', 'Geographicals');
+
+INSERT INTO updateData ("timestamp", "action") VALUES
+  (datetime('now', 'localtime'), 0);

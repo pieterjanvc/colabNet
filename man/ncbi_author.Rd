@@ -4,21 +4,14 @@
 \alias{ncbi_author}
 \title{Get the best matching Pubmed author name}
 \usage{
-ncbi_author(
-  lastName,
-  firstName,
-  searchInitials = F,
-  samples = 10,
-  showWarnings = T
-)
+ncbi_author(lastName, firstName, samples = 10, showWarnings = T)
 }
 \arguments{
 \item{lastName}{Last name}
 
-\item{firstName}{First name}
-
-\item{searchInitials}{(Default  = F), If true, don't match on first name but
-use initials instead (in case of multiple spellings of first name)}
+\item{firstName}{First name. Add any middle initials the author uses to publish.
+E.g. 'Joseph E Murray' --> 'Joseph E'. To be broader in case of multiple spellings,
+only supply initials e.g. 'Joseph E Murray' --> 'JE'.}
 
 \item{samples}{(Default = 10). Number of papers to check for variations in
 name spelling}
