@@ -5,7 +5,7 @@
 if (!exists("colabNetDB")) {
   print("DEV TEST")
   colabNetDB <- "../local/test.db"
-  colabNetDB <- "D:/Desktop/PGG.db"
+  # colabNetDB <- "D:/Desktop/PGG.db"
 }
 
 # Setup for functions in the package
@@ -194,6 +194,20 @@ ui <- fluidPage(
          actionButton("pubmedByAuthor", "Search Pubmed"), br(), br(),
           DTOutput("authorSearch"),
           actionButton("artAdd", "Add selected articles")
+        ),
+        wellPanel(
+          tags$h3("Bulk Import from CSV"),
+          tags$i(HTML(
+            "Upload a CSV file with the following columns<ul>",
+            "<li>lastName: The last name of the author</li>",
+            "<li>firstName: The first name + middle initials (see above for details)</li>",
+            "<li>affiliation: (optional) A RegEx pattern to filter by author affiliation</li>",
+            "</ul>"
+          )),
+          fileInput("bulkImportAuthor", "CSV file", accept = ".csv"),
+          div(id=  "bulkImportAuthorMsg"),
+          DTOutput("bulkImportTable"),
+          actionButton("startBulkImport", "Start Import")
         ),
         value = "exploration"
       )
@@ -844,6 +858,164 @@ server <- function(input, output, session) {
     enable("artDel")
   }) |>
     bindEvent(input$artDel)
+
+  # ----- BULK IMPORT ----
+  shinyjs::hide("startBulkImport")
+
+  bulkImport <- eventReactive(input$bulkImportAuthor, {
+
+    tryCatch({
+      data <- read.csv(input$bulkImportAuthor$datapath)
+      missing <- setdiff(c("lastName", "firstName", "affiliation"), colnames(data))
+
+      if(length(missing) > 0) {
+        stop("The following columns are missing: ", paste(missing, collapse = ", "))
+      }
+
+      if(!all(str_detect(data$firstName, "\\w+"), str_detect(data$lastName, "\\w+"))){
+        stop("The firstName and lastName must be provided for everyone")
+      }
+
+      elementMsg("bulkImportAuthorMsg")
+      shinyjs::show("startBulkImport")
+
+      data <- data |> select(lastName, firstName, affiliation)
+
+    }, error = function(e) {
+      elementMsg("bulkImportAuthorMsg",
+                 HTML(sprintf("The upload failed with the following message:<br>%s", e$message)))
+      shinyjs::hide("startBulkImport")
+
+      return()
+    })
+
+    notFound <- c()
+    tooMany <- c()
+    existing <- c()
+    allArticles <- data.frame()
+
+     for(i in 1:nrow(data)){
+      # Get info from Pubmed
+      author <- ncbi_author(
+        data$lastName[i],
+        data$firstName[i],
+        showWarnings = F
+      ) |> filter(group == 1) |> slice(1)
+
+      # If no author found
+      if (length(author$lastName) == 0) {
+        print("ERR")
+        notFound <- c(notFound, paste0(data$lastName[i], ", ", data$firstName[i]))
+        next()
+      }
+
+      # Look for articles in Pubmed
+      search <- ncbi_authorArticleList(
+        data$lastName[i],
+        data$firstName[i],
+        str_split(input$PMIDs, ",")[[1]] |> str_trim(),
+      )
+
+      if (!search$success) {
+        tooMany <- c(tooMany, paste0(data$lastName[i], ", ", data$firstName[i]))
+
+      } else if (search$n == 0) {
+        notFound <- c(notFound, paste0(data$lastName[i], ", ", data$firstName[i]))
+        next()
+      } else {
+        df <- search$articles |>
+          transmute(
+            PMID,
+            Title = title,
+            Info = sprintf(
+              "%s | <i>%s</i> (%s)",
+              relevantAuthors(authors, author$lastName),
+              journal,
+              as.Date(date) |> format("%Y")
+            )
+          )
+      }
+
+      existsInDB <- tbl(pool, "article") |>
+        filter(PMID %in% local(df$PMID)) |>
+        pull(PMID)
+
+      if(length(existsInDB) > 0){
+        df <- df |> filter(!PMID %in% {{ existsInDB }})
+        existing <- c(existing, paste0(data$lastName[i], ", ", data$firstName[i]))
+      }
+
+
+
+      allArticles <- bind_rows(allArticles, df)
+
+    }
+
+    errors <- ""
+    errors <- ifelse(length(notFound) > 0,
+                     paste0("- The following authors were not found: ",
+                           paste(notFound, collapse = "; "), "<br>"),
+                     errors)
+    errors <- ifelse(length(tooMany) > 0,
+                     paste0(errors,
+                            "- The following authors has too many matches and were ignored: ",
+                           paste(tooMany, collapse = "; "), "<br>"),
+                     errors)
+    errors <- ifelse(length(existing) > 0,
+                     paste0(errors,
+                            "- The following authors already have articles in the database which are not shown: ",
+                           paste(existing, collapse = "; ")),
+                     errors)
+
+    if(errors != ""){
+      elementMsg("bulkImportAuthorMsg",HTML(errors))
+    } else {
+      elementMsg("bulkImportAuthorMsg")
+    }
+
+    list(articles = allArticles, author = NULL)
+
+  })
+
+  observeEvent(input$startBulkImport, {
+    shinyjs::hide("startBulkImport")
+
+
+  })
+
+  output$bulkImportTable <- renderDT(
+    {
+      emptyTable
+    },
+    escape = F,
+    rownames = F
+  )
+
+  bulkImportTable_proxy <- dataTableProxy("bulkImportTable")
+
+  bulkImportResults <- reactiveVal(list(articles = NULL, author = NULL))
+
+  observeEvent(bulkImport(), {
+    if(is.null(bulkImport()$articles)){
+      replaceData(bulkImportTable_proxy, emptyTable, rownames = F)
+      return()
+    }
+
+    replaceData(
+      bulkImportTable_proxy,
+      bulkImport()$articles |>
+        mutate(
+          PMID = sprintf(
+            '<a href="https://pubmed.ncbi.nlm.nih.gov/%s" target="_blank">%s</a>',
+            PMID,
+            PMID
+          )
+        ) |>
+        select(PMID, Title, Info),
+      rownames = F
+    )
+  })
+
 }
 
 shinyApp(ui, server)
