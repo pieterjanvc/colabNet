@@ -109,6 +109,11 @@ elementMsg <- function(
 #'
 #' @export
 filter_affiliation <- function(publicationDetails, regex, includeMissing = F) {
+
+  if(is.na(regex) || str_trim(regex) == ""){
+    return(publicationDetails)
+  }
+
   # Get PMIDs that have an affilitation match using the regex for author of interest
   toKeep <- publicationDetails$affiliations |>
     filter(str_detect(affiliation, regex)) |>

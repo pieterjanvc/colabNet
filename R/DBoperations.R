@@ -474,9 +474,68 @@ dbAddMesh <- function(values, type, dbInfo) {
   )
 }
 
+#' Tell the colabNet app an update has been made and it needs to refresh
+#'
+#' @param action (Integer) The code of the action
+#'  - 0 = new database init
+#'  - 1 = add data
+#'  - 2 = delete data
+#' @param dbInfo (optional if dbSetup() has been run)
+#'  Path to the ColabNet database or existing connection
+#'
+#' @import RSQLite
+#'
+#' @return Bool to indicate success
+#' @export
+#'
+dbFlagUpdate <- function(action, dbInfo){
+
+  tryCatch({
+
+    action <- as.integer(action)
+
+    if(!action %in% 1:3){
+      stop("The action value must be an integer between 0 - 2")
+    }
+
+    conn <- dbGetConn(dbInfo)
+
+    if (sqliteIsTransacting(conn)) {
+      endTransaction <- F
+    } else {
+      dbBegin(conn)
+      endTransaction <- T
+    }
+
+    q <- dbExecute(
+      conn,
+      sprintf("INSERT INTO updateData (\"timestamp\", \"action\") VALUES (datetime('now', 'localtime'), %i)",
+              action)
+    )
+
+    if (endTransaction) {
+      dbCommit(conn)
+      if (!attr(conn, "existing")) {
+        dbDisconnect(conn)
+      }
+    }
+
+    }, error = function(e) {
+      # If an error occurs, rollback the current transaction
+      dbRollback(conn)
+      if (!attr(conn, "existing")) {
+        dbDisconnect(conn)
+      }
+      stop(e)
+    }
+  )
+
+}
+
 #' Add authors to the database
 #'
 #' @param authorPublications List of data frames geneated by ncbi_authorPublications()
+#' @param flagUpdate Default= T, set an update flag in the DB so the app will refresh once completed
 #' @param dbInfo (optional if dbSetup() has been run)
 #'  Path to the ColabNet database or existing connection
 #'
@@ -489,6 +548,7 @@ dbAddMesh <- function(values, type, dbInfo) {
 dbAddAuthorPublications <- function(
   authorPublications,
   matchOnFirst = F,
+  flagUpdate = T,
   dbInfo
 ) {
   tryCatch(
@@ -739,10 +799,9 @@ dbAddAuthorPublications <- function(
         )
       }
 
-      q <- dbExecute(
-        conn,
-        "INSERT INTO updateData (\"timestamp\", \"action\") VALUES (datetime('now', 'localtime'), 1)"
-      )
+      if(flagUpdate){
+        dbFlagUpdate(1)
+      }
 
       if (endTransaction) {
         dbCommit(conn)

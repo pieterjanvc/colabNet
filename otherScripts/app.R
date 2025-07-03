@@ -4,7 +4,8 @@
 
 if (!exists("colabNetDB")) {
   print("DEV TEST")
-  colabNetDB <- "../local/test.db"
+  file.copy("../local/test.db", "../local/dev.db", overwrite = T)
+  colabNetDB <- "../local/dev.db"
   # colabNetDB <- "D:/Desktop/PGG.db"
 }
 
@@ -41,7 +42,7 @@ preCompData <- reactivePoll(
 
     if (length(auIDs) == 0) {
       return(list(
-        auIDs = NULL,
+        auIDs = NULL2,
         plotData = NULL,
         authorsimscore = NULL,
         allArticles = NULL
@@ -205,6 +206,8 @@ ui <- fluidPage(
             "</ul>"
           )),
           fileInput("bulkImportAuthor", "CSV file", accept = ".csv"),
+          tags$i(HTML("Note that the nPubMed column below will show the number of articles ",
+            "that match the author before filtering by affiliation (will be done when importing)")),
           div(id=  "bulkImportAuthorMsg"),
           DTOutput("bulkImportTable"),
           actionButton("startBulkImport", "Start Import")
@@ -610,8 +613,6 @@ server <- function(input, output, session) {
         by = "auID"
       ) |> pull(lastName)
 
-    print(sprintf("UPDATE FOR %s", lastName))
-
     replaceData(
       authorInDB_proxy,
       articlesInDB() |>
@@ -814,7 +815,7 @@ server <- function(input, output, session) {
 
     new <- dbAddAuthorPublications(new, dbInfo = localCheckout(pool))
 
-    # Remove added articels from search results
+    # Remove added articles from search results
     searchResults(list(
       articles = searchResults()$articles |> filter(!PMID %in% new$PMID),
       author = searchResults()$author)
@@ -889,91 +890,54 @@ server <- function(input, output, session) {
       return()
     })
 
-    notFound <- c()
-    tooMany <- c()
-    existing <- c()
-    allArticles <- data.frame()
+    importInfo <- data.frame()
+    importData <- list()
 
-     for(i in 1:nrow(data)){
-      # Get info from Pubmed
-      author <- ncbi_author(
-        data$lastName[i],
-        data$firstName[i],
-        showWarnings = F
-      ) |> filter(group == 1) |> slice(1)
+   for(i in 1:nrow(data)){
 
-      # If no author found
-      if (length(author$lastName) == 0) {
-        print("ERR")
-        notFound <- c(notFound, paste0(data$lastName[i], ", ", data$firstName[i]))
-        next()
-      }
+     status <- "ready to import author articles"
 
-      # Look for articles in Pubmed
-      search <- ncbi_authorArticleList(
-        data$lastName[i],
-        data$firstName[i],
-        str_split(input$PMIDs, ",")[[1]] |> str_trim(),
-      )
+    # Get info from Pubmed
+    author <- ncbi_author(
+      data$lastName[i],
+      data$firstName[i],
+      showWarnings = F
+    ) |> filter(group == 1) |> slice(1)
 
-      if (!search$success) {
-        tooMany <- c(tooMany, paste0(data$lastName[i], ", ", data$firstName[i]))
-
-      } else if (search$n == 0) {
-        notFound <- c(notFound, paste0(data$lastName[i], ", ", data$firstName[i]))
-        next()
-      } else {
-        df <- search$articles |>
-          transmute(
-            PMID,
-            Title = title,
-            Info = sprintf(
-              "%s | <i>%s</i> (%s)",
-              relevantAuthors(authors, author$lastName),
-              journal,
-              as.Date(date) |> format("%Y")
-            )
-          )
-      }
-
-      existsInDB <- tbl(pool, "article") |>
-        filter(PMID %in% local(df$PMID)) |>
-        pull(PMID)
-
-      if(length(existsInDB) > 0){
-        df <- df |> filter(!PMID %in% {{ existsInDB }})
-        existing <- c(existing, paste0(data$lastName[i], ", ", data$firstName[i]))
-      }
-
-
-
-      allArticles <- bind_rows(allArticles, df)
-
+    # If no author found
+    if (length(author$lastName) == 0) {
+      status <- "No articles found on PudMed"
+      df <- data.frame(lastName = data$lastName[i], firstName = data$firstName[i],
+                 affiliation = data$affiliation[i], nArticles = 0, status = status)
+      importInfo <- bind_rows(importInfo, df)
+      next()
     }
 
-    errors <- ""
-    errors <- ifelse(length(notFound) > 0,
-                     paste0("- The following authors were not found: ",
-                           paste(notFound, collapse = "; "), "<br>"),
-                     errors)
-    errors <- ifelse(length(tooMany) > 0,
-                     paste0(errors,
-                            "- The following authors has too many matches and were ignored: ",
-                           paste(tooMany, collapse = "; "), "<br>"),
-                     errors)
-    errors <- ifelse(length(existing) > 0,
-                     paste0(errors,
-                            "- The following authors already have articles in the database which are not shown: ",
-                           paste(existing, collapse = "; ")),
-                     errors)
+    # Look for articles in Pubmed
+    search <- ncbi_authorArticleList(
+      data$lastName[i],
+      data$firstName[i],
+      PMIDonly = T
+    )
 
-    if(errors != ""){
-      elementMsg("bulkImportAuthorMsg",HTML(errors))
+    if (!search$success) {
+      status <- "> 1000 matches. Will be skipped"
+    } else if (search$n == 0) {
+      status <- "No articles found on PudMed"
     } else {
-      elementMsg("bulkImportAuthorMsg")
+      importData <- importData |> append(list(list(author = author, PMIDs = search$PMID,
+                                                   affiliation = data$affiliation[i])))
     }
 
-    list(articles = allArticles, author = NULL)
+    df <- data.frame(lastName = data$lastName[i], firstName = data$firstName[i],
+                     affiliation = data$affiliation[i], nPubMed = search$n,
+                     status = status)
+
+    importInfo <- bind_rows(importInfo, df)
+
+    }
+
+    list(importInfo = importInfo, importData = importData)
 
   })
 
@@ -983,9 +947,13 @@ server <- function(input, output, session) {
 
   })
 
+  emptyImport <- data.frame(lastName = character(), firstName = character(),
+                              affiliation = character(), nPubMed = integer(),
+                            status = character())
+
   output$bulkImportTable <- renderDT(
     {
-      emptyTable
+      emptyImport
     },
     escape = F,
     rownames = F
@@ -996,24 +964,59 @@ server <- function(input, output, session) {
   bulkImportResults <- reactiveVal(list(articles = NULL, author = NULL))
 
   observeEvent(bulkImport(), {
-    if(is.null(bulkImport()$articles)){
-      replaceData(bulkImportTable_proxy, emptyTable, rownames = F)
+    if(is.null(bulkImport()$importInfo)){
+      replaceData(bulkImportTable_proxy, emptyImport, rownames = F)
       return()
     }
 
     replaceData(
       bulkImportTable_proxy,
-      bulkImport()$articles |>
-        mutate(
-          PMID = sprintf(
-            '<a href="https://pubmed.ncbi.nlm.nih.gov/%s" target="_blank">%s</a>',
-            PMID,
-            PMID
-          )
-        ) |>
-        select(PMID, Title, Info),
+      bulkImport()$importInfo,
       rownames = F
     )
+  })
+
+  observeEvent(input$startBulkImport, {
+
+    nImported <- data.frame()
+
+    for(data in bulkImport()$importData){
+      new <- ncbi_publicationDetails(
+        data$PMIDs,
+        data$author$lastName,
+        data$author$firstName,
+        data$author$initials
+      ) |> filter_affiliation(data$affiliation)
+
+      new <- dbAddAuthorPublications(new, dbInfo = localCheckout(pool),
+                                     flagUpdate = F)
+
+      nImported <- bind_rows(
+        nImported,
+        data.frame(
+          afterFilter = nrow(new),
+          new = sum(new$status =="new"),
+          existing = sum(new$status =="existing")
+          )
+      )
+    }
+
+    dbFlagUpdate(1, dbInfo = localCheckout(pool))
+
+    nImported <- nImported |>
+      mutate(status = sprintf("import complete - %i matched affilation, %i existing, %i new",
+                              afterFilter, existing, new))
+    importInfo <- bulkImport()$importInfo
+    importInfo$status = nImported$status
+
+    replaceData(
+      bulkImportTable_proxy,
+      importInfo,
+      rownames = F
+    )
+
+    shinyjs::show("startBulkImport")
+
   })
 
 }
