@@ -6,7 +6,9 @@ if (!exists("colabNetDB")) {
   print("DEV TEST")
   # file.copy("../local/test.db", "../local/dev.db", overwrite = T)
   # colabNetDB <- "../local/dev.db"
+
   colabNetDB <- "D:/Desktop/dev.db"
+  file.remove(colabNetDB)
 }
 
 # Setup for functions in the package
