@@ -805,7 +805,7 @@ dbAddAuthorPublications <- function(
       }
 
       if(flagUpdate){
-        dbFlagUpdate(1)
+        dbFlagUpdate(1, dbInfo = conn)
       }
 
       if (endTransaction) {

@@ -703,9 +703,10 @@ server <- function(input, output, session) {
 
       # Look for articles in Pubmed
       search <- ncbi_authorArticleList(
-        input$lastName,
-        input$firstName,
-        str_split(input$PMIDs, ",")[[1]] |> str_trim(),
+        lastName = input$lastName,
+        firstName = input$firstName,
+        PMIDs = str_split(input$PMIDs, ",")[[1]] |> str_trim(),
+        returnHistory = T
       )
 
       if (!search$success) {
@@ -772,7 +773,7 @@ server <- function(input, output, session) {
       updateSelectInput(session, "auID", selected = toSelect)
 
       enable("pubmedByAuthor")
-      searchResults(list(articles = df, author = author))
+      searchResults(list(articles = df, author = author, history = search$history))
     },
     ignoreInit = T
   )
@@ -809,10 +810,11 @@ server <- function(input, output, session) {
     req(length(PMIDs) > 0)
     disable("artAdd")
     new <- ncbi_publicationDetails(
-      PMIDs,
-      searchResults()$author$lastName,
-      searchResults()$author$firstName,
-      searchResults()$author$initials
+      PMIDs = PMIDs,
+      lastName = searchResults()$author$lastName,
+      firstName = searchResults()$author$firstName,
+      initials = searchResults()$author$initials,
+      history = searchResults()$history
     )
 
     new <- dbAddAuthorPublications(new, dbInfo = localCheckout(pool))
@@ -894,6 +896,7 @@ server <- function(input, output, session) {
 
     importInfo <- data.frame()
     importData <- list()
+    history <- list()
 
     withProgress(message = 'Verify Authors', value = 0, {
 
@@ -926,7 +929,8 @@ server <- function(input, output, session) {
         search <- ncbi_authorArticleList(
           data$lastName[i],
           data$firstName[i],
-          PMIDonly = T
+          PMIDonly = T,
+          returnHistory = T
         )
 
         if (!search$success) {
@@ -944,6 +948,8 @@ server <- function(input, output, session) {
 
         importInfo <- bind_rows(importInfo, df)
 
+        history <- history |> append(list(search$history))
+
       }
 
       shinyjs::show("startBulkImport")
@@ -952,7 +958,7 @@ server <- function(input, output, session) {
 
 
 
-    list(importInfo = importInfo, importData = importData)
+    list(importInfo = importInfo, importData = importData, history = history)
 
   })
 
@@ -998,18 +1004,20 @@ server <- function(input, output, session) {
     withProgress(message = 'Gather author data from NCBI', value = 0, {
 
       n <- length(bulkImport()$importData)
-      i <- 1
 
-      for(data in bulkImport()$importData){
+      for(i in 1:length(bulkImport()$history)){
+
+        data <- bulkImport()$importData[[i]]
 
         incProgress(1/n, "Collecting Data From NCBI:", detail = sprintf("Processing %s, %s (%i/%i)",
                                           data$author$lastName, data$author$firstName, i, n))
 
         new <- ncbi_publicationDetails(
-          data$PMIDs,
-          data$author$lastName,
-          data$author$firstName,
-          data$author$initials
+          PMIDs = data$PMIDs,
+          lastName = data$author$lastName,
+          firstName = data$author$firstName,
+          initials = data$author$initials,
+          history = bulkImport()$history[[i]]
         ) |> filter_affiliation(data$affiliation)
 
         new <- dbAddAuthorPublications(new, dbInfo = localCheckout(pool),
@@ -1024,7 +1032,6 @@ server <- function(input, output, session) {
           )
         )
 
-        i = i+ 1
       }
 
     })
@@ -1037,7 +1044,7 @@ server <- function(input, output, session) {
       mutate(status = case_when(
         afterFilter == 0 ~ "WARNING - No articles found after affiliation filtering",
         afterFilter == existing ~ "IGNORED - All articles for this author were already in the database",
-        TRUE ~ sprintf("IMPORTED - %i matched affilation, %i existing, %i new",
+        TRUE ~ sprintf("IMPORTED - %i matched affiliation, %i existing, %i new",
                 afterFilter, existing, new)
       ), statusCode = case_when(
         afterFilter == 0 ~ 0,
