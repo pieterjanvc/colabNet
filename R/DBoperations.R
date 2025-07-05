@@ -553,6 +553,11 @@ dbAddAuthorPublications <- function(
 ) {
   tryCatch(
     {
+
+      if(nrow(authorPublications$articles) == 0){
+        return(data.frame(arID = integer(), PMID = integer(), status = character()))
+      }
+
       conn <- dbGetConn(dbInfo)
 
       if (sqliteIsTransacting(conn)) {

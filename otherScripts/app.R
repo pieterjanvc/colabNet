@@ -1034,14 +1034,23 @@ server <- function(input, output, session) {
     dbFlagUpdate(1, dbInfo = localCheckout(pool))
 
     nImported <- nImported |>
-      mutate(status = sprintf("import complete - %i matched affilation, %i existing, %i new",
-                              afterFilter, existing, new))
+      mutate(status = case_when(
+        afterFilter == 0 ~ "WARNING - No articles found after affiliation filtering",
+        afterFilter == existing ~ "IGNORED - All articles for this author were already in the database",
+        TRUE ~ sprintf("IMPORTED - %i matched affilation, %i existing, %i new",
+                afterFilter, existing, new)
+      ), statusCode = case_when(
+        afterFilter == 0 ~ 0,
+        afterFilter == existing ~ 1,
+        TRUE ~ 2
+      ))
     importInfo <- bulkImport()$importInfo
     importInfo$status = nImported$status
+    importInfo$statusCode = nImported$statusCode
 
     replaceData(
       bulkImportTable_proxy,
-      importInfo,
+      importInfo |> arrange(statusCode, lastName, firstName) |> select(-statusCode),
       rownames = F
     )
 
