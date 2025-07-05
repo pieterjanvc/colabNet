@@ -4,9 +4,9 @@
 
 if (!exists("colabNetDB")) {
   print("DEV TEST")
-  file.copy("../local/test.db", "../local/dev.db", overwrite = T)
-  colabNetDB <- "../local/dev.db"
-  # colabNetDB <- "D:/Desktop/PGG.db"
+  # file.copy("../local/test.db", "../local/dev.db", overwrite = T)
+  # colabNetDB <- "../local/dev.db"
+  colabNetDB <- "D:/Desktop/dev.db"
 }
 
 # Setup for functions in the package
@@ -42,7 +42,7 @@ preCompData <- reactivePoll(
 
     if (length(auIDs) == 0) {
       return(list(
-        auIDs = NULL2,
+        auIDs = NULL,
         plotData = NULL,
         authorsimscore = NULL,
         allArticles = NULL
@@ -865,6 +865,8 @@ server <- function(input, output, session) {
 
   bulkImport <- eventReactive(input$bulkImportAuthor, {
 
+    shinyjs::hide("startBulkImport")
+
     tryCatch({
       data <- read.csv(input$bulkImportAuthor$datapath)
       missing <- setdiff(c("lastName", "firstName", "affiliation"), colnames(data))
@@ -878,8 +880,6 @@ server <- function(input, output, session) {
       }
 
       elementMsg("bulkImportAuthorMsg")
-      shinyjs::show("startBulkImport")
-
       data <- data |> select(lastName, firstName, affiliation)
 
     }, error = function(e) {
@@ -893,49 +893,62 @@ server <- function(input, output, session) {
     importInfo <- data.frame()
     importData <- list()
 
-   for(i in 1:nrow(data)){
+    withProgress(message = 'Verify Authors', value = 0, {
 
-     status <- "ready to import author articles"
+      n <- nrow(data)
 
-    # Get info from Pubmed
-    author <- ncbi_author(
-      data$lastName[i],
-      data$firstName[i],
-      showWarnings = F
-    ) |> filter(group == 1) |> slice(1)
+      for(i in 1:n){
 
-    # If no author found
-    if (length(author$lastName) == 0) {
-      status <- "No articles found on PudMed"
-      df <- data.frame(lastName = data$lastName[i], firstName = data$firstName[i],
-                 affiliation = data$affiliation[i], nArticles = 0, status = status)
-      importInfo <- bind_rows(importInfo, df)
-      next()
-    }
+        incProgress(1/n, "Verify author:", detail = sprintf("%s, %s (%i/%i)",
+                                                                      data$lastName[i], data$firstName[i], i, n))
 
-    # Look for articles in Pubmed
-    search <- ncbi_authorArticleList(
-      data$lastName[i],
-      data$firstName[i],
-      PMIDonly = T
-    )
+        status <- "ready to import author articles"
 
-    if (!search$success) {
-      status <- "> 1000 matches. Will be skipped"
-    } else if (search$n == 0) {
-      status <- "No articles found on PudMed"
-    } else {
-      importData <- importData |> append(list(list(author = author, PMIDs = search$PMID,
-                                                   affiliation = data$affiliation[i])))
-    }
+        # Get info from Pubmed
+        author <- ncbi_author(
+          data$lastName[i],
+          data$firstName[i],
+          showWarnings = F
+        ) |> filter(group == 1) |> slice(1)
 
-    df <- data.frame(lastName = data$lastName[i], firstName = data$firstName[i],
-                     affiliation = data$affiliation[i], nPubMed = search$n,
-                     status = status)
+        # If no author found
+        if (length(author$lastName) == 0) {
+          status <- "No articles found on PudMed"
+          df <- data.frame(lastName = data$lastName[i], firstName = data$firstName[i],
+                           affiliation = data$affiliation[i], nArticles = 0, status = status)
+          importInfo <- bind_rows(importInfo, df)
+          next()
+        }
 
-    importInfo <- bind_rows(importInfo, df)
+        # Look for articles in Pubmed
+        search <- ncbi_authorArticleList(
+          data$lastName[i],
+          data$firstName[i],
+          PMIDonly = T
+        )
 
-    }
+        if (!search$success) {
+          status <- "> 1000 matches. Will be skipped"
+        } else if (search$n == 0) {
+          status <- "No articles found on PudMed"
+        } else {
+          importData <- importData |> append(list(list(author = author, PMIDs = search$PMID,
+                                                       affiliation = data$affiliation[i])))
+        }
+
+        df <- data.frame(lastName = data$lastName[i], firstName = data$firstName[i],
+                         affiliation = data$affiliation[i], nPubMed = search$n,
+                         status = status)
+
+        importInfo <- bind_rows(importInfo, df)
+
+      }
+
+      shinyjs::show("startBulkImport")
+
+    })
+
+
 
     list(importInfo = importInfo, importData = importData)
 
@@ -980,26 +993,41 @@ server <- function(input, output, session) {
 
     nImported <- data.frame()
 
-    for(data in bulkImport()$importData){
-      new <- ncbi_publicationDetails(
-        data$PMIDs,
-        data$author$lastName,
-        data$author$firstName,
-        data$author$initials
-      ) |> filter_affiliation(data$affiliation)
+    withProgress(message = 'Gather author data from NCBI', value = 0, {
 
-      new <- dbAddAuthorPublications(new, dbInfo = localCheckout(pool),
-                                     flagUpdate = F)
+      n <- length(bulkImport()$importData)
+      i <- 1
 
-      nImported <- bind_rows(
-        nImported,
-        data.frame(
-          afterFilter = nrow(new),
-          new = sum(new$status =="new"),
-          existing = sum(new$status =="existing")
+      for(data in bulkImport()$importData){
+
+        incProgress(1/n, "Collecting Data From NCBI:", detail = sprintf("Processing %s, %s (%i/%i)",
+                                          data$author$lastName, data$author$firstName, i, n))
+
+        new <- ncbi_publicationDetails(
+          data$PMIDs,
+          data$author$lastName,
+          data$author$firstName,
+          data$author$initials
+        ) |> filter_affiliation(data$affiliation)
+
+        new <- dbAddAuthorPublications(new, dbInfo = localCheckout(pool),
+                                       flagUpdate = F)
+
+        nImported <- bind_rows(
+          nImported,
+          data.frame(
+            afterFilter = nrow(new),
+            new = sum(new$status =="new"),
+            existing = sum(new$status =="existing")
           )
-      )
-    }
+        )
+
+        i = i+ 1
+      }
+
+    })
+
+
 
     dbFlagUpdate(1, dbInfo = localCheckout(pool))
 
