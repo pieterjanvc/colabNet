@@ -589,14 +589,12 @@ ncbi_meshInfo <- function(values, type = c("meshui", "treenum", "uid")) {
   }
 
   # Get the MeSH data from NCBI
-  meshInfo <- sapply(seq(1, length(uid), by = 250), function(i) {
+  meshInfo <- lapply(seq(1, length(uid), by = 250), function(i) {
     getui <- uid[i:min(i + 249, length(uid))]
     entrez_summary("mesh", id = getui, always_return_list = T)
   })
 
-  if (length(uid) > 250) {
-    meshInfo <- do.call(c, meshInfo)
-  }
+  meshInfo <- do.call(c, meshInfo)
 
   # Extract the mesh terms
   meshTerms <- map_df(meshInfo, function(x) {

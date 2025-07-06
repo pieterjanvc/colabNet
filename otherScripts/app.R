@@ -4,8 +4,11 @@
 
 if (!exists("colabNetDB")) {
   print("DEV TEST")
-  colabNetDB <- "../local/test.db"
-  colabNetDB <- "D:/Desktop/PGG.db"
+  # file.copy("../local/test.db", "../local/dev.db", overwrite = T)
+  # colabNetDB <- "../local/dev.db"
+
+  colabNetDB <- "D:/Desktop/dev.db"
+  file.remove(colabNetDB)
 }
 
 # Setup for functions in the package
@@ -194,6 +197,22 @@ ui <- fluidPage(
          actionButton("pubmedByAuthor", "Search Pubmed"), br(), br(),
           DTOutput("authorSearch"),
           actionButton("artAdd", "Add selected articles")
+        ),
+        wellPanel(
+          tags$h3("Bulk Import from CSV"),
+          tags$i(HTML(
+            "Upload a CSV file with the following columns<ul>",
+            "<li>lastName: The last name of the author</li>",
+            "<li>firstName: The first name + middle initials (see above for details)</li>",
+            "<li>affiliation: (optional) A RegEx pattern to filter by author affiliation</li>",
+            "</ul>"
+          )),
+          fileInput("bulkImportAuthor", "CSV file", accept = ".csv"),
+          tags$i(HTML("Note that the nPubMed column below will show the number of articles ",
+            "that match the author before filtering by affiliation (will be done when importing)")),
+          div(id=  "bulkImportAuthorMsg"),
+          DTOutput("bulkImportTable"),
+          actionButton("startBulkImport", "Start Import")
         ),
         value = "exploration"
       )
@@ -596,8 +615,6 @@ server <- function(input, output, session) {
         by = "auID"
       ) |> pull(lastName)
 
-    print(sprintf("UPDATE FOR %s", lastName))
-
     replaceData(
       authorInDB_proxy,
       articlesInDB() |>
@@ -686,9 +703,10 @@ server <- function(input, output, session) {
 
       # Look for articles in Pubmed
       search <- ncbi_authorArticleList(
-        input$lastName,
-        input$firstName,
-        str_split(input$PMIDs, ",")[[1]] |> str_trim(),
+        lastName = input$lastName,
+        firstName = input$firstName,
+        PMIDs = str_split(input$PMIDs, ",")[[1]] |> str_trim(),
+        returnHistory = T
       )
 
       if (!search$success) {
@@ -755,7 +773,7 @@ server <- function(input, output, session) {
       updateSelectInput(session, "auID", selected = toSelect)
 
       enable("pubmedByAuthor")
-      searchResults(list(articles = df, author = author))
+      searchResults(list(articles = df, author = author, history = search$history))
     },
     ignoreInit = T
   )
@@ -792,15 +810,16 @@ server <- function(input, output, session) {
     req(length(PMIDs) > 0)
     disable("artAdd")
     new <- ncbi_publicationDetails(
-      PMIDs,
-      searchResults()$author$lastName,
-      searchResults()$author$firstName,
-      searchResults()$author$initials
+      PMIDs = PMIDs,
+      lastName = searchResults()$author$lastName,
+      firstName = searchResults()$author$firstName,
+      initials = searchResults()$author$initials,
+      history = searchResults()$history
     )
 
     new <- dbAddAuthorPublications(new, dbInfo = localCheckout(pool))
 
-    # Remove added articels from search results
+    # Remove added articles from search results
     searchResults(list(
       articles = searchResults()$articles |> filter(!PMID %in% new$PMID),
       author = searchResults()$author)
@@ -844,6 +863,208 @@ server <- function(input, output, session) {
     enable("artDel")
   }) |>
     bindEvent(input$artDel)
+
+  # ----- BULK IMPORT ----
+  shinyjs::hide("startBulkImport")
+
+  bulkImport <- eventReactive(input$bulkImportAuthor, {
+
+    shinyjs::hide("startBulkImport")
+
+    tryCatch({
+      data <- read.csv(input$bulkImportAuthor$datapath)
+      missing <- setdiff(c("lastName", "firstName", "affiliation"), colnames(data))
+
+      if(length(missing) > 0) {
+        stop("The following columns are missing: ", paste(missing, collapse = ", "))
+      }
+
+      if(!all(str_detect(data$firstName, "\\w+"), str_detect(data$lastName, "\\w+"))){
+        stop("The firstName and lastName must be provided for everyone")
+      }
+
+      elementMsg("bulkImportAuthorMsg")
+      data <- data |> select(lastName, firstName, affiliation)
+
+    }, error = function(e) {
+      elementMsg("bulkImportAuthorMsg",
+                 HTML(sprintf("The upload failed with the following message:<br>%s", e$message)))
+      shinyjs::hide("startBulkImport")
+
+      return()
+    })
+
+    importInfo <- data.frame()
+    importData <- list()
+    history <- list()
+
+    withProgress(message = 'Verify Authors', value = 0, {
+
+      n <- nrow(data)
+
+      for(i in 1:n){
+
+        incProgress(1/n, "Verify author:", detail = sprintf("%s, %s (%i/%i)",
+                                                                      data$lastName[i], data$firstName[i], i, n))
+
+        status <- "ready to import author articles"
+
+        # Get info from Pubmed
+        author <- ncbi_author(
+          data$lastName[i],
+          data$firstName[i],
+          showWarnings = F
+        ) |> filter(group == 1) |> slice(1)
+
+        # If no author found
+        if (length(author$lastName) == 0) {
+          status <- "No articles found on PudMed"
+          df <- data.frame(lastName = data$lastName[i], firstName = data$firstName[i],
+                           affiliation = data$affiliation[i], nArticles = 0, status = status)
+          importInfo <- bind_rows(importInfo, df)
+          next()
+        }
+
+        # Look for articles in Pubmed
+        search <- ncbi_authorArticleList(
+          data$lastName[i],
+          data$firstName[i],
+          PMIDonly = T,
+          returnHistory = T
+        )
+
+        if (!search$success) {
+          status <- "> 1000 matches. Will be skipped"
+        } else if (search$n == 0) {
+          status <- "No articles found on PudMed"
+        } else {
+          importData <- importData |> append(list(list(author = author, PMIDs = search$PMID,
+                                                       affiliation = data$affiliation[i])))
+        }
+
+        df <- data.frame(lastName = data$lastName[i], firstName = data$firstName[i],
+                         affiliation = data$affiliation[i], nPubMed = search$n,
+                         status = status)
+
+        importInfo <- bind_rows(importInfo, df)
+
+        history <- history |> append(list(search$history))
+
+      }
+
+      shinyjs::show("startBulkImport")
+
+    })
+
+
+
+    list(importInfo = importInfo, importData = importData, history = history)
+
+  })
+
+  observeEvent(input$startBulkImport, {
+    shinyjs::hide("startBulkImport")
+
+
+  })
+
+  emptyImport <- data.frame(lastName = character(), firstName = character(),
+                              affiliation = character(), nPubMed = integer(),
+                            status = character())
+
+  output$bulkImportTable <- renderDT(
+    {
+      emptyImport
+    },
+    escape = F,
+    rownames = F
+  )
+
+  bulkImportTable_proxy <- dataTableProxy("bulkImportTable")
+
+  bulkImportResults <- reactiveVal(list(articles = NULL, author = NULL))
+
+  observeEvent(bulkImport(), {
+    if(is.null(bulkImport()$importInfo)){
+      replaceData(bulkImportTable_proxy, emptyImport, rownames = F)
+      return()
+    }
+
+    replaceData(
+      bulkImportTable_proxy,
+      bulkImport()$importInfo,
+      rownames = F
+    )
+  })
+
+  observeEvent(input$startBulkImport, {
+
+    nImported <- data.frame()
+
+    withProgress(message = 'Gather author data from NCBI', value = 0, {
+
+      n <- length(bulkImport()$importData)
+
+      for(i in 1:length(bulkImport()$history)){
+
+        data <- bulkImport()$importData[[i]]
+
+        incProgress(1/n, "Collecting Data From NCBI:", detail = sprintf("Processing %s, %s (%i/%i)",
+                                          data$author$lastName, data$author$firstName, i, n))
+
+        new <- ncbi_publicationDetails(
+          PMIDs = data$PMIDs,
+          lastName = data$author$lastName,
+          firstName = data$author$firstName,
+          initials = data$author$initials,
+          history = bulkImport()$history[[i]]
+        ) |> filter_affiliation(data$affiliation)
+
+        new <- dbAddAuthorPublications(new, dbInfo = localCheckout(pool),
+                                       flagUpdate = F)
+
+        nImported <- bind_rows(
+          nImported,
+          data.frame(
+            afterFilter = nrow(new),
+            new = sum(new$status =="new"),
+            existing = sum(new$status =="existing")
+          )
+        )
+
+      }
+
+    })
+
+
+
+    dbFlagUpdate(1, dbInfo = localCheckout(pool))
+
+    nImported <- nImported |>
+      mutate(status = case_when(
+        afterFilter == 0 ~ "WARNING - No articles found after affiliation filtering",
+        afterFilter == existing ~ "IGNORED - All articles for this author were already in the database",
+        TRUE ~ sprintf("IMPORTED - %i matched affiliation, %i existing, %i new",
+                afterFilter, existing, new)
+      ), statusCode = case_when(
+        afterFilter == 0 ~ 0,
+        afterFilter == existing ~ 1,
+        TRUE ~ 2
+      ))
+    importInfo <- bulkImport()$importInfo
+    importInfo$status = nImported$status
+    importInfo$statusCode = nImported$statusCode
+
+    replaceData(
+      bulkImportTable_proxy,
+      importInfo |> arrange(statusCode, lastName, firstName) |> select(-statusCode),
+      rownames = F
+    )
+
+    shinyjs::show("startBulkImport")
+
+  })
+
 }
 
 shinyApp(ui, server)

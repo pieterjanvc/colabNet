@@ -4,10 +4,17 @@
 \alias{dbAddAuthorPublications}
 \title{Add authors to the database}
 \usage{
-dbAddAuthorPublications(authorPublications, matchOnFirst = F, dbInfo)
+dbAddAuthorPublications(
+  authorPublications,
+  matchOnFirst = F,
+  flagUpdate = T,
+  dbInfo
+)
 }
 \arguments{
 \item{authorPublications}{List of data frames geneated by ncbi_authorPublications()}
+
+\item{flagUpdate}{Default= T, set an update flag in the DB so the app will refresh once completed}
 
 \item{dbInfo}{(optional if dbSetup() has been run)
 Path to the ColabNet database or existing connection}
