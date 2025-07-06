@@ -286,7 +286,7 @@ ncbi_publicationDetails <- function(
       day = as.integer(day)
     )
 
-  if (length(setdiff(articleInfo$PMID, PMIDs)) > 0) {
+  if (length(setdiff(articleInfo$PMID, PMIDs)) > 0 & !is.list(history)) {
     warning(
       "The following PMIDs were not found are are ignored:",
       paste(setdiff(articleInfo$PMID, PMIDs), collapse = ", ")
