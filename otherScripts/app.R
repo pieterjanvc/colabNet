@@ -177,22 +177,29 @@ ui <- fluidPage(
           actionButton("artDel", "Remove selected articles")
         ),
         wellPanel(
-          tags$h3("Find articles on Pubmed"),
-          fluidRow(column(6,textInput("lastName", "Last name")),
-          column(6,textInput("firstName", "First name + middle initials"))),
           fluidRow(
             column(6,
+                   tags$h3("Find articles on Pubmed"),
+                   textInput("lastName", "Last name"),
+                   textInput("firstName", "First name + middle initials"),
+                   tags$i(HTML(
+                     "Use the first name and any middle name initials the author uses to publish.",
+                     "<ul><li>For a more specific search use full first name and then middle initials: ",
+                     "Joseph E Murray &rarr; Joseph E</li><li>For a broader search, use initals only",
+                     "Joseph E Murray &rarr; JE</li></ul>"
+                   ))),
+            column(6,
+                   HTML("<br><h4><i>Optional Filters</i></h4>"),
                    textAreaInput(
                      "PMIDs",
-                     "(optional) Limit search by PMID (comma separated)"
+                     "Limit search by PMID (comma separated)"
+                   ),
+                   textInput(
+                     "auAff",
+                     "Filter based on affiliation (RegEx style)"
                    )
                    ),
-            column(6,tags$i(HTML(
-            "Use the first name and any middle name initials the author uses to publish.",
-            "<ul><li>For a more specific search use full first name and then middle initials: ",
-            "Joseph E Murray &rarr; Joseph E</li><li>For a broader search, use initals only",
-            "Joseph E Murray &rarr; JE</li></ul>"
-          )))),
+            ),
 
          actionButton("pubmedByAuthor", "Search Pubmed"), br(), br(),
           DTOutput("authorSearch"),
@@ -571,8 +578,8 @@ server <- function(input, output, session) {
   articlesInDB <- reactiveVal(NULL)
 
   observeEvent(input$auID, {
-    print(input$auID)
-    elementMsg("pubmedByAuthor")
+
+    # elementMsg("pubmedByAuthor")
 
     authors <- tbl(pool, "coAuthor") |>
       group_by(arID) |>
@@ -649,7 +656,7 @@ server <- function(input, output, session) {
 
   authorSearch_proxy <- dataTableProxy("authorSearch")
 
-  searchResults <- reactiveVal(list(articles = NULL, author = NULL))
+  searchResults <- reactiveVal(list(articles = NULL, author = NULL, history = NULL, pubDetails = NULL))
 
   observeEvent(
     input$pubmedByAuthor,
@@ -702,6 +709,8 @@ server <- function(input, output, session) {
       }
 
       # Look for articles in Pubmed
+      msg = ""
+
       search <- ncbi_authorArticleList(
         lastName = input$lastName,
         firstName = input$firstName,
@@ -710,26 +719,19 @@ server <- function(input, output, session) {
       )
 
       if (!search$success) {
-        elementMsg(
-          "pubmedByAuthor",
-          sprintf(
-            "This search yielded too many (%i) results. Please use PMIDs instead",
-            search$n
-          )
+        msg = sprintf(
+          "This search yielded too many (%i) results. Please use PMIDs instead",
+          search$n
         )
         df <- emptyTable
       } else if (search$n == 0) {
-        elementMsg(
-          "pubmedByAuthor",
-          sprintf(
-            "No results for the author with last name '%s' and first name '%s'",
-            input$lastName,
-            input$firstName
-          )
+        msg = sprintf(
+          "No results for the author with last name '%s' and first name '%s'",
+          input$lastName,
+          input$firstName
         )
         df <- emptyTable
       } else {
-        elementMsg("pubmedByAuthor")
         df <- search$articles |>
           transmute(
             PMID,
@@ -743,25 +745,39 @@ server <- function(input, output, session) {
           )
       }
 
+      # Check if affiliation filter is present (more calculation needed)
+      auAff <- str_trim(input$auAff)
+
+      if(auAff != "" & nrow(df) > 0){
+        pubDetails <- ncbi_publicationDetails(
+          PMIDs = df$PMID,
+          lastName = author$lastName,
+          firstName = author$firstName,
+          initials = author$initials,
+          history = search$history
+        ) |> filter_affiliation(auAff)
+
+        df <- df |> filter(PMID %in% pubDetails$articles$PMID)
+
+        if(nrow(df) == 0) {
+          msg = "No articles found that match the affiliation filter"
+          auAff <-  NA # Set this so the message is not overwritten by next one
+        }
+      } else {
+        pubDetails <- NULL
+      }
+
       existing <- tbl(pool, "article") |>
         filter(PMID %in% local(df$PMID)) |>
         pull(PMID)
 
       df <- df |> filter(!PMID %in% {{ existing }})
 
-      if (nrow(df) == 0) {
-        elementMsg(
-          "pubmedByAuthor",
-          "No new articles found that aren't already in the database (see above)",
-          "info"
-        )
-      } else if (nrow(df) > 0 & length(existing) > 0) {
-        elementMsg(
-          "pubmedByAuthor",
-          sprintf(" %i articles for this author are already in the database (see above) and are not listed in the result",
-                  length(existing)),
-          "info"
-        )
+      if (nrow(df) == 0 & !is.na(auAff)) {
+        msg = "No new articles found that aren't already in the database (see above)"
+      } else if (nrow(df) > 0 & length(existing) > 0 & !is.na(auAff)) {
+        msg = sprintf(" %i articles for this author are already in the database (see above) and are not listed in the result",
+                      length(existing))
       }
 
       if(length(existing) > 0){
@@ -772,8 +788,16 @@ server <- function(input, output, session) {
 
       updateSelectInput(session, "auID", selected = toSelect)
 
+      if(msg != ""){
+        elementMsg("pubmedByAuthor",msg,"info")
+      } else {
+        elementMsg("pubmedByAuthor")
+      }
+
+
       enable("pubmedByAuthor")
-      searchResults(list(articles = df, author = author, history = search$history))
+      searchResults(list(articles = df, author = author,
+                         history = search$history, pubDetails = pubDetails))
     },
     ignoreInit = T
   )
@@ -809,13 +833,20 @@ server <- function(input, output, session) {
 
     req(length(PMIDs) > 0)
     disable("artAdd")
-    new <- ncbi_publicationDetails(
-      PMIDs = PMIDs,
-      lastName = searchResults()$author$lastName,
-      firstName = searchResults()$author$firstName,
-      initials = searchResults()$author$initials,
-      history = searchResults()$history
-    )
+
+    if(length(searchResults()$pubDetails) == 0){
+      # TODO Improve function so it will filter somehow history object or do it again
+      new <- ncbi_publicationDetails(
+        PMIDs = PMIDs,
+        lastName = searchResults()$author$lastName,
+        firstName = searchResults()$author$firstName,
+        initials = searchResults()$author$initials,
+        history = searchResults()$history
+      ) |> filter_PMID(PMIDs)
+    } else {
+      new <- filter_PMID(searchResults()$pubDetails, PMIDs)
+    }
+
 
     new <- dbAddAuthorPublications(new, dbInfo = localCheckout(pool))
 
@@ -826,6 +857,17 @@ server <- function(input, output, session) {
       )
 
     # Because of lazy eval we have to make a switch of inputs to update the table
+    authorList({
+      tbl(pool, "author") |>
+        filter(authorOfInterest == 1) |>
+        left_join(
+          tbl(pool, "authorName"),
+          by = "auID"
+        ) |>
+        collect() |>
+        arrange(lastName, firstName)
+    })
+
     if(input$auID == new$auID[1]) {
       updateSelectInput(session, "auID", selected = "0")
     }
