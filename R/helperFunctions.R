@@ -283,7 +283,7 @@ profvisRender <- function(expr, folder = "local") {
 colabNet <- function(colabNetDB) {
   normalizePath(dirname(colabNetDB), mustWork = T)
   sys.source(
-    system.file("otherScripts", "app.R", package = "colabNet"),
+    system.file("app.R", package = "colabNet"),
     envir = environment()
   )
   shinyApp(ui, server)
