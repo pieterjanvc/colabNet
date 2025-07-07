@@ -1,348 +1,153 @@
-# Create a database to work with
+file.copy("data/PGG_dev.db", "local/dev.db", overwrite = T)
+colabNetDB <- "local/dev.db"
 
-# Install package for additional testing
-# devtools::install()
-# library("colabNet")
 
-#devtools::load_all()
-dbSetup("data/test.db", checkSchema = T)
+# colabNetDB <- "D:/Desktop/dev.db"
+# file.remove(colabNetDB)
 
-authors = data.frame(
-  First_name = c(
-    "PJ",
-    "Lorenzo",
-    "Cristina",
-    "Irene",
-    "Grey",
-    "Kayla",
-    "Lauren"
-  ),
-  Last_name = c(
-    "Van Camp",
-    "Gesuita",
-    "Deoliveira",
-    "Wong",
-    'Kuling',
-    "Nygaard",
-    "Essler"
-  )
-)
-i = 1
-authorPublications <- lapply(1:nrow(authors), function(i) {
-  firstName = authors$First_name[i]
-  lastName = authors$Last_name[i]
-  print(paste(firstName, lastName))
-  authorinfo <- ncbi_author(lastName, firstName)
+dbSetup(colabNetDB, checkSchema = T)
 
-  if (n_distinct(authorinfo$group) > 1) {
-    authorinfo <- authorinfo[1, ]
-    warning(sprintf(
-      "Multiple matches for %s, %s [%i]. Best match: %s, %s",
-      lastName,
-      firstName,
-      i,
-      authorinfo$lastName,
-      authorinfo$firstName
-    ))
-  }
+pool <- dbGetConn()
 
-  result <- ncbi_authorArticleList(
-    authorinfo$lastName[1],
-    authorinfo$firstName[1],
-    authorinfo$initials[1],
-    PMIDonly = T,
-    stopFetching = 1000,
-    returnHistory = T,
-    searchInitials = F,
-    simpletext = T
-  )
+auIDs = c(1053, 1673)
+treemapFromIDs <- function(auIDs){
 
-  if (!result$success) {
-    warning(sprintf(
-      "Too many results for %s, %s [%i]. Skipped",
-      lastName,
-      firstName,
-      i
-    ))
-    return(NULL)
-  }
-  # publicationDetails <- authorPublications
-  # regex <- affiliationFilter
-  # includeMissing <- T
-  authorPublications <- ncbi_publicationDetails(
-    PMIDs = result$PMID,
-    lastName = authorinfo$lastName[1],
-    firstName = authorinfo$firstName[1],
-    initials = authorinfo$initials[1],
-    history = result$history
-  )
+  papermesh <- dbPaperMesh(auIDs)
+  meshtree <- dbMeshTree(papermesh)
+  papermeshtree <- paperMeshTree(papermesh, meshtree)
 
-  if (nrow(authorPublications$articles) == 0) {
-    warning(sprintf(
-      "No articles found for %s, %s [%i]. Skipped",
-      lastName,
-      firstName,
-      i
-    ))
-    return(NULL)
-  }
-  # authorPublications_all[[14]] <- authorPublications
-  authorPublications
-})
+  # Add author names
+  au <- tbl(pool, "author") |>
+    filter(auID %in% local(unique(papermeshtree$auID))) |>
+    select(auID) |>
+    left_join(tbl(pool, "authorName") |> filter(default == 1), by = "auID") |>
+    collect() |>
+    rowwise() |>
+    mutate(name = paste(lastName, firstName, sep = ", ")) |>
+    select(auID, name)
 
-# authorPublications <- authorPublications[!sapply(authorPublications, is.null)]
-# saveRDS(authorPublications, "data/test.rds")
-authorPublications <- readRDS("data/ap.rds")
+  papermeshtree <- papermeshtree |>
+    left_join(au |> select(auID, name), by = "auID") |>
+    mutate(name = ifelse(nPapers == 0, "", name))
 
-# authorPublications <- readRDS("data/ap.rds")[[2]]
-# x <- readRDS("data/ap.rds")[[1]]
-result <- map_df(authorPublications, function(x) {
-  print("Next one")
-  dbAddAuthorPublications(x)
-})
+  return(treemapData(papermeshtree))
+}
 
-result <- dbDeleteArticle(c(21, 23, 24))
-
-# auIDs = c(1,31,75)
-
-# Find overlap between authors based on MeSH terms of their research papers
-
-meshRoots <- data.frame(
-  treenum = c(LETTERS[1:14], "V", "Z"),
-  meshterm = c(
-    "Anatomy",
-    "Organisms",
-    "Diseases",
-    "Chemicals and Drugs",
-    "Analytical, Diagnostic and Therapeutic Techniques, and Equipment",
-    "Psychiatry and Psychology",
-    "Phenomena and Processes",
-    "Disciplines and Occupations",
-    "Anthropology, Education, Sociology, and Social Phenomena",
-    "Technology, Industry, and Agriculture",
-    "Humanities",
-    "Information Science",
-    "Named Groups",
-    "Health Care",
-    "Publication Characteristics",
-    "Geographicals"
-  )
-)
-
-amt1 <- authorMeshTree(1) # PJ
-amt2 <- authorMeshTree(31) # Lorenzo
-
-## GENERATE TREEMAP PLOT
-# auIDs = c(1,31,69,100,137,163)
-# issue with Essler 163
-# row 138  - E01.370.225.500.607 -> <br>E01.370.225.500.607.512
-auIDs <- tbl(dbGetConn(checkSchema = F), "author") |>
-  # TODO remove 163 exclusion once bug fixed!!
-  filter(authorOfInterest == 1, auID != 163) |>
-  pull(auID)
-difftree <- diffTree(auIDs, pruneDuplicates = T)
-
-test <- ncbi_authorArticleList("Van Camp", "Pieter-Jan", "PJ")
-
-lastName = "Van Camp"
-
-PMIDs <- "28202393"
-lastNameOfInterest <- "DeOliveira"
-authorPublications <- ncbi_publicationDetails("28202393", "DeOliveira")
-
-new <- dbAddAuthorPublications(authorPublications)
-
-n_distinct(plotData$meshterm) == length(plotData$meshterm)
-
-n = 2111
-myPlot <- plot_ly(
-  type = "treemap",
-  labels = plotData$meshterm,
-  parents = plotData$parentMeshterm,
-  marker = list(colors = plotData$colour),
-  hovertext = sprintf("%s<br><br>%s", plotData$meshterm, plotData$auNames),
-  hoverinfo = "text",
-  textfont = list(
-    color = textBW(plotData$colour)
-  ),
-  maxdepth = -1,
-  source = "mtPlot"
-)
-
-htmlwidgets::saveWidget(myPlot, "D:/Desktop/PGG.html")
-
-plotData$meshterm[2111]
-
-# E05.591.560.500
-# E05.591.560 is missing
-
-dbSetup("dev/PGG.db", checkSchema = T)
-
-auIDs <- tbl(dbGetConn(checkSchema = F), "author") |>
+auIDs <- tbl(pool, "author") |>
   filter(authorOfInterest == 1) |>
   pull(auID)
-difftree <- diffTree(auIDs, pruneDuplicates = T)
 
-# PRUNE ALGORITHM
+papermesh <- dbPaperMesh(auIDs)
+meshtree <- dbMeshTree(papermesh)
+papermeshtree <- paperMeshTree(papermesh, meshtree)
 
-# Step 1 - Find duplicated meshterms in different (parts of) tree
-test <- difftree |>
-  group_by(uid) |>
-  mutate(duplicated = n() > 1, nDup = n() - 1) |>
-  ungroup()
+# Add author names
+au <- tbl(pool, "author") |>
+  filter(auID %in% local(unique(papermeshtree$auID))) |>
+  select(auID) |>
+  left_join(tbl(pool, "authorName") |> filter(default == 1), by = "auID") |>
+  collect() |>
+  rowwise() |>
+  mutate(name = paste(lastName, firstName, sep = ", ")) |>
+  select(auID, name)
 
-# Step 2 - Start at bottom and work way up the tree. For each treenum add:
-# - number of unique children
-# - number of duplicated children
+papermeshtree <- papermeshtree |>
+  left_join(au |> select(auID, name), by = "auID") |>
+  mutate(name = ifelse(nPapers == 0, "", name))
 
-test <- test |> mutate(uniqueChildren = 0, dupChildren = 0)
+plotData <- treemapData(papermeshtree)
+zooscore <- zooScore(papermeshtree)
 
-for (level in sort(unique(test$level), decreasing = T)) {
-  # THe number of unique / dup children is the previous plus current
-  currentNums <- test |>
-    filter(level == {{ level }}) |>
-    select(treenum, duplicated, parent, uniqueChildren, dupChildren) |>
-    mutate(
-      addUnique = uniqueChildren + !duplicated,
-      addDup = dupChildren + duplicated,
-    ) |>
-    select(treenum = parent, addUnique, addDup) |>
-    filter(treenum != "") |>
-    group_by(treenum) |>
+dbDisconnect(pool)
+
+test <- zooscore |> group_by(au1, au2) |> summarise(
+  zooscore = sum(score), .groups = "drop"
+) |>
+  left_join(au |> select(au1 = auID, au1_name = name), by = "au1") |>
+  left_join(au |> select(au2 = auID, au2_name = name), by = "au2") |>
+  arrange(desc(zooscore))
+
+plotData <- treemapFromIDs(c(1053, 1673))
+boxText <- str_wrap(paste(plotData$meshSum, plotData$meshterm, sep = " | "), 12)
+boxText <- ifelse(plotData$hasChildren, paste(boxText, "<b>+</b>"), boxText)
+
+plotData <- plotData |>
+  mutate(
+    authors = str_remove(authors, "^\n"), # Because sometimes starts with \n
+    colourCode = case_when(
+    is.na(authors) ~ 1,
+    authors == "Perrimon, Norbert" ~ 2,
+    authors == "Church, George M" ~3,
+    authors == "Church, George M\nPerrimon, Norbert" ~ 4,
+    TRUE ~ 1
+  ))
+
+test <- plotData
+
+plotData <- test
+
+toUpdate <- plotData |> filter(!hasChildren) |>
+  select(branchID = parentBranchID, childCol = colourCode) |>
+  group_by(branchID) |>
+  mutate(childCol = case_when(
+    all(2:3 %in% childCol) ~ 4,
+    TRUE ~ max(childCol)
+  )) |>
+  summarise(
+    childCol = childCol[1], .groups = "drop"
+  ) |>
+  ungroup() |> distinct()
+
+while(nrow(toUpdate) > 0){
+  plotData <- plotData |> left_join(toUpdate, by = "branchID") |>
+    mutate(colourCode = case_when(
+      is.na(childCol) ~ colourCode,
+      childCol > colourCode ~ childCol,
+      TRUE ~ colourCode
+    ))
+
+  toUpdate <- plotData |> filter(!is.na(childCol)) |>
+    select(branchID = parentBranchID, childCol = colourCode) |>
+    group_by(branchID) |>
+    mutate(childCol = case_when(
+      all(2:3 %in% childCol) ~ 4,
+      TRUE ~ max(childCol, 1)
+    )) |>
     summarise(
-      addUnique = sum(addUnique),
-      addDup = sum(addDup),
-      .groups = "drop"
-    )
-
-  test <- test |>
-    left_join(currentNums, by = "treenum") |>
-    mutate(
-      uniqueChildren = ifelse(
-        is.na(addUnique),
-        uniqueChildren,
-        uniqueChildren + addUnique
-      ),
-      dupChildren = ifelse(is.na(addDup), dupChildren, dupChildren + addDup)
+      childCol = childCol[1], .groups = "drop"
     ) |>
-    select(-addUnique, -addDup)
+    ungroup() |> distinct()
+
+  plotData <- plotData |> select(-childCol)
 }
 
-# Step 3 - Pruning
-# The highest level that is duplicated and has all duplicate children is removed
-# first
-test <- backup
+colSel = c("#CCCCCC", "#3398DB", "#F1C40E", "#7aa64c")
 
-remainingDup <- data.frame(uid = c(), remaining = c())
-pruned <- c()
+plotData <- plotData |>
+  group_by(colourCode) |>
+  mutate(
+    colour = treemapColour(meshSum,
+                           minCol = lightenColour(colSel[colourCode[1]], 0.9),
+                           maxCol = colSel[colourCode[1]])
+  ) |>  ungroup(  )
 
-toPrune <- test |>
-  filter(!treenum %in% pruned) |>
-  filter(duplicated, uniqueChildren == 0) |>
-  filter(dupChildren == max(dupChildren)) |>
-  filter(level == min(level))
-j = 1
-while (nrow(toPrune) > 0) {
-  for (i in 1:nrow(toPrune)) {
-    # Get the node of interest and all children (all should be duplicated)
-    x <- test |>
-      filter(str_detect(treenum, paste(toPrune[i, ]$treenum, collapse = "|")))
+plot_ly(
+  type = "treemap",
+  ids = plotData$branchID,
+  parents = plotData$parentBranchID,
+  labels = ifelse(
+    is.na(plotData$meshSum),
+    plotData$meshterm,
+    paste(plotData$meshSum, plotData$meshterm, sep = " | ")
+  ),
+  text = boxText,
+  values = plotData$treemapVal,
+  marker = list(colors = plotData$colour),
+  textinfo = "text",
+  hovertext = plotData$authors,
+  hoverinfo = "text",
+  maxdepth = 3,
+  source = "treemap"
+)
 
-    # Check how many duplicates are left in the original dataset (don't prune last one)
-    remainingDup <- bind_rows(
-      remainingDup,
-      x |>
-        select(uid, remaining = nDup) |>
-        group_by(uid) |>
-        slice(1) |>
-        ungroup() |>
-        filter(!uid %in% remainingDup$uid)
-    )
 
-    toRemove <- x |>
-      select(treenum, uid) |>
-      left_join(remainingDup, by = "uid") |>
-      filter(remaining > 0)
-
-    if (nrow(toRemove) == 0) {
-      next
-    }
-
-    # Check for rare case where child of to be removed has no remaining duplicates
-    toKeep <- x |>
-      filter(str_detect(treenum, paste(toRemove$treenum, collapse = "|")))
-    if (nrow(toKeep) > nrow(toRemove)) {
-      toRemove <- toRemove |> filter(!treenum %in% toKeep$treenum)
-
-      if (nrow(toRemove) == 0) {
-        next
-      }
-    }
-
-    x <- toRemove
-
-    remainingDup <- remainingDup |>
-      left_join(
-        x |> group_by(uid) |> summarise(n = n(), .groups = "drop"),
-        by = "uid"
-      ) |>
-      mutate(remaining = ifelse(is.na(n), remaining, remaining - n)) |>
-      select(-n)
-
-    toRemove <- x$treenum
-    # Rare case where duplicates are nested in the same part of the tree
-    # and would all be pruned removing them completely (keep at least one)
-    if (any(remainingDup$remaining < 0)) {
-      toFix <- remainingDup$uid[remainingDup$remaining < 0]
-      for (y in toFix) {
-        # Select one to keep (least nested)
-        toKeep <- x |>
-          filter(uid == y) |>
-          filter(nchar(treenum) == min(nchar(treenum))) |>
-          slice(1)
-        toKeep <- c(missingTreeNums(toKeep$treenum), toKeep$treenum)
-        toRemove <- setdiff(toRemove, toKeep)
-      }
-      # Manually set the remaining to 0 to not trigger the same one next round
-      remainingDup$remaining[remainingDup$remaining < 0] = 0
-    }
-
-    test <- test |> filter(!treenum %in% toRemove)
-  }
-
-  toPrune <- test |>
-    filter(!treenum %in% pruned) |>
-    filter(duplicated, uniqueChildren == 0) |>
-    filter(dupChildren == max(dupChildren)) |>
-    filter(level == min(level))
-
-  pruned <- c(pruned, toPrune$treenum)
-
-  if (!"N05.715.360.300.715.500.530" %in% test$treenum) {
-    print(j)
-    break
-  }
-  j = j + 1
-}
-
-check <- difftree$uid[!difftree$uid %in% test$uid]
-test1 <- difftree |> filter(uid %in% difftree$uid[!difftree$uid %in% test$uid])
-
-missingTreeNums(test$treenum)
-
-test$uid[test$uid %in% names(table(test$uid)[table(test$uid) > 1])]
-# I01.409
-# N03.540.348
-x <- difftree |> filter(str_detect(treenum, "I01|N03.540"))
-
-oldList <- c(1, 5, 8, 9, 7, 4, 1, 1, 2)
-n <- length(oldList)
-oldMean <- mean(oldList)
-
-newList <- c(5, 5, 6, 3, 9, 8, 5)
-n <- n + length(newList)
-oldMean + sum(newList - oldMean) / (n)
-
-oldMean + (sum(newList) - oldMean * length(newList)) / (n)
-
-mean(c(oldList, newList))

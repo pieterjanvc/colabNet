@@ -36,6 +36,24 @@ textBW <- function(colours) {
   return(ifelse(lum > 127.5, "black", "white"))
 }
 
+#' Make a hexadecimal colour lighter (go towards white)
+#'
+#' @param hex A hexadecimal colour value
+#' @param factor How much whiter to make the colour. 0 = no change, 1 = white
+#'
+#' @return A vector of "black" or "white" for each colour
+lightenColour <- function(hex, factor) {
+  # Convert hex to RGB
+  rgb <- col2rgb(hex) / 255
+
+  # Move each RGB component toward white (1.0)
+  lighter_rgb <- rgb + (1 - rgb) * factor
+
+  # Convert back to hex
+  rgb_to_hex <- function(x) rgb(x[1], x[2], x[3])
+  rgb_to_hex(lighter_rgb)
+}
+
 #' Decorate an HTML element with a message
 #'
 #' @param elementID The ID of the element as set in Shiny

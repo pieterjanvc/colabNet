@@ -4,11 +4,11 @@
 
 if (!exists("colabNetDB")) {
   print("DEV TEST")
-  # file.copy("../local/test.db", "../local/dev.db", overwrite = T)
-  # colabNetDB <- "../local/dev.db"
+  file.copy("../data/PGG_dev.db", "../local/dev.db", overwrite = T)
+  colabNetDB <- "../local/dev.db"
 
-  colabNetDB <- "D:/Desktop/dev.db"
-  file.remove(colabNetDB)
+  # colabNetDB <- "D:/Desktop/dev.db"
+  # file.remove(colabNetDB)
 }
 
 # Setup for functions in the package
@@ -130,7 +130,7 @@ ui <- fluidPage(useShinyjs(), fluidRow(column(
       )), fluidRow(column(
         12, tabsetPanel(
           tabPanel(
-            "Network",
+            "Co-authors",
             visNetworkOutput("networkPlot", height = "60vh"),
             value = "networkTab"
           ),
