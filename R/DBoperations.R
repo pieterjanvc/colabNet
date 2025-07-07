@@ -16,7 +16,6 @@
 dbSetup <- function(dbInfo, newDBMsg = T, checkSchema = F, returnConn = F) {
   # Get the reference schema
   sqlFile <- readLines(system.file(
-    "inst",
     "create_colabNetDB.sql",
     package = "colabNet"
   )) |>
