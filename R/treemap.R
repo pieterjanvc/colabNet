@@ -163,3 +163,121 @@ treemapColour <- function(
   result[!nas] = vals
   result
 }
+
+#' Generate a TreeMap from a list of author IDs
+#'
+#' @param auIDs List of authors IDs
+#' @param dbInfo (optional if dbSetup() has been run)
+#'  Path to the ColabNet database or existing connection
+#'
+#' @return List with two elements
+#'  - treemapdata: Dataframe used to build a TreeMap
+#'  - authors: Data frame with default author name and ID
+#'
+#' @export
+treemapFromAuIDs <- function(auIDs, dbInfo){
+
+  conn <- dbGetConn(dbInfo)
+
+  papermesh <- dbPaperMesh(auIDs)
+  meshtree <- dbMeshTree(papermesh)
+  papermeshtree <- paperMeshTree(papermesh, meshtree)
+
+  # Add author names
+  au <- tbl(conn, "author") |>
+    filter(auID %in% local(unique(papermeshtree$auID))) |>
+    select(auID) |>
+    left_join(tbl(conn, "authorName") |> filter(default == 1), by = "auID") |>
+    collect() |>
+    rowwise() |>
+    mutate(name = paste(lastName, firstName, sep = ", ")) |>
+    select(auID, name)
+
+  papermeshtree <- papermeshtree |>
+    left_join(au |> select(auID, name), by = "auID") |>
+    mutate(name = ifelse(nPapers == 0, "", name))
+
+  dbDisconnect(conn)
+
+  return(list(treemapdata = treemapData(papermeshtree), authors = au))
+}
+
+#' Generate colours for the treemap based on values
+#'
+#' @param au1 Author ID for first author
+#' @param au2 Author ID for second author
+#' @param dbInfo (optional if dbSetup() has been run)
+#'  Path to the ColabNet database or existing connection
+#'
+#' @return Dataframe to build TreeMap
+#'
+#' @export
+treeMapComparison <- function(au1, au2, dbInfo){
+
+  # Get the treemap based on the tho authors only
+  treemapdata <- treemapFromAuIDs(c(au1, au2), dbInfo)
+
+  plotData <- treemapdata$treemapdata
+
+  # See which author has which MeSH term
+  plotData <- plotData |>
+    mutate(
+      authors = str_remove(authors, "^\n"), # Because sometimes starts with \n
+      colourCode = case_when(
+        is.na(authors) ~ 1,
+        authors == treemapdata$authors$name[1] ~ 2,
+        authors == treemapdata$authors$name[2] ~3,
+        authors == paste(sort(treemapdata$authors$name), collapse = "\n") ~ 4,
+        TRUE ~ 1
+      ))
+
+  # test <- plotData
+  # plotData <- test
+
+  # Work up the tree to see which branches are shared
+  toUpdate <- plotData |> filter(!hasChildren) |>
+    select(branchID = parentBranchID, childCol = colourCode) |>
+    group_by(branchID) |>
+    mutate(childCol = case_when(
+      all(2:3 %in% childCol) ~ 4,
+      TRUE ~ max(childCol)
+    )) |>
+    summarise(
+      childCol = childCol[1], .groups = "drop"
+    ) |>
+    ungroup() |> distinct()
+
+  while(nrow(toUpdate) > 0){
+    plotData <- plotData |> left_join(toUpdate, by = "branchID") |>
+      mutate(colourCode = case_when(
+        is.na(childCol) ~ colourCode,
+        childCol > colourCode ~ childCol,
+        TRUE ~ colourCode
+      ))
+
+    toUpdate <- plotData |> filter(!is.na(childCol)) |>
+      select(branchID = parentBranchID, childCol = colourCode) |>
+      group_by(branchID) |>
+      mutate(childCol = case_when(
+        all(2:3 %in% childCol) ~ 4,
+        TRUE ~ max(childCol, 1)
+      )) |>
+      summarise(
+        childCol = childCol[1], .groups = "drop"
+      ) |>
+      ungroup() |> distinct()
+
+    plotData <- plotData |> select(-childCol)
+  }
+
+  # Get a colour for each treemap cell based on the author and MeSH term sum
+  colSel = c("#CCCCCC", "#3398DB", "#F1C40E", "#7aa64c")
+
+  plotData |>
+    group_by(colourCode) |>
+    mutate(
+      colour = treemapColour(meshSum,
+                             minCol = lightenColour(colSel[colourCode[1]], 0.9),
+                             maxCol = colSel[colourCode[1]])
+    ) |>  ungroup()
+}

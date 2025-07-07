@@ -34,9 +34,10 @@ If you are a Windows user, you might need to install
 
 Install the app as an R package by running the following command
 ```r
-library(devtools) # install if needed
-install_github("pieterjanvc/colabNet")
+# install.packages("devtools") # Run if needed
+devtools::install_github("rstudio/shiny", ref = "main")
 ```
+_To install from a different branch, replace `ref` by the branch name on GitHub_
 
 Once the package has been installed, the app can be run as follows:
 ```r

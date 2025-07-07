@@ -132,12 +132,17 @@ ui <- fluidPage(useShinyjs(), fluidRow(column(
           tabPanel(
             "Co-authors",
             visNetworkOutput("networkPlot", height = "60vh"),
-            value = "networkTab"
+            value = "coAuthTab"
           ),
           tabPanel(
             "MeSH Tree",
             plotlyOutput("meshTreePlot", height = "60vh"),
-            value = "networkTab"
+            value = "meshTreeTab"
+          ),
+          tabPanel(
+            "Research Overlap",
+            plotlyOutput("comparisonMeshTreePlot", height = "60vh"),
+            value = "comparisonTab"
           )
         )
       )), fluidRow(column(
@@ -392,6 +397,36 @@ server <- function(input, output, session) {
       left_join(tbl(pool, "meshTerm"), by = "meshui") |>
       left_join(tbl(pool, "mesh_article"), by = "meshui") |>
       collect()
+  })
+
+  # ---- Research Comparison ----
+  output$comparisonMeshTreePlot <- renderPlotly({
+
+    auIDs = c(1053, 1673) # EDIT to base on zoo score table selection
+    plotData <- treeMapComparison(auIDs[1], auIDs[2])
+
+    # Render the plot
+    boxText <- str_wrap(paste(plotData$meshSum, plotData$meshterm, sep = " | "), 12)
+    boxText <- ifelse(plotData$hasChildren, paste(boxText, "<b>+</b>"), boxText)
+
+    plot_ly(
+      type = "treemap",
+      ids = plotData$branchID,
+      parents = plotData$parentBranchID,
+      labels = ifelse(
+        is.na(plotData$meshSum),
+        plotData$meshterm,
+        paste(plotData$meshSum, plotData$meshterm, sep = " | ")
+      ),
+      text = boxText,
+      values = plotData$treemapVal,
+      marker = list(colors = plotData$colour),
+      textinfo = "text",
+      hovertext = plotData$authors,
+      hoverinfo = "text",
+      maxdepth = 3,
+      source = "treemap"
+    )
   })
 
   # ---- Articles Table ----
