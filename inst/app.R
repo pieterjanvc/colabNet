@@ -60,7 +60,7 @@ preCompData <- reactivePoll(
                   filter(default) |>
                   ungroup(),
                 by = "auID") |>
-      select(arID, PMID, lastName, month, year, title, journal) |>
+      select(auID, arID, PMID, lastName, firstName, month, year, title, journal) |>
       arrange(desc(PMID)) |>
       collect() |>
       mutate(
@@ -68,7 +68,8 @@ preCompData <- reactivePoll(
           '<a href="https://pubmed.ncbi.nlm.nih.gov/%s" target="_blank">%s</a>',
           PMID,
           PMID
-        )
+        ),
+        name = paste(lastName, firstName, sep = ", ")
       )
 
     papermesh <- dbPaperMesh(auIDs)
@@ -132,18 +133,19 @@ ui <- fluidPage(useShinyjs(), fluidRow(column(
           tabPanel(
             "Co-authors",
             visNetworkOutput("networkPlot", height = "60vh"),
-            value = "coAuthTab"
+            value = "tab_coAuth"
           ),
           tabPanel(
             "MeSH Tree",
             plotlyOutput("meshTreePlot", height = "60vh"),
-            value = "meshTreeTab"
+            value = "tab_meshTree"
           ),
           tabPanel(
             "Research Overlap",
             plotlyOutput("comparisonMeshTreePlot", height = "60vh"),
-            value = "comparisonTab"
-          )
+            value = "tab_comparison"
+          ),
+          id = "tabs_exploration"
         )
       )), fluidRow(column(
         12, DTOutput("articleTable")
@@ -213,7 +215,7 @@ ui <- fluidPage(useShinyjs(), fluidRow(column(
         actionButton("startBulkImport", "Start Import")
       ),
       value = "exploration"
-    )
+    ),
   )
 )), fluidRow(column(
   12,
@@ -245,37 +247,83 @@ server <- function(input, output, session) {
   # ---- EXPLORATION TAB ----
   # /////////////////////////
 
-  # ---- Colab Network ----
+  # ---- Articles Table ----
 
-  #CHECK BOTH DF LATER TO SHARE BETTER
-  coPub <- tbl(pool, "author") |>
-    filter(authorOfInterest == 1) |>
-    left_join(tbl(pool, "coAuthor"), by = "auID") |>
-    group_by(arID) |>
-    filter(n() > 1) |>
-    ungroup() |>
-    left_join(tbl(pool, "authorName") |> filter(default) |> select(-anID),
-              by = "auID") |>
-    collect() |>
-    mutate(name = sprintf("%s %s", lastName, firstName))
+  observeEvent(input$tabs_exploration, {
+    if(input$tabs_exploration == "tab_coAuth"){
+      arIDs <- coPub()$edges |>
+        filter(id %in% unlist(input$coPub_selection$edges)) |>
+        pull(arID)
 
-  if (nrow(coPub) > 0) {
-    pairInfo <- coPub |>
-      group_by(arID) |>
-      reframe(as.data.frame(combn(auID, 2) |> t())) |>
-      rename(from = V1, to = V2) |>
-      group_by(from, to) |>
-      mutate(id = cur_group_id()) |>
-      ungroup()
-  } else {
-    pairInfo <- data.frame()
+      setArticleTable(arIDs, merged = T)
+    } else if(input$tabs_exploration == "tab_meshTree"){
+      selected <- preCompData()$plotData[event_data("plotly_click", "treemap_overview")$pointNumber + 1, ]$branchID
+      setArticleTable(arIDByMesh(selected))
+    } else if(input$tabs_exploration == "tab_comparison"){
+      selected <- preCompData()$plotData[event_data("plotly_click", "treemap_overlap")$pointNumber + 1, ]$branchID
+      setArticleTable(arIDByMesh(selected), c(1053, 1673))
+    } else {
+      stop("Tab issue:", input$tabs_exploration)
+    }
+  })
+
+  output$articleTable <- renderDT({
+    req(!is.null(preCompData()$allArticles))
+    preCompData()$allArticles |>
+      select(PMID, name, month, year, title, journal)
+  }, rownames = F, escape = F)
+
+  artTableProxy <- dataTableProxy("articleTable")
+
+  setArticleTable <- function(arIDs, auIDs = c(), merged = F){
+    articles <- preCompData()$allArticles
+
+    if(length(arIDs) > 0){
+      articles <- articles |> filter(arID %in% {{arIDs}})
+    }
+
+    if(length(auIDs) > 0){
+      articles <- articles |> filter(auID %in% {{auIDs}})
+    }
+
+    if(merged){
+      articles <- articles |> group_by(arID) |>
+        mutate(name = paste(lastName, collapse = " & ")) |>
+        ungroup()
+    }
+
+    replaceData(artTableProxy, articles |>
+                  select(PMID, name, month, year, title, journal) |> distinct(), rownames = F)
   }
 
-  output$networkPlot <- renderVisNetwork({
-    req(nrow(coPub) > 0)
-    nodes <- coPub |> select(id = auID, label = name) |> distinct()
+  # ---- Colab Network ----
 
-    edges <- pairInfo |>
+  # Nodes and Edges for the co-publication network
+  coPub <- reactive({
+
+    nodes <- preCompData()$allArticles |>
+      transmute(id = auID, label = sprintf("%s %s", lastName, firstName)) |>
+      distinct()
+
+    edges <- preCompData()$allArticles |>
+        group_by(arID) |>
+        filter(n() > 1) |>
+        reframe(as.data.frame(combn(auID, 2) |> t())) |>
+        rename(from = V1, to = V2) |>
+        group_by(from, to) |>
+        mutate(id = cur_group_id()) |>
+        ungroup()
+
+    nodes <- nodes |> filter(id %in% c(edges$from, edges$to))
+
+    list(nodes = nodes, edges = edges)
+  })
+
+  # co-publication network
+  output$networkPlot <- renderVisNetwork({
+    req(nrow(coPub()$nodes) > 0)
+
+    edges <- coPub()$edges |>
       group_by(id, from, to) |>
       summarise(width = n(),
                 label = as.character(n()),
@@ -287,7 +335,7 @@ server <- function(input, output, session) {
       ))
 
     # Create a simple visNetwork graph
-    visNetwork(nodes, edges) |>
+    visNetwork(coPub()$nodes, edges) |>
       visNodes(
         size = 20,
         color = list(background = "lightblue", border = "blue"),
@@ -308,50 +356,17 @@ server <- function(input, output, session) {
                   ;}")
   })
 
+  # When a node or edge is selected in the co publication network
   observeEvent(input$coPub_selection, {
-    print("HI")
-    req(input$coPub_selection)
-    req(!is.null(preCompData()$allArticles))
-    clicked <- input$coPub_selection
 
-    if (class(clicked) == "NULL") {
-      replaceData(proxy,
-                  preCompData()$allArticles |> select(-arID),
-                  rownames = F)
-      return()
-    }
-
-    toFilter <- pairInfo |>
-      filter(id %in% unlist(clicked$edges)) |>
+    arIDs <- coPub()$edges |>
+      filter(id %in% unlist(input$coPub_selection$edges)) |>
       pull(arID)
 
-    if (length(toFilter) == 0) {
-      replaceData(proxy,
-                  preCompData()$allArticles |> select(-arID),
-                  rownames = F)
-      return()
-    }
+    setArticleTable(arIDs, merged = T)
 
-    replaceData(
-      proxy,
-      preCompData()$allArticles |>
-        filter(arID %in% toFilter) |>
-        select(-arID) |>
-        group_by(PMID) |>
-        mutate(lastName = paste(sort(lastName), collapse = " & ")) |>
-        ungroup() |>
-        distinct(),
-      rownames = F
-    )
-
-    ## Keep to see what the clicked data list contains if needed in future
-    # showModal(modalDialog(
-    #   HTML(paste(
-    #     capture.output(print(clicked)),
-    #     collapse = "<br>"
-    #   ))
-    # ))
   }, ignoreNULL = F)
+
 
   # ---- Colab MeSH Tree ----
 
@@ -379,16 +394,19 @@ server <- function(input, output, session) {
       hovertext = plotData$authors,
       hoverinfo = "text",
       maxdepth = 3,
-      source = "treemap"
+      source = "treemap_overview"
     )
   })
-  # htmlwidgets::saveWidget(fig, "D:/Desktop/PJ-Lorenzo.html")
 
-  meshSel <- reactive({
-    selected <- preCompData()$plotData[event_data("plotly_click", "treemap")$pointNumber + 1, ]$branchID
-    req(length(selected) > 0)
+  # Get article IDs based on a branch in the MeSH tree that is selected
+  arIDByMesh <- function(branchID){
+
+    if(length(branchID) == 0){
+      return(NULL)
+    }
+
     children <- tbl(pool, "meshTree") |>
-      filter(mtrID == as.integer(selected)) |>
+      filter(mtrID == as.integer(branchID)) |>
       pull(treenum)
     children <- paste0(children[1], "%")
     tbl(pool, "meshTree") |>
@@ -396,58 +414,56 @@ server <- function(input, output, session) {
       left_join(tbl(pool, "meshLink"), by = "uid") |>
       left_join(tbl(pool, "meshTerm"), by = "meshui") |>
       left_join(tbl(pool, "mesh_article"), by = "meshui") |>
-      collect()
+      pull(arID) |> unique()
+  }
+
+  observeEvent(event_data("plotly_click", "treemap_overview"),{
+    selected <- preCompData()$plotData[event_data("plotly_click", "treemap_overview")$pointNumber + 1, ]$branchID
+    setArticleTable(arIDByMesh(selected))
   })
 
   # ---- Research Comparison ----
+
+  # TODO
+  treemapcomp <- reactive({
+    auIDs <- c(1053, 1673)
+    treeMapComparison(auIDs[1], auIDs[2])
+  })
+
+  # MeSH tree for two author comparison
   output$comparisonMeshTreePlot <- renderPlotly({
 
-    auIDs = c(1053, 1673) # EDIT to base on zoo score table selection
-    plotData <- treeMapComparison(auIDs[1], auIDs[2])
-
     # Render the plot
-    boxText <- str_wrap(paste(plotData$meshSum, plotData$meshterm, sep = " | "), 12)
-    boxText <- ifelse(plotData$hasChildren, paste(boxText, "<b>+</b>"), boxText)
+    boxText <- str_wrap(paste(treemapcomp()$meshSum, treemapcomp()$meshterm, sep = " | "), 12)
+    boxText <- ifelse(treemapcomp()$hasChildren, paste(boxText, "<b>+</b>"), boxText)
 
     plot_ly(
       type = "treemap",
-      ids = plotData$branchID,
-      parents = plotData$parentBranchID,
+      ids = treemapcomp()$branchID,
+      parents = treemapcomp()$parentBranchID,
       labels = ifelse(
-        is.na(plotData$meshSum),
-        plotData$meshterm,
-        paste(plotData$meshSum, plotData$meshterm, sep = " | ")
+        is.na(treemapcomp()$meshSum),
+        treemapcomp()$meshterm,
+        paste(treemapcomp()$meshSum, treemapcomp()$meshterm, sep = " | ")
       ),
       text = boxText,
-      values = plotData$treemapVal,
-      marker = list(colors = plotData$colour),
+      values = treemapcomp()$treemapVal,
+      marker = list(colors = treemapcomp()$colour),
       textinfo = "text",
-      hovertext = plotData$authors,
+      hovertext = treemapcomp()$authors,
       hoverinfo = "text",
       maxdepth = 3,
-      source = "treemap"
+      source = "treemap_overlap"
     )
   })
 
-  # ---- Articles Table ----
-
-  proxy <- dataTableProxy("articleTable")
-  output$articleTable <- renderDT({
-    req(!is.null(preCompData()$allArticles))
-    preCompData()$allArticles |> select(-arID)
-  }, rownames = F, escape = F)
-
-  observeEvent(meshSel(), {
-    toFilter <- unique(meshSel()$arID)
-
-    if (length(toFilter) == length(unique(preCompData()$allArticles$artID))) {
-      articles <- preCompData()$allArticles
-    } else {
-      articles <- preCompData()$allArticles |> filter(arID %in% toFilter)
-    }
-
-    replaceData(proxy, articles |> select(-arID), rownames = F)
+  # Get articels in part of the author comparison MeSH tree branch selected
+  observeEvent(event_data("plotly_click", "treemap_overlap"),{
+    selected <- treemapcomp()[event_data("plotly_click", "treemap_overlap")$pointNumber + 1, ]$branchID
+    setArticleTable(arIDByMesh(selected), c(1053, 1673))
   })
+
+
 
   # ---- DATA TAB ----
   # /////////////////////////
