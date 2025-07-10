@@ -38,28 +38,30 @@ preCompData <- reactivePoll(
   valueFunc = function() {
     print("Precomuting ...")
 
-    auIDs <- tbl(pool, "author") |>
+    authors <- tbl(pool, "author") |>
       filter(authorOfInterest == 1) |>
-      pull(auID)
-
-    if (length(auIDs) == 0) {
-      return(list(
-        auIDs = NULL,
-        plotData = NULL,
-        authorsimscore = NULL,
-        allArticles = NULL
-      ))
-    }
-
-    allArticles <- tbl(pool, "coAuthor") |>
-      filter(auID %in% local(auIDs)) |>
-      distinct() |>
-      left_join(tbl(pool, "article"), by = "arID") |>
       left_join(tbl(pool, "authorName") |>
                   group_by(auID) |>
                   filter(default) |>
                   ungroup(),
                 by = "auID") |>
+      select(auID, lastName, firstName, initials) |> collect()
+
+    if (length(nrow(authors)) == 0) {
+      return(list(
+        authors = NULL,
+        plotData = NULL,
+        overlapscore = NULL,
+        allArticles = NULL
+      ))
+    }
+
+    allArticles <- tbl(pool, "coAuthor") |>
+      filter(auID %in% local(authors$auID)) |>
+      distinct() |>
+      left_join(tbl(pool, "article"), by = "arID") |>
+      collect() |>
+      left_join(authors,by = "auID") |>
       select(auID, arID, PMID, lastName, firstName, month, year, title, journal) |>
       arrange(desc(PMID)) |>
       collect() |>
@@ -72,9 +74,10 @@ preCompData <- reactivePoll(
         name = paste(lastName, firstName, sep = ", ")
       )
 
-    papermesh <- dbPaperMesh(auIDs)
+    papermesh <- dbPaperMesh(authors$auID)
     meshtree <- dbMeshTree(papermesh)
     papermeshtree <- paperMeshTree(papermesh, meshtree)
+
     # Add author names
     au <- tbl(pool, "author") |>
       filter(auID %in% local(unique(papermeshtree$auID))) |>
@@ -90,14 +93,14 @@ preCompData <- reactivePoll(
       mutate(name = ifelse(nPapers == 0, "", name))
 
     plotData <- treemapData(papermeshtree)
-    zooscore <- zooScore(papermeshtree)
+    overlapscore <- zooScore(papermeshtree)
 
     print("... finished")
     return(
       list(
-        auIDs = auIDs,
+        authors = authors,
         plotData = plotData,
-        authorsimscore = zooscore,
+        overlapscore = overlapscore,
         allArticles = allArticles
       )
     )
@@ -142,6 +145,16 @@ ui <- fluidPage(useShinyjs(), fluidRow(column(
           ),
           tabPanel(
             "Research Overlap",
+            fluidRow(column(4,
+                selectInput("overlapCat","Filter Scoring Category", multiple = T,
+                            choices =  NULL,
+                            selected =NULL),
+                actionButton("applyFilterCat", "Apply Filter"),
+                actionButton("removeFilterCat", "Remove Filter")
+                ),
+              column(8,
+                DTOutput("overlapscoreTable"))
+                     ),
             plotlyOutput("comparisonMeshTreePlot", height = "60vh"),
             value = "tab_comparison"
           ),
@@ -244,6 +257,22 @@ ui <- fluidPage(useShinyjs(), fluidRow(column(
 # /////////////////
 
 server <- function(input, output, session) {
+
+  #Updates when the pre-calculated data changes
+  observeEvent(preCompData(),{
+
+    # Update the tree root categories as filter options for the comparison tree
+    roots <- tbl(pool, "meshTree") |>
+      filter(treenum %in% local(unique(preCompData()$overlapscore$tree))) |>
+      left_join(tbl(pool, "meshLink"), by = "uid") |>
+      left_join(tbl(pool, "meshTerm"), by = "meshui") |>
+      collect() |> arrange(meshterm)
+
+    updateSelectInput(session, "overlapCat",
+                choices = setNames(roots$treenum, roots$meshterm),
+                selected = NULL)
+  })
+
   # ---- EXPLORATION TAB ----
   # /////////////////////////
 
@@ -405,6 +434,10 @@ server <- function(input, output, session) {
       return(NULL)
     }
 
+    if(length(branchID) > 1){
+      stop("You can only select one tree branch at the same time")
+    }
+
     children <- tbl(pool, "meshTree") |>
       filter(mtrID == as.integer(branchID)) |>
       pull(treenum)
@@ -424,10 +457,104 @@ server <- function(input, output, session) {
 
   # ---- Research Comparison ----
 
-  # TODO
-  treemapcomp <- reactive({
-    auIDs <- c(1053, 1673)
-    treeMapComparison(auIDs[1], auIDs[2])
+  calcOverlap <- function(precompOverlap, treeFilter){
+
+    if(!is.null(treeFilter)){
+      precompOverlap <- precompOverlap |> filter(tree %in% {{treeFilter}})
+    }
+
+    overlapscore <- precompOverlap |> group_by(au1, au2) |> summarise(
+      score = sum(score), .groups = "drop"
+    ) |> arrange(desc(score))
+
+    names <- preCompData()$authors |>
+      transmute(auID, name = sprintf("%s, %s", lastName, firstName))
+
+    overlapscoreTable <- overlapscore |> left_join(
+      names |> select(au1 = auID, author1 = name), by = "au1"
+    ) |> left_join(
+      names |> select(au2 = auID, author2 = name), by = "au2"
+    ) |> select(author1, author2, overlapScore = score)
+
+    return(list(score = overlapscore, table = overlapscoreTable))
+  }
+
+  # The table that shows the overlap score for pairs of authors
+  output$overlapscoreTable <- renderDT({
+    print("INIT")
+
+    calcOverlap(preCompData()$overlapscore, NULL)$table
+
+  }, rownames = F, selection = list(mode = "single", selected = 1),
+    options = list(lengthMenu = list(c(5, 10, 15), c("5", "10", "15"))))
+
+  overlapscoreTable_proxy <- dataTableProxy("overlapscoreTable")
+
+  overlapData <- reactiveVal()
+
+  # Update table that show the overlap score and return the raw table data
+  observeEvent(input$applyFilterCat,{
+
+    overlap <- calcOverlap(preCompData()$overlapscore, input$overlapCat)
+
+    req(is.null(overlapData()) || !identical(overlap$score, overlapData()))
+
+    replaceData(overlapscoreTable_proxy, overlap$table, rownames = F)
+
+    if(nrow(overlap$table) > 0){
+      DT::selectRows(overlapscoreTable_proxy, 1)
+    }
+
+    print("UPDATED COMP TABLE")
+
+    overlapData(overlap$score)
+
+  }, ignoreNULL = FALSE)
+
+  # Remove any tree filters from the scoring categories
+  observeEvent(input$removeFilterCat,{
+
+    req(length(input$overlapCat) > 0)
+
+    updateSelectInput(session, "overlapCat", selected = character(0))
+    overlap <- calcOverlap(preCompData()$overlapscore, NULL)
+
+    replaceData(overlapscoreTable_proxy, overlap$table, rownames = F)
+
+    if(nrow(overlap$table) > 0){
+      DT::selectRows(overlapscoreTable_proxy, 1)
+    }
+
+    print("UPDATED COMP TABLE rem")
+
+    overlapData(overlap$score)
+
+  })
+
+  #  When a new author combination is chosen from the table
+  treemapcomp <- eventReactive(input$overlapscoreTable_rows_selected,{
+
+    print("UPDATED PLOT")
+    # Get the author IDs
+    auIDs <- overlapData()[input$overlapscoreTable_rows_selected,] |>
+      select(au1, au2) |> unlist()
+    req(length(auIDs) == 2)
+
+    # Get the treemap for the two authors
+    if(length(input$overlapCat) == 0){
+      tmComp <- treeMapComparison(auIDs[1], auIDs[2])
+    } else {
+      tmComp <- treeMapComparison(auIDs[1], auIDs[2], roots = input$overlapCat)
+      #TODO make sure the table filters with arIDs only found in the selected subtrees
+    }
+
+    # Update the article table with all articles for either author
+    arIDs <- preCompData()$allArticles |> filter(auID %in% {{auIDs}}) |>
+      pull(arID)
+    setArticleTable(arIDs = arIDs, auIDs = auIDs)
+
+    # Return the treemap
+    tmComp
   })
 
   # MeSH tree for two author comparison
@@ -457,15 +584,17 @@ server <- function(input, output, session) {
     )
   })
 
-  # Get articels in part of the author comparison MeSH tree branch selected
+  # Get articles in part of the author comparison MeSH tree branch selected
   observeEvent(event_data("plotly_click", "treemap_overlap"),{
+    auIDs <- overlapData()[input$overlapscoreTable_rows_selected,] |>
+      select(au1, au2) |> unlist()
     selected <- treemapcomp()[event_data("plotly_click", "treemap_overlap")$pointNumber + 1, ]$branchID
-    setArticleTable(arIDByMesh(selected), c(1053, 1673))
-  })
+    setArticleTable(arIDByMesh(selected), auIDs = auIDs)
+  }, ignoreNULL = F)
 
 
 
-  # ---- DATA TAB ----
+  # ---- ADMIN TAB ----
   # /////////////////////////
 
   # ---- Existing authors ----
@@ -547,7 +676,7 @@ server <- function(input, output, session) {
       left_join(authors, by = "arID")
   })
 
-  # ---- EXISTING ARTICLES BY AUTHOR ---
+  # ---- EXISTING ARTICLES BY AUTHOR ----
   emptyTable <- data.frame(PMID = character(),
                            Title = character(),
                            Info = character())
@@ -623,7 +752,7 @@ server <- function(input, output, session) {
     )
   }, ignoreNULL = F)
 
-  # ---- NEW ARTICLE SEARCH ---
+  # ----- NEW ARTICLE SEARCH ----
 
   # Table that shows author articles
   output$authorSearch <- renderDT({

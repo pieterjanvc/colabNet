@@ -4,10 +4,13 @@
 \alias{treemapFromAuIDs}
 \title{Generate a TreeMap from a list of author IDs}
 \usage{
-treemapFromAuIDs(auIDs, dbInfo)
+treemapFromAuIDs(auIDs, roots, dbInfo)
 }
 \arguments{
 \item{auIDs}{List of authors IDs}
+
+\item{roots}{(Optional) Vector of single letter representing the tree roots
+to include. If not specified, all categories are returned}
 
 \item{dbInfo}{(optional if dbSetup() has been run)
 Path to the ColabNet database or existing connection}

@@ -26,12 +26,15 @@ nodeSum <- function(node, parent, value) {
 
   # Find root (a node that is never a child)
   root <- setdiff(parent, node)
-  if (length(root) != 1) {
+  if (length(root) > 1) {
     stop(
       "Tree must have exactly one root. Found: ",
       paste(root, collapse = ", ")
     )
+  } else if(length(root) == 0){
+    root = "0"
   }
+
   root <- root[1]
 
   # Map values to nodes
@@ -167,6 +170,8 @@ treemapColour <- function(
 #' Generate a TreeMap from a list of author IDs
 #'
 #' @param auIDs List of authors IDs
+#' @param roots (Optional) Vector of single letter representing the tree roots
+#' to include. If not specified, all categories are returned
 #' @param dbInfo (optional if dbSetup() has been run)
 #'  Path to the ColabNet database or existing connection
 #'
@@ -175,12 +180,12 @@ treemapColour <- function(
 #'  - authors: Data frame with default author name and ID
 #'
 #' @export
-treemapFromAuIDs <- function(auIDs, dbInfo){
+treemapFromAuIDs <- function(auIDs, roots, dbInfo){
 
   conn <- dbGetConn(dbInfo)
 
-  papermesh <- dbPaperMesh(auIDs)
-  meshtree <- dbMeshTree(papermesh)
+  papermesh <- dbPaperMesh(auIDs, roots = roots)
+  meshtree <- dbMeshTree(papermesh, roots = roots)
   papermeshtree <- paperMeshTree(papermesh, meshtree)
 
   # Add author names
@@ -202,20 +207,22 @@ treemapFromAuIDs <- function(auIDs, dbInfo){
   return(list(treemapdata = treemapData(papermeshtree), authors = au))
 }
 
-#' Generate colours for the treemap based on values
+#' Generate a treemap that compares two authors
 #'
 #' @param au1 Author ID for first author
 #' @param au2 Author ID for second author
+#' @param roots (Optional) Vector of single letter representing the tree roots
+#' to include. If not specified, all categories are returned
 #' @param dbInfo (optional if dbSetup() has been run)
 #'  Path to the ColabNet database or existing connection
 #'
 #' @return Dataframe to build TreeMap
 #'
 #' @export
-treeMapComparison <- function(au1, au2, dbInfo){
+treeMapComparison <- function(au1, au2, roots, dbInfo){
 
   # Get the treemap based on the tho authors only
-  treemapdata <- treemapFromAuIDs(c(au1, au2), dbInfo)
+  treemapdata <- treemapFromAuIDs(c(au1, au2), roots = roots, dbInfo)
 
   plotData <- treemapdata$treemapdata
 

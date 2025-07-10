@@ -2,14 +2,17 @@
 % Please edit documentation in R/treemap.R
 \name{treeMapComparison}
 \alias{treeMapComparison}
-\title{Generate colours for the treemap based on values}
+\title{Generate a treemap that compares two authors}
 \usage{
-treeMapComparison(au1, au2, dbInfo)
+treeMapComparison(au1, au2, roots, dbInfo)
 }
 \arguments{
 \item{au1}{Author ID for first author}
 
 \item{au2}{Author ID for second author}
+
+\item{roots}{(Optional) Vector of single letter representing the tree roots
+to include. If not specified, all categories are returned}
 
 \item{dbInfo}{(optional if dbSetup() has been run)
 Path to the ColabNet database or existing connection}
@@ -18,5 +21,5 @@ Path to the ColabNet database or existing connection}
 Dataframe to build TreeMap
 }
 \description{
-Generate colours for the treemap based on values
+Generate a treemap that compares two authors
 }
