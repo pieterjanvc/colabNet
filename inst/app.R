@@ -61,8 +61,16 @@ preCompData <- reactivePoll(
       distinct() |>
       left_join(tbl(pool, "article"), by = "arID") |>
       collect() |>
-      left_join(authors,by = "auID") |>
-      select(auID, arID, PMID, lastName, firstName, month, year, title, journal) |>
+      left_join(authors, by = "auID") |>
+      select(auID,
+             arID,
+             PMID,
+             lastName,
+             firstName,
+             month,
+             year,
+             title,
+             journal) |>
       arrange(desc(PMID)) |>
       collect() |>
       mutate(
@@ -132,7 +140,8 @@ ui <- fluidPage(useShinyjs(), fluidRow(column(
         12,
         h3("Similarity between researchers based on article MeSH terms")
       )), fluidRow(column(
-        12, tabsetPanel(
+        12,
+        tabsetPanel(
           tabPanel(
             "Co-authors",
             visNetworkOutput("networkPlot", height = "60vh"),
@@ -145,16 +154,21 @@ ui <- fluidPage(useShinyjs(), fluidRow(column(
           ),
           tabPanel(
             "Research Overlap",
-            fluidRow(column(4,
-                selectInput("overlapCat","Filter Scoring Category", multiple = T,
-                            choices =  NULL,
-                            selected =NULL),
+            fluidRow(
+              column(
+                4,
+                selectInput(
+                  "overlapCat",
+                  "Filter Scoring Category",
+                  multiple = T,
+                  choices =  NULL,
+                  selected = NULL
+                ),
                 actionButton("applyFilterCat", "Apply Filter"),
                 actionButton("removeFilterCat", "Remove Filter")
-                ),
-              column(8,
-                DTOutput("overlapscoreTable"))
-                     ),
+              ),
+              column(8, DTOutput("overlapscoreTable"))
+            ),
             plotlyOutput("comparisonMeshTreePlot", height = "60vh"),
             value = "tab_comparison"
           ),
@@ -257,10 +271,8 @@ ui <- fluidPage(useShinyjs(), fluidRow(column(
 # /////////////////
 
 server <- function(input, output, session) {
-
   #Updates when the pre-calculated data changes
-  observeEvent(preCompData(),{
-
+  observeEvent(preCompData(), {
     # Update the tree root categories as filter options for the comparison tree
     roots <- tbl(pool, "meshTree") |>
       filter(treenum %in% local(unique(preCompData()$overlapscore$tree))) |>
@@ -268,9 +280,12 @@ server <- function(input, output, session) {
       left_join(tbl(pool, "meshTerm"), by = "meshui") |>
       collect() |> arrange(meshterm)
 
-    updateSelectInput(session, "overlapCat",
-                choices = setNames(roots$treenum, roots$meshterm),
-                selected = NULL)
+    updateSelectInput(
+      session,
+      "overlapCat",
+      choices = setNames(roots$treenum, roots$meshterm),
+      selected = NULL
+    )
   })
 
   # ---- EXPLORATION TAB ----
@@ -279,16 +294,16 @@ server <- function(input, output, session) {
   # ---- Articles Table ----
 
   observeEvent(input$tabs_exploration, {
-    if(input$tabs_exploration == "tab_coAuth"){
+    if (input$tabs_exploration == "tab_coAuth") {
       arIDs <- coPub()$edges |>
         filter(id %in% unlist(input$coPub_selection$edges)) |>
         pull(arID)
 
       setArticleTable(arIDs, merged = T)
-    } else if(input$tabs_exploration == "tab_meshTree"){
+    } else if (input$tabs_exploration == "tab_meshTree") {
       selected <- preCompData()$plotData[event_data("plotly_click", "treemap_overview")$pointNumber + 1, ]$branchID
       setArticleTable(arIDByMesh(selected))
-    } else if(input$tabs_exploration == "tab_comparison"){
+    } else if (input$tabs_exploration == "tab_comparison") {
       selected <- preCompData()$plotData[event_data("plotly_click", "treemap_overlap")$pointNumber + 1, ]$branchID
       setArticleTable(arIDByMesh(selected), c(1053, 1673))
     } else {
@@ -304,44 +319,50 @@ server <- function(input, output, session) {
 
   artTableProxy <- dataTableProxy("articleTable")
 
-  setArticleTable <- function(arIDs, auIDs = c(), merged = F){
+  setArticleTable <- function(arIDs,
+                              auIDs = c(),
+                              merged = F) {
     articles <- preCompData()$allArticles
 
-    if(length(arIDs) > 0){
+    if (length(arIDs) > 0) {
       articles <- articles |> filter(arID %in% {{arIDs}})
     }
 
-    if(length(auIDs) > 0){
+    if (length(auIDs) > 0) {
       articles <- articles |> filter(auID %in% {{auIDs}})
     }
 
-    if(merged){
+    if (merged) {
       articles <- articles |> group_by(arID) |>
         mutate(name = paste(lastName, collapse = " & ")) |>
         ungroup()
     }
 
-    replaceData(artTableProxy, articles |>
-                  select(PMID, name, month, year, title, journal) |> distinct(), rownames = F)
+    replaceData(
+      artTableProxy,
+      articles |>
+        select(PMID, name, month, year, title, journal) |> distinct(),
+      rownames = F
+    )
   }
 
   # ---- Colab Network ----
 
   # Nodes and Edges for the co-publication network
   coPub <- reactive({
-
     nodes <- preCompData()$allArticles |>
-      transmute(id = auID, label = sprintf("%s %s", lastName, firstName)) |>
+      transmute(id = auID,
+                label = sprintf("%s %s", lastName, firstName)) |>
       distinct()
 
     edges <- preCompData()$allArticles |>
-        group_by(arID) |>
-        filter(n() > 1) |>
-        reframe(as.data.frame(combn(auID, 2) |> t())) |>
-        rename(from = V1, to = V2) |>
-        group_by(from, to) |>
-        mutate(id = cur_group_id()) |>
-        ungroup()
+      group_by(arID) |>
+      filter(n() > 1) |>
+      reframe(as.data.frame(combn(auID, 2) |> t())) |>
+      rename(from = V1, to = V2) |>
+      group_by(from, to) |>
+      mutate(id = cur_group_id()) |>
+      ungroup()
 
     nodes <- nodes |> filter(id %in% c(edges$from, edges$to))
 
@@ -387,7 +408,6 @@ server <- function(input, output, session) {
 
   # When a node or edge is selected in the co publication network
   observeEvent(input$coPub_selection, {
-
     arIDs <- coPub()$edges |>
       filter(id %in% unlist(input$coPub_selection$edges)) |>
       pull(arID)
@@ -428,13 +448,12 @@ server <- function(input, output, session) {
   })
 
   # Get article IDs based on a branch in the MeSH tree that is selected
-  arIDByMesh <- function(branchID){
-
-    if(length(branchID) == 0){
+  arIDByMesh <- function(branchID) {
+    if (length(branchID) == 0) {
       return(NULL)
     }
 
-    if(length(branchID) > 1){
+    if (length(branchID) > 1) {
       stop("You can only select one tree branch at the same time")
     }
 
@@ -450,31 +469,24 @@ server <- function(input, output, session) {
       pull(arID) |> unique()
   }
 
-  observeEvent(event_data("plotly_click", "treemap_overview"),{
+  observeEvent(event_data("plotly_click", "treemap_overview"), {
     selected <- preCompData()$plotData[event_data("plotly_click", "treemap_overview")$pointNumber + 1, ]$branchID
     setArticleTable(arIDByMesh(selected))
   })
 
   # ---- Research Comparison ----
 
-  calcOverlap <- function(precompOverlap, treeFilter){
-
-    if(!is.null(treeFilter)){
+  calcOverlap <- function(precompOverlap, treeFilter) {
+    if (!is.null(treeFilter)) {
       precompOverlap <- precompOverlap |> filter(tree %in% {{treeFilter}})
     }
 
-    overlapscore <- precompOverlap |> group_by(au1, au2) |> summarise(
-      score = sum(score), .groups = "drop"
-    ) |> arrange(desc(score))
+    overlapscore <- precompOverlap |> group_by(au1, au2) |> summarise(score = sum(score), .groups = "drop") |> arrange(desc(score))
 
     names <- preCompData()$authors |>
       transmute(auID, name = sprintf("%s, %s", lastName, firstName))
 
-    overlapscoreTable <- overlapscore |> left_join(
-      names |> select(au1 = auID, author1 = name), by = "au1"
-    ) |> left_join(
-      names |> select(au2 = auID, author2 = name), by = "au2"
-    ) |> select(author1, author2, overlapScore = score)
+    overlapscoreTable <- overlapscore |> left_join(names |> select(au1 = auID, author1 = name), by = "au1") |> left_join(names |> select(au2 = auID, author2 = name), by = "au2") |> select(author1, author2, overlapScore = score)
 
     return(list(score = overlapscore, table = overlapscoreTable))
   }
@@ -485,23 +497,22 @@ server <- function(input, output, session) {
 
     calcOverlap(preCompData()$overlapscore, NULL)$table
 
-  }, rownames = F, selection = list(mode = "single", selected = 1),
-    options = list(lengthMenu = list(c(5, 10, 15), c("5", "10", "15"))))
+  }, rownames = F, selection = list(mode = "single", selected = 1), options = list(lengthMenu = list(c(5, 10, 15), c("5", "10", "15"))))
 
   overlapscoreTable_proxy <- dataTableProxy("overlapscoreTable")
 
   overlapData <- reactiveVal()
 
   # Update table that show the overlap score and return the raw table data
-  observeEvent(input$applyFilterCat,{
-
+  observeEvent(input$applyFilterCat, {
     overlap <- calcOverlap(preCompData()$overlapscore, input$overlapCat)
 
-    req(is.null(overlapData()) || !identical(overlap$score, overlapData()))
+    req(is.null(overlapData()) ||
+          !identical(overlap$score, overlapData()))
 
     replaceData(overlapscoreTable_proxy, overlap$table, rownames = F)
 
-    if(nrow(overlap$table) > 0){
+    if (nrow(overlap$table) > 0) {
       DT::selectRows(overlapscoreTable_proxy, 1)
     }
 
@@ -512,8 +523,7 @@ server <- function(input, output, session) {
   }, ignoreNULL = FALSE)
 
   # Remove any tree filters from the scoring categories
-  observeEvent(input$removeFilterCat,{
-
+  observeEvent(input$removeFilterCat, {
     req(length(input$overlapCat) > 0)
 
     updateSelectInput(session, "overlapCat", selected = character(0))
@@ -521,7 +531,7 @@ server <- function(input, output, session) {
 
     replaceData(overlapscoreTable_proxy, overlap$table, rownames = F)
 
-    if(nrow(overlap$table) > 0){
+    if (nrow(overlap$table) > 0) {
       DT::selectRows(overlapscoreTable_proxy, 1)
     }
 
@@ -532,16 +542,15 @@ server <- function(input, output, session) {
   })
 
   #  When a new author combination is chosen from the table
-  treemapcomp <- eventReactive(input$overlapscoreTable_rows_selected,{
-
+  treemapcomp <- eventReactive(input$overlapscoreTable_rows_selected, {
     print("UPDATED PLOT")
     # Get the author IDs
-    auIDs <- overlapData()[input$overlapscoreTable_rows_selected,] |>
+    auIDs <- overlapData()[input$overlapscoreTable_rows_selected, ] |>
       select(au1, au2) |> unlist()
     req(length(auIDs) == 2)
 
     # Get the treemap for the two authors
-    if(length(input$overlapCat) == 0){
+    if (length(input$overlapCat) == 0) {
       tmComp <- treeMapComparison(auIDs[1], auIDs[2])
     } else {
       tmComp <- treeMapComparison(auIDs[1], auIDs[2], roots = input$overlapCat)
@@ -559,10 +568,12 @@ server <- function(input, output, session) {
 
   # MeSH tree for two author comparison
   output$comparisonMeshTreePlot <- renderPlotly({
-
     # Render the plot
-    boxText <- str_wrap(paste(treemapcomp()$meshSum, treemapcomp()$meshterm, sep = " | "), 12)
-    boxText <- ifelse(treemapcomp()$hasChildren, paste(boxText, "<b>+</b>"), boxText)
+    boxText <- str_wrap(paste(treemapcomp()$meshSum, treemapcomp()$meshterm, sep = " | "),
+                        12)
+    boxText <- ifelse(treemapcomp()$hasChildren,
+                      paste(boxText, "<b>+</b>"),
+                      boxText)
 
     plot_ly(
       type = "treemap",
@@ -585,12 +596,14 @@ server <- function(input, output, session) {
   })
 
   # Get articles in part of the author comparison MeSH tree branch selected
-  observeEvent(event_data("plotly_click", "treemap_overlap"),{
-    auIDs <- overlapData()[input$overlapscoreTable_rows_selected,] |>
-      select(au1, au2) |> unlist()
-    selected <- treemapcomp()[event_data("plotly_click", "treemap_overlap")$pointNumber + 1, ]$branchID
-    setArticleTable(arIDByMesh(selected), auIDs = auIDs)
-  }, ignoreNULL = F)
+  observeEvent(event_data("plotly_click", "treemap_overlap"),
+               {
+                 auIDs <- overlapData()[input$overlapscoreTable_rows_selected, ] |>
+                   select(au1, au2) |> unlist()
+                 selected <- treemapcomp()[event_data("plotly_click", "treemap_overlap")$pointNumber + 1, ]$branchID
+                 setArticleTable(arIDByMesh(selected), auIDs = auIDs)
+               },
+               ignoreNULL = F)
 
 
 
@@ -1014,57 +1027,62 @@ server <- function(input, output, session) {
   # ----- BULK IMPORT ----
   shinyjs::hide("startBulkImport")
 
-  bulkImport <- eventReactive(input$bulkImportAuthor, {
-    shinyjs::hide("startBulkImport")
-
-    tryCatch({
-      data <- read.csv(input$bulkImportAuthor$datapath)
-      missing <- setdiff(c("lastName", "firstName", "affiliation"),
-                         colnames(data))
-
-      if (length(missing) > 0) {
-        stop("The following columns are missing: ",
-             paste(missing, collapse = ", "))
-      }
-
-      if (!all(str_detect(data$firstName, "\\w+"),
-               str_detect(data$lastName, "\\w+"))) {
-        stop("The firstName and lastName must be provided for everyone")
-      }
-
-      elementMsg("bulkImportAuthorMsg")
-      data <- data |> select(lastName, firstName, affiliation)
-
-    }, error = function(e) {
-      elementMsg("bulkImportAuthorMsg", HTML(
-        sprintf(
-          "The upload failed with the following message:<br>%s",
-          e$message
-        )
-      ))
+  bulkImport <- eventReactive(
+    input$bulkImportAuthor,
+    {
       shinyjs::hide("startBulkImport")
 
-      return()
-    })
+      tryCatch({
+        data <- read.csv(input$bulkImportAuthor$datapath)
+        missing <- setdiff(c("lastName", "firstName", "affiliation"),
+                           colnames(data))
 
-    importInfo <- data.frame()
-    importData <- list()
-    history <- list()
+        if (length(missing) > 0) {
+          stop("The following columns are missing: ",
+               paste(missing, collapse = ", "))
+        }
 
-    withProgress(message = 'Verify Authors', value = 0, {
-      n <- nrow(data)
+        if (!all(str_detect(data$firstName, "\\w+"),
+                 str_detect(data$lastName, "\\w+"))) {
+          stop("The firstName and lastName must be provided for everyone")
+        }
 
-      for (i in 1:n) {
-        incProgress(
-          1 / n,
-          "Verify author:",
-          detail = sprintf("%s, %s (%i/%i)", data$lastName[i], data$firstName[i], i, n)
-        )
+        elementMsg("bulkImportAuthorMsg")
+        data <- data |> select(lastName, firstName, affiliation)
 
-        status <- "ready to import author articles"
+      }, error = function(e) {
+        elementMsg("bulkImportAuthorMsg", HTML(
+          sprintf(
+            "The upload failed with the following message:<br>%s",
+            e$message
+          )
+        ))
+        shinyjs::hide("startBulkImport")
 
-        # Get info from Pubmed
-        author <- ncbi_author(data$lastName[i], data$firstName[i], showWarnings = F) |> filter(group == 1) |> slice(1)
+        return()
+      })
+
+      importInfo <- data.frame()
+      importData <- list()
+      history <- list()
+
+      withProgress(
+        message = 'Verify Authors',
+        value = 0,
+        {
+          n <- nrow(data)
+
+          for (i in 1:n) {
+            incProgress(
+              1 / n,
+              "Verify author:",
+              detail = sprintf("%s, %s (%i/%i)", data$lastName[i], data$firstName[i], i, n)
+            )
+
+            status <- "ready to import author articles"
+
+            # Get info from Pubmed
+            author <- ncbi_author(data$lastName[i], data$firstName[i], showWarnings = F) |> filter(group == 1) |> slice(1)
 
         # If no author found
         if (length(author$lastName) == 0) {
