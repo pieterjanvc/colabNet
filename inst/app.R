@@ -40,12 +40,15 @@ preCompData <- reactivePoll(
 
     authors <- tbl(pool, "author") |>
       filter(authorOfInterest == 1) |>
-      left_join(tbl(pool, "authorName") |>
-                  group_by(auID) |>
-                  filter(default) |>
-                  ungroup(),
-                by = "auID") |>
-      select(auID, lastName, firstName, initials) |> collect()
+      left_join(
+        tbl(pool, "authorName") |>
+          group_by(auID) |>
+          filter(default) |>
+          ungroup(),
+        by = "auID"
+      ) |>
+      select(auID, lastName, firstName, initials) |>
+      collect()
 
     if (length(nrow(authors)) == 0) {
       return(list(
@@ -62,15 +65,17 @@ preCompData <- reactivePoll(
       left_join(tbl(pool, "article"), by = "arID") |>
       collect() |>
       left_join(authors, by = "auID") |>
-      select(auID,
-             arID,
-             PMID,
-             lastName,
-             firstName,
-             month,
-             year,
-             title,
-             journal) |>
+      select(
+        auID,
+        arID,
+        PMID,
+        lastName,
+        firstName,
+        month,
+        year,
+        title,
+        journal
+      ) |>
       arrange(desc(PMID)) |>
       collect() |>
       mutate(
@@ -120,151 +125,173 @@ relevantAuthors <- function(authors, lastName) {
   # Get first and last author, and author of interest if not either
   firstAuth <- str_extract(authors, "^[^,]+")
   lastAuth <- str_extract(authors, "\\s([^,]+)$", group = 1)
-  middleAuth <- str_extract(authors, sprintf(",\\s(%s[^,]+),", lastName), group = 1)
+  middleAuth <- str_extract(
+    authors,
+    sprintf(",\\s(%s[^,]+),", lastName),
+    group = 1
+  )
 
-  sprintf("%s%s%s",
-          firstAuth,
-          ifelse(is.na(middleAuth), " ... ", sprintf(" ... %s ... ", middleAuth)),
-          lastAuth)
+  sprintf(
+    "%s%s%s",
+    firstAuth,
+    ifelse(is.na(middleAuth), " ... ", sprintf(" ... %s ... ", middleAuth)),
+    lastAuth
+  )
 }
 
 # //////////////
 # ---- UI ----
 # /////////////
 
-ui <- fluidPage(useShinyjs(), fluidRow(column(
-  12, tabsetPanel(
-    tabPanel(
-      "Exploration",
-      fluidRow(fluidRow(column(
-        12,
-        h3("Similarity between researchers based on article MeSH terms")
-      )), fluidRow(column(
-        12,
-        tabsetPanel(
-          tabPanel(
-            "Co-authors",
-            visNetworkOutput("networkPlot", height = "60vh"),
-            value = "tab_coAuth"
-          ),
-          tabPanel(
-            "MeSH Tree",
-            plotlyOutput("meshTreePlot", height = "60vh"),
-            value = "tab_meshTree"
-          ),
-          tabPanel(
-            "Research Overlap",
-            fluidRow(
-              column(
-                4,
-                selectInput(
-                  "overlapCat",
-                  "Filter Scoring Category",
-                  multiple = T,
-                  choices =  NULL,
-                  selected = NULL
-                ),
-                actionButton("applyFilterCat", "Apply Filter"),
-                actionButton("removeFilterCat", "Remove Filter")
-              ),
-              column(8, DTOutput("overlapscoreTable"))
-            ),
-            plotlyOutput("comparisonMeshTreePlot", height = "60vh"),
-            value = "tab_comparison"
-          ),
-          id = "tabs_exploration"
-        )
-      )), fluidRow(column(
-        12, DTOutput("articleTable")
-      ))),
-      value = "exploration"
-    ),
-    tabPanel("Analysis", fluidRow()),
-    tabPanel(
-      "Admin",
-      wellPanel(
-        tags$h3("Articles in database"),
-        selectInput("auID", "Author", choices = NULL),
-        uiOutput("alternativeNames"),
-        fluidRow(DTOutput("authorInDB")),
-        actionButton("artDel", "Remove selected articles")
-      ),
-      wellPanel(
+ui <- fluidPage(
+  useShinyjs(),
+  fluidRow(column(
+    12,
+    tabsetPanel(
+      tabPanel(
+        "Exploration",
         fluidRow(
-          column(
-            6,
-            tags$h3("Find articles on Pubmed"),
-            textInput("lastName", "Last name"),
-            textInput("firstName", "First name + middle initials"),
-            tags$i(
-              HTML(
-                "Use the first name and any middle name initials the author uses to publish.",
-                "<ul><li>For a more specific search use full first name and then middle initials: ",
-                "Joseph E Murray &rarr; Joseph E</li><li>For a broader search, use initals only",
-                "Joseph E Murray &rarr; JE</li></ul>"
+          fluidRow(column(
+            12,
+            h3("Similarity between researchers based on article MeSH terms")
+          )),
+          fluidRow(column(
+            12,
+            tabsetPanel(
+              tabPanel(
+                "Co-authors",
+                visNetworkOutput("networkPlot", height = "60vh"),
+                value = "tab_coAuth"
+              ),
+              tabPanel(
+                "MeSH Tree",
+                plotlyOutput("meshTreePlot", height = "60vh"),
+                value = "tab_meshTree"
+              ),
+              tabPanel(
+                "Research Overlap",
+                fluidRow(
+                  column(
+                    4,
+                    selectInput(
+                      "overlapCat",
+                      "Filter Scoring Category",
+                      multiple = T,
+                      choices = NULL,
+                      selected = NULL
+                    ),
+                    actionButton("applyFilterCat", "Apply Filter"),
+                    actionButton("removeFilterCat", "Remove Filter")
+                  ),
+                  column(8, DTOutput("overlapscoreTable"))
+                ),
+                plotlyOutput("comparisonMeshTreePlot", height = "60vh"),
+                value = "tab_comparison"
+              ),
+              id = "tabs_exploration"
+            )
+          )),
+          fluidRow(column(
+            12,
+            DTOutput("articleTable")
+          ))
+        ),
+        value = "exploration"
+      ),
+      tabPanel("Analysis", fluidRow()),
+      tabPanel(
+        "Admin",
+        wellPanel(
+          tags$h3("Articles in database"),
+          selectInput("auID", "Author", choices = NULL),
+          uiOutput("alternativeNames"),
+          fluidRow(DTOutput("authorInDB")),
+          actionButton("artDel", "Remove selected articles")
+        ),
+        wellPanel(
+          fluidRow(
+            column(
+              6,
+              tags$h3("Find articles on Pubmed"),
+              textInput("lastName", "Last name"),
+              textInput("firstName", "First name + middle initials"),
+              tags$i(
+                HTML(
+                  "Use the first name and any middle name initials the author uses to publish.",
+                  "<ul><li>For a more specific search use full first name and then middle initials: ",
+                  "Joseph E Murray &rarr; Joseph E</li><li>For a broader search, use initals only",
+                  "Joseph E Murray &rarr; JE</li></ul>"
+                )
               )
+            ),
+            column(
+              6,
+              HTML("<br><h4><i>Optional Filters</i></h4>"),
+              textAreaInput("PMIDs", "Limit search by PMID (comma separated)"),
+              textInput("auAff", "Filter based on affiliation (RegEx style)")
+            ),
+          ),
+
+          actionButton("pubmedByAuthor", "Search Pubmed"),
+          br(),
+          br(),
+          DTOutput("authorSearch"),
+          actionButton("artAdd", "Add selected articles")
+        ),
+        wellPanel(
+          tags$h3("Bulk Import from CSV"),
+          tags$i(
+            HTML(
+              "Upload a CSV file with the following columns<ul>",
+              "<li>lastName: The last name of the author</li>",
+              "<li>firstName: The first name + middle initials (see above for details)</li>",
+              "<li>affiliation: (optional) A RegEx pattern to filter by author affiliation</li>",
+              "</ul>"
             )
           ),
-          column(
-            6,
-            HTML("<br><h4><i>Optional Filters</i></h4>"),
-            textAreaInput("PMIDs", "Limit search by PMID (comma separated)"),
-            textInput("auAff", "Filter based on affiliation (RegEx style)")
+          fileInput("bulkImportAuthor", "CSV file", accept = ".csv"),
+          tags$i(
+            HTML(
+              "Note that the nPubMed column below will show the number of articles ",
+              "that match the author before filtering by affiliation (will be done when importing)"
+            )
           ),
+          div(id = "bulkImportAuthorMsg"),
+          DTOutput("bulkImportTable"),
+          actionButton("startBulkImport", "Start Import")
         ),
-
-        actionButton("pubmedByAuthor", "Search Pubmed"),
-        br(),
-        br(),
-        DTOutput("authorSearch"),
-        actionButton("artAdd", "Add selected articles")
+        value = "exploration"
       ),
-      wellPanel(
-        tags$h3("Bulk Import from CSV"),
-        tags$i(
-          HTML(
-            "Upload a CSV file with the following columns<ul>",
-            "<li>lastName: The last name of the author</li>",
-            "<li>firstName: The first name + middle initials (see above for details)</li>",
-            "<li>affiliation: (optional) A RegEx pattern to filter by author affiliation</li>",
-            "</ul>"
-          )
-        ),
-        fileInput("bulkImportAuthor", "CSV file", accept = ".csv"),
-        tags$i(
-          HTML(
-            "Note that the nPubMed column below will show the number of articles ",
-            "that match the author before filtering by affiliation (will be done when importing)"
-          )
-        ),
-        div(id =  "bulkImportAuthorMsg"),
-        DTOutput("bulkImportTable"),
-        actionButton("startBulkImport", "Start Import")
+    )
+  )),
+  fluidRow(column(
+    12,
+    tags$footer(
+      p(
+        "This app was created to support the Harvard Medical School BBS",
+        tags$a(
+          "Program in Genetics and Genomics",
+          href = "https://projects.iq.harvard.edu/pgg",
+          target = "_blank"
+        )
       ),
-      value = "exploration"
-    ),
-  )
-)), fluidRow(column(
-  12,
-  tags$footer(
-    p(
-      "This app was created to support the Harvard Medical School BBS",
-      tags$a(
-        "Program in Genetics and Genomics",
-        href = "https://projects.iq.harvard.edu/pgg",
-        target = "_blank"
-      )
-    ),
-    p(
-      "Content manager: Lorenzo Gesuita -",
-      tags$a("lorenzo_gesuita@hms.harvard.edu", href = "mailto:lorenzo_gesuita@hms.harvard.edu"),
-      "| App creator: PJ van Camp -",
-      tags$a("pjvancamp@hms.harvard.edu", href = "mailto:pjvancamp@hms.harvard.edu")
-    ),
-    style = "width: 100%;margin: auto;text-align: center;background-color: #f6f6f6;
+      p(
+        "Content manager: Lorenzo Gesuita -",
+        tags$a(
+          "lorenzo_gesuita@hms.harvard.edu",
+          href = "mailto:lorenzo_gesuita@hms.harvard.edu"
+        ),
+        "| App creator: PJ van Camp -",
+        tags$a(
+          "pjvancamp@hms.harvard.edu",
+          href = "mailto:pjvancamp@hms.harvard.edu"
+        )
+      ),
+      style = "width: 100%;margin: auto;text-align: center;background-color: #f6f6f6;
     color:#787878;border-top: 0.2rem solid;"
-  )
-)))
+    )
+  ))
+)
 
 # //////////////////
 # ---- SERVER ----
@@ -278,7 +305,8 @@ server <- function(input, output, session) {
       filter(treenum %in% local(unique(preCompData()$overlapscore$tree))) |>
       left_join(tbl(pool, "meshLink"), by = "uid") |>
       left_join(tbl(pool, "meshTerm"), by = "meshui") |>
-      collect() |> arrange(meshterm)
+      collect() |>
+      arrange(meshterm)
 
     updateSelectInput(
       session,
@@ -301,39 +329,46 @@ server <- function(input, output, session) {
 
       setArticleTable(arIDs, merged = T)
     } else if (input$tabs_exploration == "tab_meshTree") {
-      selected <- preCompData()$plotData[event_data("plotly_click", "treemap_overview")$pointNumber + 1, ]$branchID
+      selected <- preCompData()$plotData[
+        event_data("plotly_click", "treemap_overview")$pointNumber + 1,
+      ]$branchID
       setArticleTable(arIDByMesh(selected))
     } else if (input$tabs_exploration == "tab_comparison") {
-      selected <- preCompData()$plotData[event_data("plotly_click", "treemap_overlap")$pointNumber + 1, ]$branchID
+      selected <- preCompData()$plotData[
+        event_data("plotly_click", "treemap_overlap")$pointNumber + 1,
+      ]$branchID
       setArticleTable(arIDByMesh(selected), c(1053, 1673))
     } else {
       stop("Tab issue:", input$tabs_exploration)
     }
   })
 
-  output$articleTable <- renderDT({
-    req(!is.null(preCompData()$allArticles))
-    preCompData()$allArticles |>
-      select(PMID, name, month, year, title, journal)
-  }, rownames = F, escape = F)
+  output$articleTable <- renderDT(
+    {
+      req(!is.null(preCompData()$allArticles))
+      preCompData()$allArticles |>
+        select(PMID, name, month, year, title, journal)
+    },
+    rownames = F,
+    escape = F
+  )
 
   artTableProxy <- dataTableProxy("articleTable")
 
-  setArticleTable <- function(arIDs,
-                              auIDs = c(),
-                              merged = F) {
+  setArticleTable <- function(arIDs, auIDs = c(), merged = F) {
     articles <- preCompData()$allArticles
 
     if (length(arIDs) > 0) {
-      articles <- articles |> filter(arID %in% {{arIDs}})
+      articles <- articles |> filter(arID %in% {{ arIDs }})
     }
 
     if (length(auIDs) > 0) {
-      articles <- articles |> filter(auID %in% {{auIDs}})
+      articles <- articles |> filter(auID %in% {{ auIDs }})
     }
 
     if (merged) {
-      articles <- articles |> group_by(arID) |>
+      articles <- articles |>
+        group_by(arID) |>
         mutate(name = paste(lastName, collapse = " & ")) |>
         ungroup()
     }
@@ -341,7 +376,8 @@ server <- function(input, output, session) {
     replaceData(
       artTableProxy,
       articles |>
-        select(PMID, name, month, year, title, journal) |> distinct(),
+        select(PMID, name, month, year, title, journal) |>
+        distinct(),
       rownames = F
     )
   }
@@ -351,8 +387,7 @@ server <- function(input, output, session) {
   # Nodes and Edges for the co-publication network
   coPub <- reactive({
     nodes <- preCompData()$allArticles |>
-      transmute(id = auID,
-                label = sprintf("%s %s", lastName, firstName)) |>
+      transmute(id = auID, label = sprintf("%s %s", lastName, firstName)) |>
       distinct()
 
     edges <- preCompData()$allArticles |>
@@ -375,14 +410,14 @@ server <- function(input, output, session) {
 
     edges <- coPub()$edges |>
       group_by(id, from, to) |>
-      summarise(width = n(),
-                label = as.character(n()),
-                .groups = "drop") |>
-      mutate(color = case_when(
-        width == 1 ~ "#ffcc33",
-        width == 2 ~ "#ee6600",
-        width > 2 ~ "#990000",
-      ))
+      summarise(width = n(), label = as.character(n()), .groups = "drop") |>
+      mutate(
+        color = case_when(
+          width == 1 ~ "#ffcc33",
+          width == 2 ~ "#ee6600",
+          width > 2 ~ "#990000",
+        )
+      )
 
     # Create a simple visNetwork graph
     visNetwork(coPub()$nodes, edges) |>
@@ -392,30 +427,36 @@ server <- function(input, output, session) {
         font = list(background = rgb(1, 1, 1, 0.8))
       ) |>
       visEdges(smooth = T) |>
-      visPhysics(barnesHut = list(
-        # gravitationalConstant = -2000,  # Optional: adjust gravity
-        # centralGravity = 0.3,           # Optional: adjust central gravity
-        springLength = 200,
-        # Optional: adjust spring length
-        # springConstant = 0.01,          # Optional: adjust spring constant
-        # damping = 0.4,                  # Optional: adjust damping
-        repulsion = 1000 # Increased repulsion value
-      )) |>
-      visEvents(select = "function(data) {
+      visPhysics(
+        barnesHut = list(
+          # gravitationalConstant = -2000,  # Optional: adjust gravity
+          # centralGravity = 0.3,           # Optional: adjust central gravity
+          springLength = 200,
+          # Optional: adjust spring length
+          # springConstant = 0.01,          # Optional: adjust spring constant
+          # damping = 0.4,                  # Optional: adjust damping
+          repulsion = 1000 # Increased repulsion value
+        )
+      ) |>
+      visEvents(
+        select = "function(data) {
                   Shiny.onInputChange('coPub_selection', data);
-                  ;}")
+                  ;}"
+      )
   })
 
   # When a node or edge is selected in the co publication network
-  observeEvent(input$coPub_selection, {
-    arIDs <- coPub()$edges |>
-      filter(id %in% unlist(input$coPub_selection$edges)) |>
-      pull(arID)
+  observeEvent(
+    input$coPub_selection,
+    {
+      arIDs <- coPub()$edges |>
+        filter(id %in% unlist(input$coPub_selection$edges)) |>
+        pull(arID)
 
-    setArticleTable(arIDs, merged = T)
-
-  }, ignoreNULL = F)
-
+      setArticleTable(arIDs, merged = T)
+    },
+    ignoreNULL = F
+  )
 
   # ---- Colab MeSH Tree ----
 
@@ -424,7 +465,10 @@ server <- function(input, output, session) {
 
     plotData <- preCompData()$plotData
 
-    boxText <- str_wrap(paste(plotData$meshSum, plotData$meshterm, sep = " | "), 12)
+    boxText <- str_wrap(
+      paste(plotData$meshSum, plotData$meshterm, sep = " | "),
+      12
+    )
     boxText <- ifelse(plotData$hasChildren, paste(boxText, "<b>+</b>"), boxText)
 
     plot_ly(
@@ -466,11 +510,14 @@ server <- function(input, output, session) {
       left_join(tbl(pool, "meshLink"), by = "uid") |>
       left_join(tbl(pool, "meshTerm"), by = "meshui") |>
       left_join(tbl(pool, "mesh_article"), by = "meshui") |>
-      pull(arID) |> unique()
+      pull(arID) |>
+      unique()
   }
 
   observeEvent(event_data("plotly_click", "treemap_overview"), {
-    selected <- preCompData()$plotData[event_data("plotly_click", "treemap_overview")$pointNumber + 1, ]$branchID
+    selected <- preCompData()$plotData[
+      event_data("plotly_click", "treemap_overview")$pointNumber + 1,
+    ]$branchID
     setArticleTable(arIDByMesh(selected))
   })
 
@@ -478,49 +525,68 @@ server <- function(input, output, session) {
 
   calcOverlap <- function(precompOverlap, treeFilter) {
     if (!is.null(treeFilter)) {
-      precompOverlap <- precompOverlap |> filter(tree %in% {{treeFilter}})
+      precompOverlap <- precompOverlap |> filter(tree %in% {{ treeFilter }})
     }
 
-    overlapscore <- precompOverlap |> group_by(au1, au2) |> summarise(score = sum(score), .groups = "drop") |> arrange(desc(score))
+    overlapscore <- precompOverlap |>
+      group_by(au1, au2) |>
+      summarise(score = sum(score), .groups = "drop") |>
+      arrange(desc(score))
 
     names <- preCompData()$authors |>
       transmute(auID, name = sprintf("%s, %s", lastName, firstName))
 
-    overlapscoreTable <- overlapscore |> left_join(names |> select(au1 = auID, author1 = name), by = "au1") |> left_join(names |> select(au2 = auID, author2 = name), by = "au2") |> select(author1, author2, overlapScore = score)
+    overlapscoreTable <- overlapscore |>
+      left_join(
+        names |>
+          select(au1 = auID, author1 = name),
+        by = "au1"
+      ) |>
+      left_join(names |> select(au2 = auID, author2 = name), by = "au2") |>
+      select(author1, author2, overlapScore = score)
 
     return(list(score = overlapscore, table = overlapscoreTable))
   }
 
   # The table that shows the overlap score for pairs of authors
-  output$overlapscoreTable <- renderDT({
-    print("INIT")
+  output$overlapscoreTable <- renderDT(
+    {
+      print("INIT")
 
-    calcOverlap(preCompData()$overlapscore, NULL)$table
-
-  }, rownames = F, selection = list(mode = "single", selected = 1), options = list(lengthMenu = list(c(5, 10, 15), c("5", "10", "15"))))
+      calcOverlap(preCompData()$overlapscore, NULL)$table
+    },
+    rownames = F,
+    selection = list(mode = "single", selected = 1),
+    options = list(lengthMenu = list(c(5, 10, 15), c("5", "10", "15")))
+  )
 
   overlapscoreTable_proxy <- dataTableProxy("overlapscoreTable")
 
   overlapData <- reactiveVal()
 
   # Update table that show the overlap score and return the raw table data
-  observeEvent(input$applyFilterCat, {
-    overlap <- calcOverlap(preCompData()$overlapscore, input$overlapCat)
+  observeEvent(
+    input$applyFilterCat,
+    {
+      overlap <- calcOverlap(preCompData()$overlapscore, input$overlapCat)
 
-    req(is.null(overlapData()) ||
-          !identical(overlap$score, overlapData()))
+      req(
+        is.null(overlapData()) ||
+          !identical(overlap$score, overlapData())
+      )
 
-    replaceData(overlapscoreTable_proxy, overlap$table, rownames = F)
+      replaceData(overlapscoreTable_proxy, overlap$table, rownames = F)
 
-    if (nrow(overlap$table) > 0) {
-      DT::selectRows(overlapscoreTable_proxy, 1)
-    }
+      if (nrow(overlap$table) > 0) {
+        DT::selectRows(overlapscoreTable_proxy, 1)
+      }
 
-    print("UPDATED COMP TABLE")
+      print("UPDATED COMP TABLE")
 
-    overlapData(overlap$score)
-
-  }, ignoreNULL = FALSE)
+      overlapData(overlap$score)
+    },
+    ignoreNULL = FALSE
+  )
 
   # Remove any tree filters from the scoring categories
   observeEvent(input$removeFilterCat, {
@@ -538,7 +604,6 @@ server <- function(input, output, session) {
     print("UPDATED COMP TABLE rem")
 
     overlapData(overlap$score)
-
   })
 
   #  When a new author combination is chosen from the table
@@ -546,7 +611,8 @@ server <- function(input, output, session) {
     print("UPDATED PLOT")
     # Get the author IDs
     auIDs <- overlapData()[input$overlapscoreTable_rows_selected, ] |>
-      select(au1, au2) |> unlist()
+      select(au1, au2) |>
+      unlist()
     req(length(auIDs) == 2)
 
     # Get the treemap for the two authors
@@ -558,7 +624,8 @@ server <- function(input, output, session) {
     }
 
     # Update the article table with all articles for either author
-    arIDs <- preCompData()$allArticles |> filter(auID %in% {{auIDs}}) |>
+    arIDs <- preCompData()$allArticles |>
+      filter(auID %in% {{ auIDs }}) |>
       pull(arID)
     setArticleTable(arIDs = arIDs, auIDs = auIDs)
 
@@ -569,11 +636,15 @@ server <- function(input, output, session) {
   # MeSH tree for two author comparison
   output$comparisonMeshTreePlot <- renderPlotly({
     # Render the plot
-    boxText <- str_wrap(paste(treemapcomp()$meshSum, treemapcomp()$meshterm, sep = " | "),
-                        12)
-    boxText <- ifelse(treemapcomp()$hasChildren,
-                      paste(boxText, "<b>+</b>"),
-                      boxText)
+    boxText <- str_wrap(
+      paste(treemapcomp()$meshSum, treemapcomp()$meshterm, sep = " | "),
+      12
+    )
+    boxText <- ifelse(
+      treemapcomp()$hasChildren,
+      paste(boxText, "<b>+</b>"),
+      boxText
+    )
 
     plot_ly(
       type = "treemap",
@@ -596,16 +667,19 @@ server <- function(input, output, session) {
   })
 
   # Get articles in part of the author comparison MeSH tree branch selected
-  observeEvent(event_data("plotly_click", "treemap_overlap"),
-               {
-                 auIDs <- overlapData()[input$overlapscoreTable_rows_selected, ] |>
-                   select(au1, au2) |> unlist()
-                 selected <- treemapcomp()[event_data("plotly_click", "treemap_overlap")$pointNumber + 1, ]$branchID
-                 setArticleTable(arIDByMesh(selected), auIDs = auIDs)
-               },
-               ignoreNULL = F)
-
-
+  observeEvent(
+    event_data("plotly_click", "treemap_overlap"),
+    {
+      auIDs <- overlapData()[input$overlapscoreTable_rows_selected, ] |>
+        select(au1, au2) |>
+        unlist()
+      selected <- treemapcomp()[
+        event_data("plotly_click", "treemap_overlap")$pointNumber + 1,
+      ]$branchID
+      setArticleTable(arIDByMesh(selected), auIDs = auIDs)
+    },
+    ignoreNULL = F
+  )
 
   # ---- ADMIN TAB ----
   # /////////////////////////
@@ -621,13 +695,18 @@ server <- function(input, output, session) {
 
   observeEvent(authorList(), {
     newVals <- authorList() |> filter(default == 1)
-    updateSelectInput(session,
-                      "auID",
-                      choices = setNames(c(newVals$auID, "0"), c(
-                        paste(newVals$lastName, newVals$firstName, sep = ", "),
-                        "Not in DB"
-                      )),
-                      selected = newVals$auID[1])
+    updateSelectInput(
+      session,
+      "auID",
+      choices = setNames(
+        c(newVals$auID, "0"),
+        c(
+          paste(newVals$lastName, newVals$firstName, sep = ", "),
+          "Not in DB"
+        )
+      ),
+      selected = newVals$auID[1]
+    )
   })
 
   output$alternativeNames <- renderUI({
@@ -690,87 +769,110 @@ server <- function(input, output, session) {
   })
 
   # ---- EXISTING ARTICLES BY AUTHOR ----
-  emptyTable <- data.frame(PMID = character(),
-                           Title = character(),
-                           Info = character())
+  emptyTable <- data.frame(
+    PMID = character(),
+    Title = character(),
+    Info = character()
+  )
 
   # Table that shows author articles
-  output$authorInDB <- renderDT({
-    emptyTable
-  }, escape = F, rownames = F)
+  output$authorInDB <- renderDT(
+    {
+      emptyTable
+    },
+    escape = F,
+    rownames = F
+  )
 
   authorInDB_proxy <- dataTableProxy("authorInDB")
 
   articlesInDB <- reactiveVal(NULL)
 
-  observeEvent(input$auID, {
-    # elementMsg("pubmedByAuthor")
+  observeEvent(
+    input$auID,
+    {
+      # elementMsg("pubmedByAuthor")
 
-    authors <- tbl(pool, "coAuthor") |>
-      group_by(arID) |>
-      filter(any(auID == local(as.integer(input$auID)))) |>
-      ungroup() |>
-      left_join(
-        tbl(pool, "authorName") |>
-          filter(default) |>
-          select(auID, lastName, initials),
-        by = "auID"
-      ) |>
-      arrange(arID, authorOrder) |>
-      mutate(name = paste(lastName, initials)) |>
-      collect() |>
-      group_by(arID) |>
-      summarise(
-        auID = local(input$auID),
-        authors = paste(name, collapse = ", "),
-        .groups = "drop"
-      )
-
-    df <- tbl(pool, "article") |>
-      filter(arID %in% local(authors$arID)) |>
-      collect() |>
-      left_join(authors, by = "arID")
-
-    articlesInDB(df)
-  }, ignoreInit = T, ignoreNULL = F)
-
-  observeEvent(articlesInDB(), {
-    if (is.null(articlesInDB()) || nrow(articlesInDB()) == 0) {
-      replaceData(authorInDB_proxy, emptyTable, rownames = F)
-      return()
-    }
-
-    lastName <- tbl(pool, "author") |>
-      filter(authorOfInterest == 1, auID == local(input$auID)) |>
-      left_join(tbl(pool, "authorName") |> filter(default == 1), by = "auID") |> pull(lastName)
-
-    replaceData(
-      authorInDB_proxy,
-      articlesInDB() |>
-        mutate(
-          Info = sprintf(
-            "%s | <i>%s</i> (%s)",
-            relevantAuthors(authors, lastName),
-            journal,
-            year
-          ),
-          PMID = sprintf(
-            '<a href="https://pubmed.ncbi.nlm.nih.gov/%s" target="_blank">%s</a>',
-            PMID,
-            PMID
-          )
+      authors <- tbl(pool, "coAuthor") |>
+        group_by(arID) |>
+        filter(any(auID == local(as.integer(input$auID)))) |>
+        ungroup() |>
+        left_join(
+          tbl(pool, "authorName") |>
+            filter(default) |>
+            select(auID, lastName, initials),
+          by = "auID"
         ) |>
-        select(PMID, Title = title, Info),
-      rownames = F
-    )
-  }, ignoreNULL = F)
+        arrange(arID, authorOrder) |>
+        mutate(name = paste(lastName, initials)) |>
+        collect() |>
+        group_by(arID) |>
+        summarise(
+          auID = local(input$auID),
+          authors = paste(name, collapse = ", "),
+          .groups = "drop"
+        )
+
+      df <- tbl(pool, "article") |>
+        filter(arID %in% local(authors$arID)) |>
+        collect() |>
+        left_join(authors, by = "arID")
+
+      articlesInDB(df)
+    },
+    ignoreInit = T,
+    ignoreNULL = F
+  )
+
+  observeEvent(
+    articlesInDB(),
+    {
+      if (is.null(articlesInDB()) || nrow(articlesInDB()) == 0) {
+        replaceData(authorInDB_proxy, emptyTable, rownames = F)
+        return()
+      }
+
+      lastName <- tbl(pool, "author") |>
+        filter(authorOfInterest == 1, auID == local(input$auID)) |>
+        left_join(
+          tbl(pool, "authorName") |> filter(default == 1),
+          by = "auID"
+        ) |>
+        pull(lastName)
+
+      replaceData(
+        authorInDB_proxy,
+        articlesInDB() |>
+          mutate(
+            Info = sprintf(
+              "%s | <i>%s</i> (%s)",
+              relevantAuthors(authors, lastName),
+              journal,
+              year
+            ),
+            PMID = sprintf(
+              '<a href="https://pubmed.ncbi.nlm.nih.gov/%s" target="_blank">%s</a>',
+              PMID,
+              PMID
+            )
+          ) |>
+          select(PMID, Title = title, Info),
+        rownames = F
+      )
+    },
+    ignoreNULL = F
+  )
 
   # ----- NEW ARTICLE SEARCH ----
 
   # Table that shows author articles
-  output$authorSearch <- renderDT({
-    emptyTable
-  }, escape = F, rownames = F)
+  output$authorSearch <- renderDT(
+    {
+      emptyTable
+    },
+    escape = F,
+    rownames = F
+  )
 
   authorSearch_proxy <- dataTableProxy("authorSearch")
 
@@ -781,147 +883,166 @@ server <- function(input, output, session) {
     pubDetails = NULL
   ))
 
-  observeEvent(input$pubmedByAuthor, {
-    # Check input
-    if (str_trim(input$lastName) == "" |
-        str_trim(input$firstName) == "") {
-      elementMsg("pubmedByAuthor",
-                 "You need to provide both last name and first name")
-      replaceData(authorSearch_proxy, emptyTable, rownames = F)
-      return()
-    }
+  observeEvent(
+    input$pubmedByAuthor,
+    {
+      # Check input
+      if (
+        str_trim(input$lastName) == "" |
+          str_trim(input$firstName) == ""
+      ) {
+        elementMsg(
+          "pubmedByAuthor",
+          "You need to provide both last name and first name"
+        )
+        replaceData(authorSearch_proxy, emptyTable, rownames = F)
+        return()
+      }
 
-    # Don't allow clicking button again while searching
-    disable("pubmedByAuthor")
+      # Don't allow clicking button again while searching
+      disable("pubmedByAuthor")
 
-    # If the author is not in the database, set to unknown
+      # If the author is not in the database, set to unknown
 
-    inDB <- tbl(pool, "authorName") |>
-      collect() |>
-      filter(
-        simpleText(lastName) %in% simpleText(input$lastName),
-        simpleText(firstName) %in%
-          simpleText(input$firstName) |
-          simpleText(initials) %in% simpleText(input$firstName)
+      inDB <- tbl(pool, "authorName") |>
+        collect() |>
+        filter(
+          simpleText(lastName) %in% simpleText(input$lastName),
+          simpleText(firstName) %in%
+            simpleText(input$firstName) |
+            simpleText(initials) %in% simpleText(input$firstName)
+        )
+
+      # Get info from Pubmed
+      author <- ncbi_author(
+        input$lastName,
+        input$firstName,
+        showWarnings = F
+      ) |>
+        filter(group == 1) |>
+        slice(1)
+
+      # If no author found
+      if (length(author$lastName) == 0) {
+        elementMsg(
+          "pubmedByAuthor",
+          sprintf(
+            "No results for the author with last name '%s' and first name '%s'",
+            input$lastName,
+            input$firstName
+          )
+        )
+        enable("pubmedByAuthor")
+        updateSelectInput(session, "auID", selected = "0")
+        replaceData(authorSearch_proxy, emptyTable, rownames = F)
+        return()
+      }
+
+      # Look for articles in Pubmed
+      msg = ""
+
+      search <- ncbi_authorArticleList(
+        lastName = input$lastName,
+        firstName = input$firstName,
+        PMIDs = str_split(input$PMIDs, ",")[[1]] |> str_trim(),
+        returnHistory = T
       )
 
-    # Get info from Pubmed
-    author <- ncbi_author(input$lastName, input$firstName, showWarnings = F) |> filter(group == 1) |> slice(1)
-
-    # If no author found
-    if (length(author$lastName) == 0) {
-      elementMsg(
-        "pubmedByAuthor",
-        sprintf(
+      if (!search$success) {
+        msg = sprintf(
+          "This search yielded too many (%i) results. Please use PMIDs instead",
+          search$n
+        )
+        df <- emptyTable
+      } else if (search$n == 0) {
+        msg = sprintf(
           "No results for the author with last name '%s' and first name '%s'",
           input$lastName,
           input$firstName
         )
-      )
-      enable("pubmedByAuthor")
-      updateSelectInput(session, "auID", selected = "0")
-      replaceData(authorSearch_proxy, emptyTable, rownames = F)
-      return()
-    }
-
-    # Look for articles in Pubmed
-    msg = ""
-
-    search <- ncbi_authorArticleList(
-      lastName = input$lastName,
-      firstName = input$firstName,
-      PMIDs = str_split(input$PMIDs, ",")[[1]] |> str_trim(),
-      returnHistory = T
-    )
-
-    if (!search$success) {
-      msg = sprintf("This search yielded too many (%i) results. Please use PMIDs instead",
-                    search$n)
-      df <- emptyTable
-    } else if (search$n == 0) {
-      msg = sprintf(
-        "No results for the author with last name '%s' and first name '%s'",
-        input$lastName,
-        input$firstName
-      )
-      df <- emptyTable
-    } else {
-      df <- search$articles |>
-        transmute(
-          PMID,
-          Title = title,
-          Info = sprintf(
-            "%s | <i>%s</i> (%s)",
-            relevantAuthors(authors, author$lastName),
-            journal,
-            as.Date(date) |> format("%Y")
+        df <- emptyTable
+      } else {
+        df <- search$articles |>
+          transmute(
+            PMID,
+            Title = title,
+            Info = sprintf(
+              "%s | <i>%s</i> (%s)",
+              relevantAuthors(authors, author$lastName),
+              journal,
+              as.Date(date) |> format("%Y")
+            )
           )
-        )
-    }
-
-    # Check if affiliation filter is present (more calculation needed)
-    auAff <- str_trim(input$auAff)
-
-    if (auAff != "" & nrow(df) > 0) {
-      pubDetails <- ncbi_publicationDetails(
-        PMIDs = df$PMID,
-        lastName = author$lastName,
-        firstName = author$firstName,
-        initials = author$initials,
-        history = search$history
-      ) |> filter_affiliation(auAff)
-
-      df <- df |> filter(PMID %in% pubDetails$articles$PMID)
-
-      if (nrow(df) == 0) {
-        msg = "No articles found that match the affiliation filter"
-        auAff <-  NA # Set this so the message is not overwritten by next one
       }
-    } else {
-      pubDetails <- NULL
-    }
 
-    existing <- tbl(pool, "article") |>
-      filter(PMID %in% local(df$PMID)) |>
-      pull(PMID)
+      # Check if affiliation filter is present (more calculation needed)
+      auAff <- str_trim(input$auAff)
 
-    df <- df |> filter(!PMID %in% {{ existing }})
+      if (auAff != "" & nrow(df) > 0) {
+        pubDetails <- ncbi_publicationDetails(
+          PMIDs = df$PMID,
+          lastName = author$lastName,
+          firstName = author$firstName,
+          initials = author$initials,
+          history = search$history
+        ) |>
+          filter_affiliation(auAff)
 
-    if (nrow(df) == 0 & !is.na(auAff)) {
-      msg = "No new articles found that aren't already in the database (see above)"
-    } else if (nrow(df) > 0 &
-               length(existing) > 0 & !is.na(auAff)) {
-      msg = sprintf(
-        " %i articles for this author are already in the database (see above) and are not listed in the result",
-        length(existing)
+        df <- df |> filter(PMID %in% pubDetails$articles$PMID)
+
+        if (nrow(df) == 0) {
+          msg = "No articles found that match the affiliation filter"
+          auAff <- NA # Set this so the message is not overwritten by next one
+        }
+      } else {
+        pubDetails <- NULL
+      }
+
+      existing <- tbl(pool, "article") |>
+        filter(PMID %in% local(df$PMID)) |>
+        pull(PMID)
+
+      df <- df |> filter(!PMID %in% {{ existing }})
+
+      if (nrow(df) == 0 & !is.na(auAff)) {
+        msg = "No new articles found that aren't already in the database (see above)"
+      } else if (
+        nrow(df) > 0 &
+          length(existing) > 0 &
+          !is.na(auAff)
+      ) {
+        msg = sprintf(
+          " %i articles for this author are already in the database (see above) and are not listed in the result",
+          length(existing)
+        )
+      }
+
+      if (length(existing) > 0) {
+        toSelect = inDB |> filter(default == 1) |> pull(auID) |> as.character()
+      } else {
+        toSelect = "0"
+      }
+
+      updateSelectInput(session, "auID", selected = toSelect)
+
+      if (msg != "") {
+        elementMsg("pubmedByAuthor", msg, "info")
+      } else {
+        elementMsg("pubmedByAuthor")
+      }
+
+      enable("pubmedByAuthor")
+      searchResults(
+        list(
+          articles = df,
+          author = author,
+          history = search$history,
+          pubDetails = pubDetails
+        )
       )
-    }
-
-    if (length(existing) > 0) {
-      toSelect = inDB |> filter(default == 1) |> pull(auID) |> as.character()
-    } else {
-      toSelect = "0"
-    }
-
-    updateSelectInput(session, "auID", selected = toSelect)
-
-    if (msg != "") {
-      elementMsg("pubmedByAuthor", msg, "info")
-    } else {
-      elementMsg("pubmedByAuthor")
-    }
-
-
-    enable("pubmedByAuthor")
-    searchResults(
-      list(
-        articles = df,
-        author = author,
-        history = search$history,
-        pubDetails = pubDetails
-      )
-    )
-  }, ignoreInit = T)
+    },
+    ignoreInit = T
+  )
 
   observeEvent(searchResults(), {
     if (is.null(searchResults()$articles)) {
@@ -963,11 +1084,11 @@ server <- function(input, output, session) {
         firstName = searchResults()$author$firstName,
         initials = searchResults()$author$initials,
         history = searchResults()$history
-      ) |> filter_PMID(PMIDs)
+      ) |>
+        filter_PMID(PMIDs)
     } else {
       new <- filter_PMID(searchResults()$pubDetails, PMIDs)
     }
-
 
     new <- dbAddAuthorPublications(new, dbInfo = localCheckout(pool))
 
@@ -1032,35 +1153,48 @@ server <- function(input, output, session) {
     {
       shinyjs::hide("startBulkImport")
 
-      tryCatch({
-        data <- read.csv(input$bulkImportAuthor$datapath)
-        missing <- setdiff(c("lastName", "firstName", "affiliation"),
-                           colnames(data))
-
-        if (length(missing) > 0) {
-          stop("The following columns are missing: ",
-               paste(missing, collapse = ", "))
-        }
-
-        if (!all(str_detect(data$firstName, "\\w+"),
-                 str_detect(data$lastName, "\\w+"))) {
-          stop("The firstName and lastName must be provided for everyone")
-        }
-
-        elementMsg("bulkImportAuthorMsg")
-        data <- data |> select(lastName, firstName, affiliation)
-
-      }, error = function(e) {
-        elementMsg("bulkImportAuthorMsg", HTML(
-          sprintf(
-            "The upload failed with the following message:<br>%s",
-            e$message
+      tryCatch(
+        {
+          data <- read.csv(input$bulkImportAuthor$datapath)
+          missing <- setdiff(
+            c("lastName", "firstName", "affiliation"),
+            colnames(data)
           )
-        ))
-        shinyjs::hide("startBulkImport")
 
-        return()
-      })
+          if (length(missing) > 0) {
+            stop(
+              "The following columns are missing: ",
+              paste(missing, collapse = ", ")
+            )
+          }
+
+          if (
+            !all(
+              str_detect(data$firstName, "\\w+"),
+              str_detect(data$lastName, "\\w+")
+            )
+          ) {
+            stop("The firstName and lastName must be provided for everyone")
+          }
+
+          elementMsg("bulkImportAuthorMsg")
+          data <- data |> select(lastName, firstName, affiliation)
+        },
+        error = function(e) {
+          elementMsg(
+            "bulkImportAuthorMsg",
+            HTML(
+              sprintf(
+                "The upload failed with the following message:<br>%s",
+                e$message
+              )
+            )
+          )
+          shinyjs::hide("startBulkImport")
+
+          return()
+        }
+      )
 
       importInfo <- data.frame()
       importData <- list()
@@ -1076,80 +1210,86 @@ server <- function(input, output, session) {
             incProgress(
               1 / n,
               "Verify author:",
-              detail = sprintf("%s, %s (%i/%i)", data$lastName[i], data$firstName[i], i, n)
+              detail = sprintf(
+                "%s, %s (%i/%i)",
+                data$lastName[i],
+                data$firstName[i],
+                i,
+                n
+              )
             )
 
             status <- "ready to import author articles"
 
             # Get info from Pubmed
-            author <- ncbi_author(data$lastName[i], data$firstName[i], showWarnings = F) |> filter(group == 1) |> slice(1)
+            author <- ncbi_author(
+              data$lastName[i],
+              data$firstName[i],
+              showWarnings = F
+            ) |>
+              filter(group == 1) |>
+              slice(1)
 
-        # If no author found
-        if (length(author$lastName) == 0) {
-          status <- "No articles found on PudMed"
-          df <- data.frame(
-            lastName = data$lastName[i],
-            firstName = data$firstName[i],
-            affiliation = data$affiliation[i],
-            nArticles = 0,
-            status = status
-          )
-          importInfo <- bind_rows(importInfo, df)
-          next()
-        }
+            # If no author found
+            if (length(author$lastName) == 0) {
+              status <- "No articles found on PudMed"
+              df <- data.frame(
+                lastName = data$lastName[i],
+                firstName = data$firstName[i],
+                affiliation = data$affiliation[i],
+                nArticles = 0,
+                status = status
+              )
+              importInfo <- bind_rows(importInfo, df)
+              next()
+            }
 
-        # Look for articles in Pubmed
-        search <- ncbi_authorArticleList(
-          data$lastName[i],
-          data$firstName[i],
-          PMIDonly = T,
-          returnHistory = T
-        )
-
-        if (!search$success) {
-          status <- "> 1000 matches. Will be skipped"
-        } else if (search$n == 0) {
-          status <- "No articles found on PudMed"
-        } else {
-          importData <- importData |> append(list(
-            list(
-              author = author,
-              PMIDs = search$PMID,
-              affiliation = data$affiliation[i]
+            # Look for articles in Pubmed
+            search <- ncbi_authorArticleList(
+              data$lastName[i],
+              data$firstName[i],
+              PMIDonly = T,
+              returnHistory = T
             )
-          ))
+
+            if (!search$success) {
+              status <- "> 1000 matches. Will be skipped"
+            } else if (search$n == 0) {
+              status <- "No articles found on PudMed"
+            } else {
+              importData <- importData |>
+                append(list(
+                  list(
+                    author = author,
+                    PMIDs = search$PMID,
+                    affiliation = data$affiliation[i]
+                  )
+                ))
+            }
+
+            df <- data.frame(
+              lastName = data$lastName[i],
+              firstName = data$firstName[i],
+              affiliation = data$affiliation[i],
+              nPubMed = search$n,
+              status = status
+            )
+
+            importInfo <- bind_rows(importInfo, df)
+
+            history <- history |> append(list(search$history))
+          }
+
+          shinyjs::show("startBulkImport")
         }
+      )
 
-        df <- data.frame(
-          lastName = data$lastName[i],
-          firstName = data$firstName[i],
-          affiliation = data$affiliation[i],
-          nPubMed = search$n,
-          status = status
-        )
-
-        importInfo <- bind_rows(importInfo, df)
-
-        history <- history |> append(list(search$history))
-
-      }
-
-      shinyjs::show("startBulkImport")
-
-    })
-
-
-
-    list(importInfo = importInfo,
-         importData = importData,
-         history = history)
-
-  })
+      list(importInfo = importInfo, importData = importData, history = history)
+    }
+  )
 
   observeEvent(input$startBulkImport, {
     shinyjs::hide("startBulkImport")
-
-
   })
 
   emptyImport <- data.frame(
@@ -1160,9 +1300,13 @@ server <- function(input, output, session) {
     status = character()
   )
 
-  output$bulkImportTable <- renderDT({
-    emptyImport
-  }, escape = F, rownames = F)
+  output$bulkImportTable <- renderDT(
+    {
+      emptyImport
+    },
+    escape = F,
+    rownames = F
+  )
 
   bulkImportTable_proxy <- dataTableProxy("bulkImportTable")
 
@@ -1174,9 +1318,7 @@ server <- function(input, output, session) {
       return()
     }
 
-    replaceData(bulkImportTable_proxy,
-                bulkImport()$importInfo,
-                rownames = F)
+    replaceData(bulkImportTable_proxy, bulkImport()$importInfo, rownames = F)
   })
 
   observeEvent(input$startBulkImport, {
@@ -1206,38 +1348,48 @@ server <- function(input, output, session) {
           firstName = data$author$firstName,
           initials = data$author$initials,
           history = bulkImport()$history[[i]]
-        ) |> filter_affiliation(data$affiliation)
+        ) |>
+          filter_affiliation(data$affiliation)
 
-        new <- dbAddAuthorPublications(new, dbInfo = localCheckout(pool), flagUpdate = F)
+        new <- dbAddAuthorPublications(
+          new,
+          dbInfo = localCheckout(pool),
+          flagUpdate = F
+        )
 
-        nImported <- bind_rows(nImported,
-                               data.frame(
-                                 afterFilter = nrow(new),
-                                 new = sum(new$status == "new"),
-                                 existing = sum(new$status == "existing")
-                               ))
-
+        nImported <- bind_rows(
+          nImported,
+          data.frame(
+            afterFilter = nrow(new),
+            new = sum(new$status == "new"),
+            existing = sum(new$status == "existing")
+          )
+        )
       }
-
     })
-
-
 
     dbFlagUpdate(1, dbInfo = localCheckout(pool))
 
     nImported <- nImported |>
       mutate(
         status = case_when(
-          afterFilter == 0 ~ "WARNING - No articles found after affiliation filtering",
-          afterFilter == existing ~ "IGNORED - All articles for this author were already in the database",
-          TRUE ~ sprintf(
-            "IMPORTED - %i matched affiliation, %i existing, %i new",
-            afterFilter,
-            existing,
-            new
-          )
+          afterFilter == 0 ~
+            "WARNING - No articles found after affiliation filtering",
+          afterFilter == existing ~
+            "IGNORED - All articles for this author were already in the database",
+          TRUE ~
+            sprintf(
+              "IMPORTED - %i matched affiliation, %i existing, %i new",
+              afterFilter,
+              existing,
+              new
+            )
         ),
-        statusCode = case_when(afterFilter == 0 ~ 0, afterFilter == existing ~ 1, TRUE ~ 2)
+        statusCode = case_when(
+          afterFilter == 0 ~ 0,
+          afterFilter == existing ~ 1,
+          TRUE ~ 2
+        )
       )
     importInfo <- bulkImport()$importInfo
     importInfo$status = nImported$status
@@ -1245,14 +1397,14 @@ server <- function(input, output, session) {
 
     replaceData(
       bulkImportTable_proxy,
-      importInfo |> arrange(statusCode, lastName, firstName) |> select(-statusCode),
+      importInfo |>
+        arrange(statusCode, lastName, firstName) |>
+        select(-statusCode),
       rownames = F
     )
 
     shinyjs::show("startBulkImport")
-
   })
-
 }
 
 shinyApp(ui, server)
