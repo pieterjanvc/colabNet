@@ -198,7 +198,11 @@ ui <- fluidPage(
         ),
         value = "exploration"
       ),
-      tabPanel("Analysis", fluidRow()),
+      tabPanel(
+        "Analysis",
+        visNetworkOutput("netAnalisisPlot", height = "60vh"),
+        uiOutput("summaryStats")
+      ),
       tabPanel(
         "Admin",
         wellPanel(
@@ -399,14 +403,18 @@ server <- function(input, output, session) {
       mutate(id = cur_group_id()) |>
       ungroup()
 
-    nodes <- nodes |> filter(id %in% c(edges$from, edges$to))
-
     list(nodes = nodes, edges = edges)
   })
 
   # co-publication network
   output$networkPlot <- renderVisNetwork({
     req(nrow(coPub()$nodes) > 0)
+
+    # test <<- coPub()
+
+    # Ignore authors who are not connected to anyone here
+    nodes <- coPub()$nodes |>
+      filter(id %in% c(coPub()$edges$from, coPub()$edges$to))
 
     edges <- coPub()$edges |>
       group_by(id, from, to) |>
@@ -420,7 +428,7 @@ server <- function(input, output, session) {
       )
 
     # Create a simple visNetwork graph
-    visNetwork(coPub()$nodes, edges) |>
+    visNetwork(nodes, edges) |>
       visNodes(
         size = 20,
         color = list(background = "lightblue", border = "blue"),
@@ -681,8 +689,126 @@ server <- function(input, output, session) {
     ignoreNULL = F
   )
 
+  # ---- ANALYSIS TAB ----
+  # //////////////////////
+
+  networkanalysis <- reactive({
+    nodes <- coPub()$nodes
+    edges <- coPub()$edges |>
+      group_by(from, to) |>
+      summarise(weight = n(), .groups = "drop")
+
+    g <- graph_from_data_frame(
+      d = edges,
+      vertices = nodes,
+      directed = F
+    )
+
+    # How many others have you published with
+    deg <- degree(g)
+
+    # Check how many sub-graphs there are and who belongs to which
+    comp <- components(g)
+
+    # Check how many are not connected to anyone
+    unconnected <- sum(comp$csize == 1)
+
+    # Distance matrix between authors
+    dis <- distances(g, algorithm = "unweighted")
+
+    # How close is the graph to be being fully connected
+    #  i.e. every author shares at least one publication with every other
+    dens <- edge_density(g)
+
+    # Probability that adjecent nodes (authors are connected)
+    # https://transportgeography.org/contents/methods/graph-theory-measures-indices/transitivity-graph/
+    trans <- transitivity(g)
+
+    return(list(
+      nodes = nodes,
+      edges = edges,
+      degree = deg,
+      components = comp,
+      unconnected = unconnected,
+      distances = dis,
+      density = dens,
+      transitivity = trans
+    ))
+  })
+
+  output$netAnalisisPlot <- renderVisNetwork({
+    req(nrow(coPub()$nodes) > 0)
+
+    # Ignore authors who are not connected to anyone here
+    nodes <- coPub()$nodes |>
+      filter(id %in% c(coPub()$edges$from, coPub()$edges$to))
+
+    edges <- coPub()$edges |>
+      group_by(id, from, to) |>
+      summarise(width = n(), label = as.character(n()), .groups = "drop") |>
+      mutate(
+        color = case_when(
+          width == 1 ~ "#ffcc33",
+          width == 2 ~ "#ee6600",
+          width > 2 ~ "#990000",
+        )
+      )
+
+    # Create a simple visNetwork graph
+    visNetwork(nodes, edges) |>
+      visNodes(
+        size = 20,
+        color = list(background = "lightblue", border = "blue"),
+        font = list(background = rgb(1, 1, 1, 0.8))
+      ) |>
+      visEdges(smooth = T) |>
+      visPhysics(
+        barnesHut = list(
+          # gravitationalConstant = -2000,  # Optional: adjust gravity
+          # centralGravity = 0.3,           # Optional: adjust central gravity
+          springLength = 200,
+          # Optional: adjust spring length
+          # springConstant = 0.01,          # Optional: adjust spring constant
+          # damping = 0.4,                  # Optional: adjust damping
+          repulsion = 1000 # Increased repulsion value
+        )
+      )
+  })
+
+  output$summaryStats <- renderUI({
+    x <- networkanalysis()
+    #  average distance, ignoring unconnected
+    dis_avg <- x$dis[upper.tri(x$dis)]
+    dis_avg <- dis_avg[!is.infinite(dis_avg)] |> mean()
+
+    tagList(
+      h3("Network Summary Stats"),
+      tags$ul(
+        tags$li(sprintf(
+          "Maximum number of co-publications: %i",
+          max(x$edges$weight)
+        )),
+        tags$li(
+          sprintf(
+            "Number of authors without any co-publications (not shown in graph): %i",
+            sum(x$comp$csize == 1)
+          )
+        ),
+        tags$li(sprintf("Average distance between authors: %.2f", dis_avg)),
+        tags$li(sprintf(
+          "How close to perfect collaboration (everyone collaborates with everyone else): %.1f%%",
+          x$density * 100
+        )),
+        tags$li(sprintf(
+          "Probability that authors who share a collborator also collaborated together: %.1f%%",
+          x$transitivity * 100
+        ))
+      )
+    )
+  })
+
   # ---- ADMIN TAB ----
-  # /////////////////////////
+  # ///////////////////
 
   # ---- Existing authors ----
   authorList <- reactiveVal({

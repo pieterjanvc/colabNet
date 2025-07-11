@@ -127,8 +127,7 @@ elementMsg <- function(
 #'
 #' @export
 filter_affiliation <- function(publicationDetails, regex, includeMissing = F) {
-
-  if(is.na(regex) || str_trim(regex) == ""){
+  if (is.na(regex) || str_trim(regex) == "") {
     return(publicationDetails)
   }
 
@@ -275,6 +274,7 @@ profvisRender <- function(expr, folder = "local") {
 #' @importFrom shinyjs useShinyjs enable disable
 #' @importFrom RSQLite SQLite
 #' @importFrom DT DTOutput renderDT datatable dataTableProxy replaceData
+#' @importFrom igraph graph_from_data_frame E degree components distances edge_density transitivity
 #'
 #' @return Start the Shiny app
 #'
