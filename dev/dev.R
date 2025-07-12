@@ -50,3 +50,13 @@ edge_density(g)
 # Probability that adjacent nodes (authors are connected)
 # https://transportgeography.org/contents/methods/graph-theory-measures-indices/transitivity-graph/
 transitivity(g)
+
+
+test |>
+  group_by(id = auID) |>
+  summarise(
+    label = sprintf("%s %s", lastName[1], firstName[1]),
+    year = min(year),
+    month = min(month),
+    .groups = "drop"
+  )

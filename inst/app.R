@@ -84,7 +84,8 @@ preCompData <- reactivePoll(
           PMID,
           PMID
         ),
-        name = paste(lastName, firstName, sep = ", ")
+        name = paste(lastName, firstName, sep = ", "),
+        month = as.integer(month)
       )
 
     papermesh <- dbPaperMesh(authors$auID)
@@ -201,6 +202,15 @@ ui <- fluidPage(
       tabPanel(
         "Analysis",
         visNetworkOutput("netAnalisisPlot", height = "60vh"),
+        sliderInput(
+          "analysisRange",
+          "Analysis Range",
+          min = 0,
+          max = 1,
+          value = c(0, 1),
+          step = 1,
+          sep = ""
+        ),
         uiOutput("summaryStats")
       ),
       tabPanel(
@@ -318,6 +328,18 @@ server <- function(input, output, session) {
       choices = setNames(roots$treenum, roots$meshterm),
       selected = NULL
     )
+
+    # Set analysis year range slider
+    updateSliderInput(
+      session,
+      "analysisRange",
+      min = min(preCompData()$allArticles$year),
+      max = max(preCompData()$allArticles$year),
+      value = c(
+        min(preCompData()$allArticles$year),
+        max(preCompData()$allArticles$year)
+      )
+    )
   })
 
   # ---- EXPLORATION TAB ----
@@ -391,8 +413,11 @@ server <- function(input, output, session) {
   # Nodes and Edges for the co-publication network
   coPub <- reactive({
     nodes <- preCompData()$allArticles |>
-      transmute(id = auID, label = sprintf("%s %s", lastName, firstName)) |>
-      distinct()
+      group_by(id = auID) |>
+      summarise(
+        label = sprintf("%s %s", lastName[1], firstName[1]),
+        .groups = "drop"
+      )
 
     edges <- preCompData()$allArticles |>
       group_by(arID) |>
@@ -409,8 +434,6 @@ server <- function(input, output, session) {
   # co-publication network
   output$networkPlot <- renderVisNetwork({
     req(nrow(coPub()$nodes) > 0)
-
-    # test <<- coPub()
 
     # Ignore authors who are not connected to anyone here
     nodes <- coPub()$nodes |>
@@ -693,10 +716,38 @@ server <- function(input, output, session) {
   # //////////////////////
 
   networkanalysis <- reactive({
-    nodes <- coPub()$nodes
-    edges <- coPub()$edges |>
-      group_by(from, to) |>
-      summarise(weight = n(), .groups = "drop")
+    range <- input$analysisRange
+    req(range[1] > 0) # Ignore the init stage
+    rangeData <- preCompData()$allArticles |>
+      filter(between(year, range[1], range[2]))
+
+    nodes <- rangeData |>
+      group_by(id = auID) |>
+      summarise(
+        label = sprintf("%s %s", lastName[1], firstName[1]),
+        year = min(year),
+        month = min(month),
+        .groups = "drop"
+      )
+
+    edges <- rangeData |>
+      group_by(arID, year, month) |>
+      filter(n() > 1)
+
+    if (nrow(edges) == 0) {
+      edges <- data.frame(
+        id = integer(),
+        from = integer(),
+        to = integer(),
+        weight = integer()
+      )
+    } else {
+      edges <- edges |>
+        reframe(as.data.frame(combn(auID, 2) |> t())) |>
+        rename(from = V1, to = V2) |>
+        group_by(from, to) |>
+        summarise(id = cur_group_id(), weight = n(), .groups = "drop")
+    }
 
     g <- graph_from_data_frame(
       d = edges,
@@ -714,7 +765,7 @@ server <- function(input, output, session) {
     unconnected <- sum(comp$csize == 1)
 
     # Distance matrix between authors
-    dis <- distances(g, algorithm = "unweighted")
+    dis <- distances(g, algorithm = "unweighted", weights = NA)
 
     # How close is the graph to be being fully connected
     #  i.e. every author shares at least one publication with every other
@@ -723,6 +774,7 @@ server <- function(input, output, session) {
     # Probability that adjecent nodes (authors are connected)
     # https://transportgeography.org/contents/methods/graph-theory-measures-indices/transitivity-graph/
     trans <- transitivity(g)
+    trans <- ifelse(is.nan(trans), 0, trans)
 
     return(list(
       nodes = nodes,
@@ -737,16 +789,10 @@ server <- function(input, output, session) {
   })
 
   output$netAnalisisPlot <- renderVisNetwork({
-    req(nrow(coPub()$nodes) > 0)
-
-    # Ignore authors who are not connected to anyone here
-    nodes <- coPub()$nodes |>
-      filter(id %in% c(coPub()$edges$from, coPub()$edges$to))
-
-    edges <- coPub()$edges |>
-      group_by(id, from, to) |>
-      summarise(width = n(), label = as.character(n()), .groups = "drop") |>
+    edges <- networkanalysis()$edges |>
       mutate(
+        width = weight,
+        label = as.character(weight),
         color = case_when(
           width == 1 ~ "#ffcc33",
           width == 2 ~ "#ee6600",
@@ -755,7 +801,7 @@ server <- function(input, output, session) {
       )
 
     # Create a simple visNetwork graph
-    visNetwork(nodes, edges) |>
+    visNetwork(networkanalysis()$nodes, edges) |>
       visNodes(
         size = 20,
         color = list(background = "lightblue", border = "blue"),
@@ -779,28 +825,38 @@ server <- function(input, output, session) {
     x <- networkanalysis()
     #  average distance, ignoring unconnected
     dis_avg <- x$dis[upper.tri(x$dis)]
-    dis_avg <- dis_avg[!is.infinite(dis_avg)] |> mean()
+    dis_avg <- dis_avg[!is.infinite(dis_avg)]
+    dis_avg <- ifelse(length(dis_avg) == 0, 0, mean(dis_avg))
+    nCopub <- c(x$edges$weight, rep(0, sum(x$comp$csize == 1)))
 
     tagList(
       h3("Network Summary Stats"),
       tags$ul(
         tags$li(sprintf(
+          "Average number of co-publications: %.2f (\u00B1 %.2f)",
+          mean(nCopub),
+          sd(nCopub)
+        )),
+        tags$li(sprintf(
           "Maximum number of co-publications: %i",
-          max(x$edges$weight)
+          max(x$edges$weight, 0)
         )),
         tags$li(
           sprintf(
-            "Number of authors without any co-publications (not shown in graph): %i",
+            "Number of authors without any co-publications: %i",
             sum(x$comp$csize == 1)
           )
         ),
-        tags$li(sprintf("Average distance between authors: %.2f", dis_avg)),
+        tags$li(sprintf(
+          "Average distance between co-publishing authors: %.1f",
+          dis_avg
+        )),
         tags$li(sprintf(
           "How close to perfect collaboration (everyone collaborates with everyone else): %.1f%%",
           x$density * 100
         )),
         tags$li(sprintf(
-          "Probability that authors who share a collborator also collaborated together: %.1f%%",
+          "Probability that authors who share a collborator also collaborated together (transitivity): %.1f%%",
           x$transitivity * 100
         ))
       )
