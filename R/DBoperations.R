@@ -487,39 +487,40 @@ dbAddMesh <- function(values, type, dbInfo) {
 #' @return Bool to indicate success
 #' @export
 #'
-dbFlagUpdate <- function(action, dbInfo){
+dbFlagUpdate <- function(action, dbInfo) {
+  tryCatch(
+    {
+      action <- as.integer(action)
 
-  tryCatch({
-
-    action <- as.integer(action)
-
-    if(!action %in% 1:3){
-      stop("The action value must be an integer between 0 - 2")
-    }
-
-    conn <- dbGetConn(dbInfo)
-
-    if (sqliteIsTransacting(conn)) {
-      endTransaction <- F
-    } else {
-      dbBegin(conn)
-      endTransaction <- T
-    }
-
-    q <- dbExecute(
-      conn,
-      sprintf("INSERT INTO updateData (\"timestamp\", \"action\") VALUES (datetime('now', 'localtime'), %i)",
-              action)
-    )
-
-    if (endTransaction) {
-      dbCommit(conn)
-      if (!attr(conn, "existing")) {
-        dbDisconnect(conn)
+      if (!action %in% 1:3) {
+        stop("The action value must be an integer between 0 - 2")
       }
-    }
 
-    }, error = function(e) {
+      conn <- dbGetConn(dbInfo)
+
+      if (sqliteIsTransacting(conn)) {
+        endTransaction <- F
+      } else {
+        dbBegin(conn)
+        endTransaction <- T
+      }
+
+      q <- dbExecute(
+        conn,
+        sprintf(
+          "INSERT INTO updateData (\"timestamp\", \"action\") VALUES (datetime('now', 'localtime'), %i)",
+          action
+        )
+      )
+
+      if (endTransaction) {
+        dbCommit(conn)
+        if (!attr(conn, "existing")) {
+          dbDisconnect(conn)
+        }
+      }
+    },
+    error = function(e) {
       # If an error occurs, rollback the current transaction
       dbRollback(conn)
       if (!attr(conn, "existing")) {
@@ -528,12 +529,11 @@ dbFlagUpdate <- function(action, dbInfo){
       stop(e)
     }
   )
-
 }
 
 #' Add authors to the database
 #'
-#' @param authorPublications List of data frames geneated by ncbi_authorPublications()
+#' @param authorPublications List of data frames geneated by ncbi_publicationDetails()
 #' @param flagUpdate Default= T, set an update flag in the DB so the app will refresh once completed
 #' @param dbInfo (optional if dbSetup() has been run)
 #'  Path to the ColabNet database or existing connection
@@ -552,9 +552,12 @@ dbAddAuthorPublications <- function(
 ) {
   tryCatch(
     {
-
-      if(nrow(authorPublications$articles) == 0){
-        return(data.frame(arID = integer(), PMID = integer(), status = character()))
+      if (nrow(authorPublications$articles) == 0) {
+        return(data.frame(
+          arID = integer(),
+          PMID = integer(),
+          status = character()
+        ))
       }
 
       conn <- dbGetConn(dbInfo)
@@ -649,7 +652,7 @@ dbAddAuthorPublications <- function(
           }
         }
 
-        return(arInfo %>% mutate(auID = {{auID}}))
+        return(arInfo %>% mutate(auID = {{ auID }}))
       }
 
       # Only continue with new article data from authorPublications
@@ -803,7 +806,7 @@ dbAddAuthorPublications <- function(
         )
       }
 
-      if(flagUpdate){
+      if (flagUpdate) {
         dbFlagUpdate(1, dbInfo = conn)
       }
 
@@ -814,7 +817,7 @@ dbAddAuthorPublications <- function(
         }
       }
 
-      return(arInfo %>% mutate(auID = {{auID}}))
+      return(arInfo %>% mutate(auID = {{ auID }}))
     },
     error = function(e) {
       # If an error occurs, rollback the current transaction

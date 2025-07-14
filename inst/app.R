@@ -612,8 +612,6 @@ server <- function(input, output, session) {
         DT::selectRows(overlapscoreTable_proxy, 1)
       }
 
-      print("UPDATED COMP TABLE")
-
       overlapData(overlap$score)
     },
     ignoreNULL = FALSE
@@ -632,14 +630,11 @@ server <- function(input, output, session) {
       DT::selectRows(overlapscoreTable_proxy, 1)
     }
 
-    print("UPDATED COMP TABLE rem")
-
     overlapData(overlap$score)
   })
 
   #  When a new author combination is chosen from the table
   treemapcomp <- eventReactive(input$overlapscoreTable_rows_selected, {
-    print("UPDATED PLOT")
     # Get the author IDs
     auIDs <- overlapData()[input$overlapscoreTable_rows_selected, ] |>
       select(au1, au2) |>

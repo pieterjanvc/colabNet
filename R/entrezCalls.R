@@ -41,7 +41,7 @@ ncbi_author <- function(
       lastName = character(0),
       firstName = character(0),
       initials = character(0),
-      group = integer(0)
+      default = logical(0)
     ))
   }
 
@@ -760,13 +760,14 @@ extractAuthors <- function(authorList, PMIDs, lastName, firstName) {
     ungroup() |>
     select(-simple, -n, -simpleColl)
 
-  print(lastName)
+  ln <- simpleText(lastName)
+  fn <- simpleText(firstName)
+
   author <- authors |>
     select(tempId, lastName, firstName, initials, default) |>
     filter(
-      simpleText(lastName) == simpleText({{ lastName }}),
-      simpleText(firstName) == simpleText({{ firstName }}) |
-        simpleText(initials) == simpleText({{ firstName }})
+      simpleText(lastName) == {{ ln }},
+      (simpleText(firstName) == {{ fn }}) | (simpleText(initials) == {{ fn }})
     ) |>
     distinct()
 
