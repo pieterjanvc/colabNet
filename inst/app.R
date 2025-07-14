@@ -1101,8 +1101,7 @@ server <- function(input, output, session) {
         input$firstName,
         showWarnings = F
       ) |>
-        filter(group == 1) |>
-        slice(1)
+        filter(default)
 
       # If no author found
       if (length(author$lastName) == 0) {
@@ -1409,8 +1408,7 @@ server <- function(input, output, session) {
               data$firstName[i],
               showWarnings = F
             ) |>
-              filter(group == 1) |>
-              slice(1)
+              filter(default)
 
             # If no author found
             if (length(author$lastName) == 0) {
