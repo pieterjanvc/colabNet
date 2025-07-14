@@ -31,7 +31,7 @@ nodeSum <- function(node, parent, value) {
       "Tree must have exactly one root. Found: ",
       paste(root, collapse = ", ")
     )
-  } else if(length(root) == 0){
+  } else if (length(root) == 0) {
     root = "0"
   }
 
@@ -46,7 +46,9 @@ nodeSum <- function(node, parent, value) {
   # Recursive DFS
   dfs <- function(node) {
     node_value <- node_values_raw[[node]]
-    if (is.null(node_value)) node_value <- 0
+    if (is.null(node_value)) {
+      node_value <- 0
+    }
 
     total <- node_value
 
@@ -180,8 +182,7 @@ treemapColour <- function(
 #'  - authors: Data frame with default author name and ID
 #'
 #' @export
-treemapFromAuIDs <- function(auIDs, roots, dbInfo){
-
+treemapFromAuIDs <- function(auIDs, roots, dbInfo) {
   conn <- dbGetConn(dbInfo)
 
   papermesh <- dbPaperMesh(auIDs, roots = roots)
@@ -219,8 +220,7 @@ treemapFromAuIDs <- function(auIDs, roots, dbInfo){
 #' @return Dataframe to build TreeMap
 #'
 #' @export
-treeMapComparison <- function(au1, au2, roots, dbInfo){
-
+treeMapComparison <- function(au1, au2, roots, dbInfo) {
   # Get the treemap based on the tho authors only
   treemapdata <- treemapFromAuIDs(c(au1, au2), roots = roots, dbInfo)
 
@@ -233,46 +233,60 @@ treeMapComparison <- function(au1, au2, roots, dbInfo){
       colourCode = case_when(
         is.na(authors) ~ 1,
         authors == treemapdata$authors$name[1] ~ 2,
-        authors == treemapdata$authors$name[2] ~3,
+        authors == treemapdata$authors$name[2] ~ 3,
         authors == paste(sort(treemapdata$authors$name), collapse = "\n") ~ 4,
         TRUE ~ 1
-      ))
+      )
+    )
 
   # test <- plotData
   # plotData <- test
 
   # Work up the tree to see which branches are shared
-  toUpdate <- plotData |> filter(!hasChildren) |>
+  toUpdate <- plotData |>
+    filter(!hasChildren) |>
     select(branchID = parentBranchID, childCol = colourCode) |>
     group_by(branchID) |>
-    mutate(childCol = case_when(
-      all(2:3 %in% childCol) ~ 4,
-      TRUE ~ max(childCol)
-    )) |>
-    summarise(
-      childCol = childCol[1], .groups = "drop"
+    mutate(
+      childCol = case_when(
+        all(2:3 %in% childCol) ~ 4,
+        TRUE ~ max(childCol)
+      )
     ) |>
-    ungroup() |> distinct()
+    summarise(
+      childCol = childCol[1],
+      .groups = "drop"
+    ) |>
+    ungroup() |>
+    distinct()
 
-  while(nrow(toUpdate) > 0){
-    plotData <- plotData |> left_join(toUpdate, by = "branchID") |>
-      mutate(colourCode = case_when(
-        is.na(childCol) ~ colourCode,
-        childCol > colourCode ~ childCol,
-        TRUE ~ colourCode
-      ))
+  while (nrow(toUpdate) > 0) {
+    plotData <- plotData |>
+      left_join(toUpdate, by = "branchID") |>
+      mutate(
+        colourCode = case_when(
+          is.na(childCol) ~ colourCode,
+          childCol > colourCode ~ childCol,
+          TRUE ~ colourCode
+        )
+      )
 
-    toUpdate <- plotData |> filter(!is.na(childCol)) |>
+    toUpdate <- plotData |>
+      filter(!is.na(childCol)) |>
       select(branchID = parentBranchID, childCol = colourCode) |>
       group_by(branchID) |>
-      mutate(childCol = case_when(
-        all(2:3 %in% childCol) ~ 4,
-        TRUE ~ max(childCol, 1)
-      )) |>
-      summarise(
-        childCol = childCol[1], .groups = "drop"
+      mutate(
+        childCol = case_when(
+          all(2:3 %in% childCol) ~ 4,
+          TRUE ~ max(childCol, 1)
+        )
       ) |>
-      ungroup() |> distinct()
+      summarise(
+        childCol = childCol[1],
+        .groups = "drop"
+      ) |>
+      ungroup() |>
+      distinct()
 
     plotData <- plotData |> select(-childCol)
   }
@@ -283,8 +297,11 @@ treeMapComparison <- function(au1, au2, roots, dbInfo){
   plotData |>
     group_by(colourCode) |>
     mutate(
-      colour = treemapColour(meshSum,
-                             minCol = lightenColour(colSel[colourCode[1]], 0.9),
-                             maxCol = colSel[colourCode[1]])
-    ) |>  ungroup()
+      colour = treemapColour(
+        meshSum,
+        minCol = lightenColour(colSel[colourCode[1]], 0.9),
+        maxCol = colSel[colourCode[1]]
+      )
+    ) |>
+    ungroup()
 }

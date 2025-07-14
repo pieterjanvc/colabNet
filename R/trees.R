@@ -174,14 +174,14 @@ dbTreeFromMesh <- function(uids, roots, dbInfo) {
     filter(uid %in% local(unique(uids)))
 
   # Filter if roots are provided
-  if(!missing(roots)){
+  if (!missing(roots)) {
     roots <- toupper(roots)
 
-    if(any(str_length(roots) > 1)){
+    if (any(str_length(roots) > 1)) {
       stop("Tree root categories are a single letter")
     }
 
-    treenums <- treenums|>
+    treenums <- treenums |>
       filter(sql(sprintf("treenum GLOB '[%s]*'", paste(roots, collapse = ""))))
   }
 
@@ -227,16 +227,19 @@ dbPaperMesh <- function(auIDs, roots, dbInfo) {
     )
 
   # Filter the tree by only considering selected categories (roots)
-  if(!missing(roots)){
+  if (!missing(roots)) {
     roots <- toupper(roots)
 
-    if(any(str_length(roots) > 1)){
+    if (any(str_length(roots) > 1)) {
       stop("Tree root categories are a single letter")
     }
 
-    papermesh <- papermesh |> left_join(
-      tbl(conn, "meshTree"), by = "uid"
-    ) |> filter(sql(sprintf("treenum GLOB '[%s]*'", paste(roots, collapse = ""))))
+    papermesh <- papermesh |>
+      left_join(
+        tbl(conn, "meshTree"),
+        by = "uid"
+      ) |>
+      filter(sql(sprintf("treenum GLOB '[%s]*'", paste(roots, collapse = ""))))
   }
 
   papermesh |> collect()
@@ -303,7 +306,7 @@ dbMeshTree <- function(papermesh, roots, dbInfo) {
     parent = tree$parent
   )
 
-  if(!missing(roots) && length(roots) == 1){
+  if (!missing(roots) && length(roots) == 1) {
     branchIDs[[1]][2] <- names(branchIDs[[1]][2])
   }
 
