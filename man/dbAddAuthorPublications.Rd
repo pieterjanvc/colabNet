@@ -12,7 +12,7 @@ dbAddAuthorPublications(
 )
 }
 \arguments{
-\item{authorPublications}{List of data frames geneated by ncbi_authorPublications()}
+\item{authorPublications}{List of data frames geneated by ncbi_publicationDetails()}
 
 \item{flagUpdate}{Default= T, set an update flag in the DB so the app will refresh once completed}
 

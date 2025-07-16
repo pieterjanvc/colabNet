@@ -4,11 +4,11 @@
 
 if (!exists("colabNetDB")) {
   print("DEV TEST")
-  file.copy("../data/PGG_dev.db", "../local/dev.db", overwrite = T)
-  colabNetDB <- "../local/dev.db"
+  # file.copy("../data/PGG_dev.db", "../local/dev.db", overwrite = T)
+  # colabNetDB <- "../local/dev.db"
 
-  # colabNetDB <- "D:/Desktop/dev.db"
-  # file.remove(colabNetDB)
+  colabNetDB <- "D:/Desktop/dev.db"
+  file.remove(colabNetDB)
 }
 
 # Setup for functions in the package
@@ -412,6 +412,8 @@ server <- function(input, output, session) {
 
   # Nodes and Edges for the co-publication network
   coPub <- reactive({
+    req(nrow(preCompData()$allArticles) > 0)
+
     nodes <- preCompData()$allArticles |>
       group_by(id = auID) |>
       summarise(
@@ -421,12 +423,25 @@ server <- function(input, output, session) {
 
     edges <- preCompData()$allArticles |>
       group_by(arID) |>
-      filter(n() > 1) |>
-      reframe(as.data.frame(combn(auID, 2) |> t())) |>
-      rename(from = V1, to = V2) |>
-      group_by(from, to) |>
-      mutate(id = cur_group_id()) |>
-      ungroup()
+      filter(n() > 1)
+
+    if (nrow(edges) == 0) {
+      edges <- data.frame(
+        arID = integer(),
+        id = integer(),
+        from = integer(),
+        to = integer()
+      )
+    } else {
+      edges <- preCompData()$allArticles |>
+        group_by(arID) |>
+        filter(n() > 1) |>
+        reframe(as.data.frame(combn(auID, 2) |> t())) |>
+        rename(from = V1, to = V2) |>
+        group_by(from, to) |>
+        mutate(id = cur_group_id()) |>
+        ungroup()
+    }
 
     list(nodes = nodes, edges = edges)
   })
@@ -599,6 +614,8 @@ server <- function(input, output, session) {
   observeEvent(
     input$applyFilterCat,
     {
+      req(nrow(preCompData()$overlapscore) > 0)
+
       overlap <- calcOverlap(preCompData()$overlapscore, input$overlapCat)
 
       req(
@@ -635,6 +652,7 @@ server <- function(input, output, session) {
 
   #  When a new author combination is chosen from the table
   treemapcomp <- eventReactive(input$overlapscoreTable_rows_selected, {
+    req(nrow(overlapData()) > 0)
     # Get the author IDs
     auIDs <- overlapData()[input$overlapscoreTable_rows_selected, ] |>
       select(au1, au2) |>
@@ -696,6 +714,8 @@ server <- function(input, output, session) {
   observeEvent(
     event_data("plotly_click", "treemap_overlap"),
     {
+      req(nrow(overlapData()) > 0)
+
       auIDs <- overlapData()[input$overlapscoreTable_rows_selected, ] |>
         select(au1, au2) |>
         unlist()

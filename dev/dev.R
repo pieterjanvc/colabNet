@@ -52,11 +52,20 @@ edge_density(g)
 transitivity(g)
 
 
-test |>
-  group_by(id = auID) |>
-  summarise(
-    label = sprintf("%s %s", lastName[1], firstName[1]),
-    year = min(year),
-    month = min(month),
-    .groups = "drop"
-  )
+plotData |>
+  group_by(colourCode) |>
+  mutate(
+    colour = treemapColour(
+      meshSum,
+      minCol = lightenColour(colSel[colourCode[1]], 0.9),
+      maxCol = colSel[colourCode[1]]
+    )
+  ) |>
+  ungroup()
+
+test <- plotData |> filter(colourCode == 2)
+treemapColour(
+  test$meshSum,
+  minCol = lightenColour(colSel[test$colourCode[1]], 0.9),
+  maxCol = colSel[test$colourCode[1]]
+)

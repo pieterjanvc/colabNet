@@ -262,6 +262,24 @@ dbPaperMesh <- function(auIDs, roots, dbInfo) {
 #'
 #' @export
 dbMeshTree <- function(papermesh, roots, dbInfo) {
+  # Check if papermesh is empty
+  if (nrow(papermesh) == 0) {
+    return(data.frame(
+      mtrID = integer(),
+      parent = integer(),
+      treenum = character(),
+      branchID = integer(),
+      parentBranchID = integer(),
+      root = character(),
+      uid = integer(),
+      meshui = character(),
+      mteID = integer(),
+      meshterm = character(),
+      level = integer(),
+      treemapVal = numeric()
+    ))
+  }
+
   conn <- dbGetConn(dbInfo)
 
   # Build the basic MeSH tree

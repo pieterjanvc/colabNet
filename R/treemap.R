@@ -157,7 +157,13 @@ treemapColour <- function(
   }
 
   val2col <- colorRamp(c(minCol, maxCol))
-  vals_norm <- (vals - min(vals)) / (max(vals) - min(vals))
+
+  if (max(vals) - min(vals) == 0) {
+    vals_norm <- rep(0.5, length(vals))
+  } else {
+    vals_norm <- (vals - min(vals)) / (max(vals) - min(vals))
+  }
+
   rgb_matrix <- val2col(vals_norm)
   vals <- rgb(
     rgb_matrix[, 1],
@@ -292,7 +298,7 @@ treeMapComparison <- function(au1, au2, roots, dbInfo) {
   }
 
   # Get a colour for each treemap cell based on the author and MeSH term sum
-  colSel = c("#CCCCCC", "#3398DB", "#F1C40E", "#7aa64c")
+  colSel <- c("#CCCCCC", "#3398DB", "#F1C40E", "#7aa64c")
 
   plotData |>
     group_by(colourCode) |>
