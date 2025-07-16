@@ -7,7 +7,7 @@ if (!exists("colabNetDB")) {
   # file.copy("../data/PGG_dev.db", "../local/dev.db", overwrite = T)
   # colabNetDB <- "../local/dev.db"
 
-  colabNetDB <- "D:/Desktop/dev.db"
+  colabNetDB <- "C:/Users/pj/Desktop/dev.db"
   file.remove(colabNetDB)
 }
 
@@ -1427,12 +1427,12 @@ server <- function(input, output, session) {
 
             # If no author found
             if (length(author$lastName) == 0) {
-              status <- "No articles found on PudMed"
+              status <- "No articles found on PubMed"
               df <- data.frame(
                 lastName = data$lastName[i],
                 firstName = data$firstName[i],
                 affiliation = data$affiliation[i],
-                nArticles = 0,
+                nPubMed = 0,
                 status = status
               )
               importInfo <- bind_rows(importInfo, df)
@@ -1449,15 +1449,34 @@ server <- function(input, output, session) {
 
             if (!search$success) {
               status <- "> 1000 matches. Will be skipped"
+              importData <- importData |>
+                append(list(
+                  list(
+                    author = NULL,
+                    PMIDs = NULL,
+                    affiliation = NULL,
+                    statusCode = 1
+                  )
+                ))
             } else if (search$n == 0) {
               status <- "No articles found on PudMed"
+              importData <- importData |>
+                append(list(
+                  list(
+                    author = NULL,
+                    PMIDs = NULL,
+                    affiliation = NULL,
+                    statusCode = 2
+                  )
+                ))
             } else {
               importData <- importData |>
                 append(list(
                   list(
                     author = author,
                     PMIDs = search$PMID,
-                    affiliation = data$affiliation[i]
+                    affiliation = data$affiliation[i],
+                    statusCode = 0
                   )
                 ))
             }
@@ -1522,7 +1541,10 @@ server <- function(input, output, session) {
     withProgress(message = 'Gather author data from NCBI', value = 0, {
       n <- length(bulkImport()$importData)
 
-      for (i in 1:length(bulkImport()$history)) {
+      # test <<- bulkImport()
+      toImport <- which(sapply(bulkImport()$importData, "[[", c("statusCode")) == 0)
+
+      for (i in toImport) {
         data <- bulkImport()$importData[[i]]
 
         incProgress(
@@ -1587,8 +1609,10 @@ server <- function(input, output, session) {
         )
       )
     importInfo <- bulkImport()$importInfo
-    importInfo$status = nImported$status
-    importInfo$statusCode = nImported$statusCode
+    importInfo$status = "Skipped"
+    importInfo$status[toImport] = nImported$status
+    importInfo$statusCode = 3
+    importInfo$statusCode[toImport] = nImported$statusCode
 
     replaceData(
       bulkImportTable_proxy,
