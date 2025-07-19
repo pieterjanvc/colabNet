@@ -507,7 +507,9 @@ nodeSum <- function(parent, child, value) {
   # Recursive DFS
   dfs <- function(node) {
     node_value <- node_values_raw[[node]]
-    if (is.null(node_value)) node_value <- 0
+    if (is.null(node_value)) {
+      node_value <- 0
+    }
 
     total <- node_value
 

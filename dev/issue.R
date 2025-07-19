@@ -17,6 +17,7 @@ pubDet <- ncbi_publicationDetails(
   lastName = auth$lastName,
   firstName = auth$firstName,
   initials = auth$initials,
-  history = aal$history)
+  history = aal$history
+)
 
 test <- filter_affiliation(pubDet, "Harvard")

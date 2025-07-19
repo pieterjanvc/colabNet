@@ -191,6 +191,16 @@ zooScore_tree <- function(tree) {
 #'
 #' @export
 zooScore <- function(papermeshtree, roots = NULL) {
+  # We need at least two authors
+  if (n_distinct(papermeshtree$auID) < 2) {
+    return(data.frame(
+      tree = character(),
+      au1 = integer(),
+      au2 = integer(),
+      score = numeric()
+    ))
+  }
+
   # Check which roots to use
   if (length(roots) == 0) {
     roots <- setNames(unique(papermeshtree$root), unique(papermeshtree$root))

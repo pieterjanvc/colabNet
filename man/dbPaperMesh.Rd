@@ -4,10 +4,13 @@
 \alias{dbPaperMesh}
 \title{Get all of the MeSH terms from papers by a set of authors}
 \usage{
-dbPaperMesh(auIDs, dbInfo)
+dbPaperMesh(auIDs, roots, dbInfo)
 }
 \arguments{
 \item{auIDs}{Vector auIDs}
+
+\item{roots}{(Optional) Vector of single letter representing the tree roots
+to include. If not specified, all categories are returned}
 
 \item{dbInfo}{(optional if dbSetup() has been run)
 Path to the ColabNet database or existing connection}

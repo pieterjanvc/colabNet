@@ -41,43 +41,45 @@ ncbi_author <- function(
       lastName = character(0),
       firstName = character(0),
       initials = character(0),
-      group = integer(0)
+      default = logical(0)
     ))
   }
 
   # Get article details
-  result <- read_xml(entrez_fetch("pubmed", result$ids, rettype = "xml"))
+  authorList <- read_xml(entrez_fetch("pubmed", result$ids, rettype = "xml"))
 
   # Extract the author list from the article and keep the one of interest
-  result <- xml_find_all(result, "//MedlineCitation/Article/AuthorList")
+  authorList <- xml_find_all(authorList, "//MedlineCitation/Article/AuthorList")
 
-  authorInfo <- map_df(result, function(x) {
-    authorinfo <- data.frame(
-      lastName = xml_find_all(x, "./Author/LastName") |> xml_text(),
-      firstName = xml_find_all(x, "./Author/ForeName") |> xml_text(),
-      initials = xml_find_all(x, "./Author/Initials") |> xml_text()
-    )
+  extractAuthors(authorList, result$ids, lastName, firstName)$author
 
-    authorinfo <- authorinfo |>
-      filter(
-        str_detect(simpleText(lastName), simpleText({{ lastName }})),
-        str_detect(simpleText(initials), simpleText({{ firstName }})) |
-          str_detect(simpleText(firstName), simpleText({{ firstName }}))
-      )
-
-    authorinfo
-  }) |>
-    distinct() |>
-    group_by(
-      simpleText(lastName),
-      simpleText(firstName),
-      simpleText(initials)
-    ) |>
-    mutate(group = cur_group_id()) |>
-    ungroup() |>
-    select(lastName, firstName, initials, group)
-
-  return(authorInfo)
+  # authorInfo <- map_df(result, function(x) {
+  #   authorinfo <- data.frame(
+  #     lastName = xml_find_all(x, "./Author/LastName") |> xml_text(),
+  #     firstName = xml_find_all(x, "./Author/ForeName") |> xml_text(),
+  #     initials = xml_find_all(x, "./Author/Initials") |> xml_text()
+  #   )
+  #
+  #   authorinfo <- authorinfo |>
+  #     filter(
+  #       str_detect(simpleText(lastName), simpleText({{ lastName }})),
+  #       str_detect(simpleText(initials), simpleText({{ firstName }})) |
+  #         str_detect(simpleText(firstName), simpleText({{ firstName }}))
+  #     )
+  #
+  #   authorinfo
+  # }) |>
+  #   distinct() |>
+  #   group_by(
+  #     simpleText(lastName),
+  #     simpleText(firstName),
+  #     simpleText(initials)
+  #   ) |>
+  #   mutate(group = cur_group_id()) |>
+  #   ungroup() |>
+  #   select(lastName, firstName, initials, group)
+  #
+  # return(authorInfo)
 }
 
 #' Get basic article info for an author if name is likely unique
@@ -294,142 +296,144 @@ ncbi_publicationDetails <- function(
   }
 
   PMIDs <- articleInfo$PMID
-
-  # Get the author list from each paper
-
   authorInfo <- xml_find_first(info, "./MedlineCitation/Article/AuthorList")
 
-  # Author names
-  lastNames <- xml_find_all(authorInfo, "./Author/LastName")
-  # The ids will check in which articles author info is present so it can
-  #  be properly joined later by PMID
-  ids <- str_match(
-    xml_path(lastNames),
-    r"(PubmedArticle(\[(\d+)\])?\/.*Author(\[(\d+)\])?)"
-  )
-
-  lastNames <- data.frame(
-    lastName = lastNames |> xml_text(),
-    articleID = as.integer(ids[, 3]),
-    authorOrder = as.integer(ids[, 5])
-  ) |>
-    # Articles with only one author did not match id regex so we put in 1 manually
-    mutate(
-      articleID = ifelse(is.na(articleID), 1, articleID),
-      authorOrder = ifelse(is.na(authorOrder), 1, authorOrder)
-    )
-
-  # Rarely authors only have last name so we need to process rest seperately
-  otherNames <- xml_find_all(authorInfo, "./Author/ForeName")
-  ids <- str_match(
-    xml_path(otherNames),
-    r"(PubmedArticle(\[(\d+)\])?\/.*Author(\[(\d+)\])?)"
-  )
-
-  otherNames <- data.frame(
-    firstName = otherNames |> xml_text(),
-    initials = xml_find_all(authorInfo, "./Author/Initials") |> xml_text(),
-    articleID = as.integer(ids[, 3]),
-    authorOrder = as.integer(ids[, 5])
-  ) |>
-    mutate(
-      articleID = ifelse(is.na(articleID), 1, articleID),
-      authorOrder = ifelse(is.na(authorOrder), 1, authorOrder)
-    )
-
-  # Bind first, last and initials together
-  authorNames <- lastNames |>
-    left_join(otherNames, by = c("articleID", "authorOrder"))
-
-  # Collective names - Names of consortia etc. who can be authors
-  collectiveNames <- xml_find_all(authorInfo, "./Author/CollectiveName")
-  ids <- str_match(
-    xml_path(collectiveNames),
-    r"(PubmedArticle(\[(\d+)\])?\/.*Author(\[(\d+)\])?)"
-  )
-
-  collectiveNames <- data.frame(
-    collectiveName = collectiveNames |> xml_text(),
-    articleID = as.integer(ids[, 3]),
-    authorOrder = as.integer(ids[, 5])
-  ) |>
-    mutate(
-      articleID = ifelse(is.na(articleID), 1, articleID),
-      authorOrder = ifelse(is.na(authorOrder), 1, authorOrder)
-    )
-
-  # Bind all author info together into a single data frame
-  authors <- bind_rows(
-    authorNames |>
-      left_join(
-        data.frame(
-          articleID = 1:length(PMIDs),
-          PMID = PMIDs
-        ),
-        by = "articleID"
-      ),
-    collectiveNames |>
-      left_join(
-        data.frame(
-          articleID = 1:length(PMIDs),
-          PMID = PMIDs
-        ),
-        by = "articleID"
-      )
-  ) |>
-    select(PMID, authorOrder, everything()) |>
-    arrange(articleID, authorOrder) |>
-    select(-articleID)
-
-  # Find all name variations the author of interest has used in papers and pick default
-
-  # In case the first and last name are identical, the initials should be too,
-  # so pick the most common one
-  authors <- authors |>
-    group_by(
-      x = simpleText(lastName),
-      y = simpleText(firstName),
-      z = simpleText(collectiveName)
-    ) |>
-    mutate(
-      initials = ifelse(is.na(initials), NA, names(which.max(table(initials))))
-    ) |>
-    ungroup() |>
-    select(-x, -y, -z)
-
-  # Now use last name and initials to find name variations
-  authors <- authors |>
-    group_by(lastName, firstName, initials, collectiveName) |>
-    mutate(n = n()) |>
-    group_by(
-      simple = simpleText(lastName),
-      initials,
-      simpleText(collectiveName)
-    ) |>
-    arrange(desc(n)) |>
-    mutate(tempId = cur_group_id(), default = row_number() == 1) |>
-    group_by(lastName, firstName, initials, collectiveName) |>
-    mutate(default = any(default)) |>
-    ungroup() |>
-    select(-simple, -n)
-
-  if (matchOnFirstOnly) {
-    author <- authors |>
-      select(tempId, lastName, firstName, initials, default) |>
-      filter(
-        simpleText(lastName) == simpleText({{ lastName }}),
-        simpleText(firstName) == simpleText({{ firstName }})
-      ) |>
-      distinct()
-  } else {
-    author <- authors |>
-      select(tempId, lastName, firstName, initials, default) |>
-      filter(
-        simpleText(lastName) == simpleText({{ lastName }}),
-        simpleText(initials) == simpleText({{ initials }})
-      ) |>
-      distinct()
-  }
+  authorData <- extractAuthors(authorInfo, PMIDs, lastName, firstName)
+  # # Get the author list from each paper
+  #
+  # authorInfo <- xml_find_first(info, "./MedlineCitation/Article/AuthorList")
+  #
+  # # Author names
+  # lastNames <- xml_find_all(authorInfo, "./Author/LastName")
+  # # The ids will check in which articles author info is present so it can
+  # #  be properly joined later by PMID
+  # ids <- str_match(
+  #   xml_path(lastNames),
+  #   r"(PubmedArticle(\[(\d+)\])?\/.*Author(\[(\d+)\])?)"
+  # )
+  #
+  # lastNames <- data.frame(
+  #   lastName = lastNames |> xml_text(),
+  #   articleID = as.integer(ids[, 3]),
+  #   authorOrder = as.integer(ids[, 5])
+  # ) |>
+  #   # Articles with only one author did not match id regex so we put in 1 manually
+  #   mutate(
+  #     articleID = ifelse(is.na(articleID), 1, articleID),
+  #     authorOrder = ifelse(is.na(authorOrder), 1, authorOrder)
+  #   )
+  #
+  # # Rarely authors only have last name so we need to process rest seperately
+  # otherNames <- xml_find_all(authorInfo, "./Author/ForeName")
+  # ids <- str_match(
+  #   xml_path(otherNames),
+  #   r"(PubmedArticle(\[(\d+)\])?\/.*Author(\[(\d+)\])?)"
+  # )
+  #
+  # otherNames <- data.frame(
+  #   firstName = otherNames |> xml_text(),
+  #   initials = xml_find_all(authorInfo, "./Author/Initials") |> xml_text(),
+  #   articleID = as.integer(ids[, 3]),
+  #   authorOrder = as.integer(ids[, 5])
+  # ) |>
+  #   mutate(
+  #     articleID = ifelse(is.na(articleID), 1, articleID),
+  #     authorOrder = ifelse(is.na(authorOrder), 1, authorOrder)
+  #   )
+  #
+  # # Bind first, last and initials together
+  # authorNames <- lastNames |>
+  #   left_join(otherNames, by = c("articleID", "authorOrder"))
+  #
+  # # Collective names - Names of consortia etc. who can be authors
+  # collectiveNames <- xml_find_all(authorInfo, "./Author/CollectiveName")
+  # ids <- str_match(
+  #   xml_path(collectiveNames),
+  #   r"(PubmedArticle(\[(\d+)\])?\/.*Author(\[(\d+)\])?)"
+  # )
+  #
+  # collectiveNames <- data.frame(
+  #   collectiveName = collectiveNames |> xml_text(),
+  #   articleID = as.integer(ids[, 3]),
+  #   authorOrder = as.integer(ids[, 5])
+  # ) |>
+  #   mutate(
+  #     articleID = ifelse(is.na(articleID), 1, articleID),
+  #     authorOrder = ifelse(is.na(authorOrder), 1, authorOrder)
+  #   )
+  #
+  # # Bind all author info together into a single data frame
+  # authors <- bind_rows(
+  #   authorNames |>
+  #     left_join(
+  #       data.frame(
+  #         articleID = 1:length(PMIDs),
+  #         PMID = PMIDs
+  #       ),
+  #       by = "articleID"
+  #     ),
+  #   collectiveNames |>
+  #     left_join(
+  #       data.frame(
+  #         articleID = 1:length(PMIDs),
+  #         PMID = PMIDs
+  #       ),
+  #       by = "articleID"
+  #     )
+  # ) |>
+  #   select(PMID, authorOrder, everything()) |>
+  #   arrange(articleID, authorOrder) |>
+  #   select(-articleID)
+  #
+  # # Find all name variations the author of interest has used in papers and pick default
+  #
+  # # In case the first and last name are identical, the initials should be too,
+  # # so pick the most common one
+  # authors <- authors |>
+  #   group_by(
+  #     x = simpleText(lastName),
+  #     y = simpleText(firstName),
+  #     z = simpleText(collectiveName)
+  #   ) |>
+  #   mutate(
+  #     initials = ifelse(is.na(initials), NA, names(which.max(table(initials))))
+  #   ) |>
+  #   ungroup() |>
+  #   select(-x, -y, -z)
+  #
+  # # Now use last name and initials to find name variations
+  # authors <- authors |>
+  #   group_by(lastName, firstName, initials, collectiveName) |>
+  #   mutate(n = n()) |>
+  #   group_by(
+  #     simple = simpleText(lastName),
+  #     initials,
+  #     simpleText(collectiveName)
+  #   ) |>
+  #   arrange(desc(n)) |>
+  #   mutate(tempId = cur_group_id(), default = row_number() == 1) |>
+  #   group_by(lastName, firstName, initials, collectiveName) |>
+  #   mutate(default = any(default)) |>
+  #   ungroup() |>
+  #   select(-simple, -n)
+  #
+  # if (matchOnFirstOnly) {
+  #   author <- authors |>
+  #     select(tempId, lastName, firstName, initials, default) |>
+  #     filter(
+  #       simpleText(lastName) == simpleText({{ lastName }}),
+  #       simpleText(firstName) == simpleText({{ firstName }})
+  #     ) |>
+  #     distinct()
+  # } else {
+  #   author <- authors |>
+  #     select(tempId, lastName, firstName, initials, default) |>
+  #     filter(
+  #       simpleText(lastName) == simpleText({{ lastName }}),
+  #       simpleText(initials) == simpleText({{ initials }})
+  #     ) |>
+  #     distinct()
+  # }
 
   # Affiliations
   affiliations <- xml_find_all(
@@ -470,7 +474,9 @@ ncbi_publicationDetails <- function(
   shared <- affiliations |> filter(sharedAffiliation) |> select(-authorOrder)
   shared <- shared |>
     left_join(
-      authors |> filter(PMID %in% shared$PMID) |> select(PMID, authorOrder),
+      authorData$authors |>
+        filter(PMID %in% shared$PMID) |>
+        select(PMID, authorOrder),
       by = "PMID"
     ) |>
     filter(authorOrder > 1)
@@ -538,9 +544,9 @@ ncbi_publicationDetails <- function(
 
   # Return the results
   return(list(
-    author = author,
+    author = authorData$author,
     articles = articleInfo,
-    coAuthors = authors,
+    coAuthors = authorData$authors,
     affiliations = affiliations,
     meshDescriptors = descriptors,
     meshQualifiers = qualifiers
@@ -620,4 +626,150 @@ ncbi_meshInfo <- function(values, type = c("meshui", "treenum", "uid")) {
   meshTree <- meshTree[!invalidTreenum, ]
 
   return(list(meshTerms = meshTerms, meshTree = meshTree))
+}
+
+#' Get detailed MeSH info based on MeSH IDs or terms
+#'
+#' You should only use one parameter:
+#' @param authorList vector of MeSH values to search for
+#' @param PMIDs PMID vector corresponding to each entry in authorList XML object
+#' @param lastName Last name
+#' @param firstName First name. Add any middle initials the author uses to publish.
+#' E.g. 'Joseph E Murray' --> 'Joseph E'. To be broader in case of multiple spellings,
+#' only supply initials e.g. 'Joseph E Murray' --> 'JE'.
+#'
+#' @import xml2 dplyr
+#' @importFrom purrr map_df
+#'
+#' @return a list with two data frames:
+#' - author: author name info
+#' - authors: all authors on articles
+#'
+extractAuthors <- function(authorList, PMIDs, lastName, firstName) {
+  # Author names
+  lastNames <- xml_find_all(authorList, "./Author/LastName")
+  # The ids will check in which articles author info is present so it can
+  #  be properly joined later by PMID
+  ids <- str_match(
+    xml_path(lastNames),
+    r"(PubmedArticle(\[(\d+)\])?\/.*Author(\[(\d+)\])?)"
+  )
+
+  lastNames <- data.frame(
+    lastName = lastNames |> xml_text(),
+    articleID = as.integer(ids[, 3]),
+    authorOrder = as.integer(ids[, 5])
+  ) |>
+    # Articles with only one author did not match id regex so we put in 1 manually
+    mutate(
+      articleID = ifelse(is.na(articleID), 1, articleID),
+      authorOrder = ifelse(is.na(authorOrder), 1, authorOrder)
+    )
+
+  # Rarely authors only have last name so we need to process rest seperately
+  otherNames <- xml_find_all(authorList, "./Author/ForeName")
+  ids <- str_match(
+    xml_path(otherNames),
+    r"(PubmedArticle(\[(\d+)\])?\/.*Author(\[(\d+)\])?)"
+  )
+
+  otherNames <- data.frame(
+    firstName = otherNames |> xml_text(),
+    initials = xml_find_all(authorList, "./Author/Initials") |> xml_text(),
+    articleID = as.integer(ids[, 3]),
+    authorOrder = as.integer(ids[, 5])
+  ) |>
+    mutate(
+      articleID = ifelse(is.na(articleID), 1, articleID),
+      authorOrder = ifelse(is.na(authorOrder), 1, authorOrder)
+    )
+
+  # Bind first, last and initials together
+  authorNames <- lastNames |>
+    left_join(otherNames, by = c("articleID", "authorOrder"))
+
+  # Collective names - Names of consortia etc. who can be authors
+  collectiveNames <- xml_find_all(authorList, "./Author/CollectiveName")
+  ids <- str_match(
+    xml_path(collectiveNames),
+    r"(PubmedArticle(\[(\d+)\])?\/.*Author(\[(\d+)\])?)"
+  )
+
+  collectiveNames <- data.frame(
+    collectiveName = collectiveNames |> xml_text(),
+    articleID = as.integer(ids[, 3]),
+    authorOrder = as.integer(ids[, 5])
+  ) |>
+    mutate(
+      articleID = ifelse(is.na(articleID), 1, articleID),
+      authorOrder = ifelse(is.na(authorOrder), 1, authorOrder)
+    )
+
+  # Bind all author info together into a single data frame
+  authors <- bind_rows(
+    authorNames |>
+      left_join(
+        data.frame(
+          articleID = 1:length(PMIDs),
+          PMID = PMIDs
+        ),
+        by = "articleID"
+      ),
+    collectiveNames |>
+      left_join(
+        data.frame(
+          articleID = 1:length(PMIDs),
+          PMID = PMIDs
+        ),
+        by = "articleID"
+      )
+  ) |>
+    select(PMID, authorOrder, everything()) |>
+    arrange(articleID, authorOrder) |>
+    select(-articleID)
+
+  # Find all name variations the author of interest has used in papers and pick default
+
+  # In case the first and last name are identical, the initials should be too,
+  # so pick the most common one
+  authors <- authors |>
+    group_by(
+      x = simpleText(lastName),
+      y = simpleText(firstName),
+      z = simpleText(collectiveName)
+    ) |>
+    mutate(
+      initials = ifelse(is.na(initials), NA, names(which.max(table(initials))))
+    ) |>
+    ungroup() |>
+    select(-x, -y, -z)
+
+  # Now use last name and initials to find name variations
+  authors <- authors |>
+    group_by(lastName, firstName, initials, collectiveName) |>
+    mutate(n = n()) |>
+    group_by(
+      simple = simpleText(lastName),
+      initials,
+      simpleColl = simpleText(collectiveName)
+    ) |>
+    arrange(desc(n)) |>
+    mutate(tempId = cur_group_id(), default = row_number() == 1) |>
+    group_by(lastName, firstName, initials, collectiveName) |>
+    mutate(default = any(default)) |>
+    ungroup() |>
+    select(-simple, -n, -simpleColl)
+
+  ln <- simpleText(lastName)
+  fn <- simpleText(firstName)
+
+  author <- authors |>
+    select(tempId, lastName, firstName, initials, default) |>
+    filter(
+      simpleText(lastName) == {{ ln }},
+      (simpleText(firstName) == {{ fn }}) | (simpleText(initials) == {{ fn }})
+    ) |>
+    distinct()
+
+  return(list(author = author, authors = authors))
 }
