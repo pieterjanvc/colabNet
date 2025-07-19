@@ -1542,7 +1542,9 @@ server <- function(input, output, session) {
       n <- length(bulkImport()$importData)
 
       # test <<- bulkImport()
-      toImport <- which(sapply(bulkImport()$importData, "[[", c("statusCode")) == 0)
+      toImport <- which(
+        sapply(bulkImport()$importData, "[[", c("statusCode")) == 0
+      )
 
       for (i in toImport) {
         data <- bulkImport()$importData[[i]]
