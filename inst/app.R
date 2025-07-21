@@ -4,11 +4,11 @@
 
 if (!exists("colabNetDB")) {
   print("DEV TEST")
-  # file.copy("../data/PGG_dev.db", "../local/dev.db", overwrite = T)
-  # colabNetDB <- "../local/dev.db"
+  file.copy("../data/PGG_dev.db", "../local/dev.db", overwrite = T)
+  colabNetDB <- "../local/dev.db"
 
-  colabNetDB <- "C:/Users/pj/Desktop/dev.db"
-  file.remove(colabNetDB)
+  # colabNetDB <- "C:/Users/pj/Desktop/dev.db"
+  # file.remove(colabNetDB)
 }
 
 # Setup for functions in the package
@@ -166,6 +166,23 @@ ui <- fluidPage(
               ),
               tabPanel(
                 "MeSH Tree",
+                fluidRow(
+                  column(
+                    6,
+                    selectInput(
+                      "mtPlotLimit",
+                      "Limit to n-top scoring categories",
+                      choices = setNames(
+                        c(0, 12, 10, 8, 6, 4),
+                        c("All", "12", "10", "8", "6", "4")
+                      )
+                    )
+                  ),
+                  column(
+                    6,
+                    checkboxInput("balanceTree", "Set equal rectangle size")
+                  )
+                ),
                 plotlyOutput("meshTreePlot", height = "60vh"),
                 value = "tab_meshTree"
               ),
@@ -182,7 +199,15 @@ ui <- fluidPage(
                       selected = NULL
                     ),
                     actionButton("applyFilterCat", "Apply Filter"),
-                    actionButton("removeFilterCat", "Remove Filter")
+                    actionButton("removeFilterCat", "Remove Filter"),
+                    selectInput(
+                      "mtOverlapLimit",
+                      "Limit to n-top scoring categories",
+                      choices = setNames(
+                        c(0, 12, 10, 8, 6, 4),
+                        c("All", "12", "10", "8", "6", "4")
+                      )
+                    )
                   ),
                   column(8, DTOutput("overlapscoreTable"))
                 ),
@@ -355,10 +380,22 @@ server <- function(input, output, session) {
 
       setArticleTable(arIDs, merged = T)
     } else if (input$tabs_exploration == "tab_meshTree") {
-      selected <- preCompData()$plotData[
-        event_data("plotly_click", "treemap_overview")$pointNumber + 1,
-      ]$branchID
-      setArticleTable(arIDByMesh(selected))
+      # selected <- preCompData()$plotData[
+      #   event_data("plotly_click", "treemap_overview")$pointNumber + 1,
+      # ]$branchID
+      # setArticleTable(arIDByMesh(selected))
+      if (input$mtPlotLimit == 0) {
+        branchIDs <- NULL
+      } else {
+        branchIDs <- preCompData()$plotData |>
+          plotDataFilter(input$mtPlotLimit) |>
+          pull(branchID)
+      }
+
+      selected <- branchIDs[
+        event_data("plotly_click", "treemap_overview")$pointNumber + 1
+      ]
+      setArticleTable(arIDByMesh(selected, branchIDs))
     } else if (input$tabs_exploration == "tab_comparison") {
       selected <- preCompData()$plotData[
         event_data("plotly_click", "treemap_overlap")$pointNumber + 1,
@@ -506,10 +543,43 @@ server <- function(input, output, session) {
 
   # ---- Colab MeSH Tree ----
 
+  plotDataFilter <- function(plotData, n) {
+    n = as.integer(n)
+
+    if (n > 0) {
+      # Only get the top scoring n branches per level
+      plotData <- plotData |>
+        group_by(parentBranchID) |>
+        slice_max(meshSum, n = n, na_rm = F) |>
+        ungroup()
+
+      # Trim dead branches (parent removed)
+      n <- 0
+      while (nrow(plotData) != n) {
+        n <- nrow(plotData)
+        plotData <- plotData |>
+          filter(parentBranchID %in% branchID | is.na(parentBranchID))
+      }
+    }
+
+    return(plotData)
+  }
+
   output$meshTreePlot <- renderPlotly({
     req(preCompData()$plotData)
 
-    plotData <- preCompData()$plotData
+    plotData <- preCompData()$plotData |> plotDataFilter(input$mtPlotLimit)
+
+    # Calculate the balancing values
+    if (input$balanceTree) {
+      plotData <- plotData |>
+        left_join(
+          treemapBalance(plotData$branchID, plotData$parentBranchID),
+          by = c("branchID" = "id")
+        )
+    } else {
+      plotData$balanceVal = 1
+    }
 
     boxText <- str_wrap(
       paste(plotData$meshSum, plotData$meshterm, sep = " | "),
@@ -527,32 +597,53 @@ server <- function(input, output, session) {
         paste(plotData$meshSum, plotData$meshterm, sep = " | ")
       ),
       text = boxText,
-      values = plotData$treemapVal,
+      values = plotData$balanceVal,
       marker = list(colors = treemapColour(plotData$meshSum)),
       textinfo = "text",
       hovertext = plotData$authors,
       hoverinfo = "text",
-      maxdepth = 3,
+      maxdepth = 2,
       source = "treemap_overview"
     )
   })
 
   # Get article IDs based on a branch in the MeSH tree that is selected
-  arIDByMesh <- function(branchID) {
-    if (length(branchID) == 0) {
+  arIDByMesh <- function(branchID, filterIDs = NULL) {
+    # This will retrun the full table when supplied to setArticleTable
+    if (length(branchID) == 0 & length(filterIDs) == 0) {
       return(NULL)
+    }
+
+    # Only filter the full table for limited tree but at root (branchID = NULL)
+    if (length(branchID) == 0 & length(filterIDs) > 0) {
+      result <- tbl(pool, "meshTree") |>
+        filter(mtrID %in% local(filterIDs)) |>
+        left_join(tbl(pool, "meshLink"), by = "uid") |>
+        left_join(tbl(pool, "meshTerm"), by = "meshui") |>
+        left_join(tbl(pool, "mesh_article"), by = "meshui") |>
+        pull(arID) |>
+        unique()
+      return(result)
     }
 
     if (length(branchID) > 1) {
       stop("You can only select one tree branch at the same time")
     }
 
+    # Case where a brac has been selected
     children <- tbl(pool, "meshTree") |>
       filter(mtrID == as.integer(branchID)) |>
       pull(treenum)
+
     children <- paste0(children[1], "%")
-    tbl(pool, "meshTree") |>
-      filter(str_like(treenum, local({{ children }}))) |>
+    result <- tbl(pool, "meshTree") |>
+      filter(str_like(treenum, local({{ children }})))
+    #Filter in case the tree is limited by mtPlotLimit input
+    if (length(filterIDs) > 0) {
+      result <- result |> filter(mtrID %in% local(filterIDs))
+    }
+
+    result |>
       left_join(tbl(pool, "meshLink"), by = "uid") |>
       left_join(tbl(pool, "meshTerm"), by = "meshui") |>
       left_join(tbl(pool, "mesh_article"), by = "meshui") |>
@@ -560,11 +651,25 @@ server <- function(input, output, session) {
       unique()
   }
 
+  observeEvent(c(input$mtPlotLimit, input$balanceTree), {
+    if (input$mtPlotLimit == 0) {
+      setArticleTable(NULL)
+    } else {
+      branchIDs <- preCompData()$plotData |>
+        plotDataFilter(input$mtPlotLimit) |>
+        pull(branchID)
+      setArticleTable(arIDByMesh(NULL, branchIDs))
+    }
+  })
+
   observeEvent(event_data("plotly_click", "treemap_overview"), {
-    selected <- preCompData()$plotData[
-      event_data("plotly_click", "treemap_overview")$pointNumber + 1,
-    ]$branchID
-    setArticleTable(arIDByMesh(selected))
+    branchIDs <- preCompData()$plotData |>
+      plotDataFilter(input$mtPlotLimit) |>
+      pull(branchID)
+    selected <- branchIDs[
+      event_data("plotly_click", "treemap_overview")$pointNumber + 1
+    ]
+    setArticleTable(arIDByMesh(selected, branchIDs))
   })
 
   # ---- Research Comparison ----
@@ -667,6 +772,11 @@ server <- function(input, output, session) {
       #TODO make sure the table filters with arIDs only found in the selected subtrees
     }
 
+    # TODO
+    if (input$mtOverlapLimit != "0") {
+      # tmComp <- tmComp |> plotDataFilter(input$mtOverlapLimit)
+    }
+
     # Update the article table with all articles for either author
     arIDs <- preCompData()$allArticles |>
       filter(auID %in% {{ auIDs }}) |>
@@ -675,6 +785,15 @@ server <- function(input, output, session) {
 
     # Return the treemap
     tmComp
+  })
+
+  observeEvent(input$mtOverlapLimit, {
+    if (input$mtOverlapLimit != "0") {
+      showNotification(
+        "The limit to n-top scoring feature has not been implemented yet",
+        type = "warning"
+      )
+    }
   })
 
   # MeSH tree for two author comparison
@@ -705,7 +824,7 @@ server <- function(input, output, session) {
       textinfo = "text",
       hovertext = treemapcomp()$authors,
       hoverinfo = "text",
-      maxdepth = 3,
+      maxdepth = 2,
       source = "treemap_overlap"
     )
   })
