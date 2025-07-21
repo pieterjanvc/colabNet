@@ -351,7 +351,42 @@ treemapBalance <- function(id, parent) {
     }
   }
 
-  leafvals <- leafVal(root, 1) |> as.data.frame()
+  # Function to calculate the total sum such that all the leaves have integer
+  # values (i.e. curVal value for leafVal function).
+  # Calculations fail when tree is too large because of integer overflow
+  # and thus this function is not being used at the moment but here as backup
+  # A value of 1 is used in leafVal generating floating point numbers instead
+
+  # leafSum <- function(curID, curVal) {
+  #   if (curID %in% leaves) {
+  #     return(curVal)
+  #   } else {
+  #     ids <- id[parent == curID]
+  #     ids <- ids[!is.na(ids)]
+  #     results <- sapply(ids, leafSum, curVal = curVal * length(ids))
+  #     return(unlist(results))
+  #   }
+  # }
+  #
+  # lcm <- function(ints) {
+  #   gcd <- function(x, y) {
+  #     r <- x %% y
+  #     return(ifelse(r, gcd(y, r), y))
+  #   }
+  #
+  #   lcm = 1
+  #   for (x in unique(ints)) {
+  #     lcm = (lcm * x) %/% gcd(lcm, x)
+  #   }
+  #
+  #   return(lcm)
+  # }
+  #
+  # leafsum <- lcm(leafSum(root, 1))
+
+  leafsum <- 1
+
+  leafvals <- leafVal(root, leafsum) |> as.data.frame()
 
   rbind(
     data.frame(id = id[!id %in% leafvals$id], balanceVal = 0),
