@@ -166,24 +166,7 @@ ui <- fluidPage(
               ),
               tabPanel(
                 "MeSH Tree",
-                fluidRow(
-                  column(
-                    6,
-                    selectInput(
-                      "mtPlotLimit",
-                      "Limit to n-top scoring categories",
-                      choices = setNames(
-                        c(0, 12, 10, 8, 6, 4),
-                        c("All", "12", "10", "8", "6", "4")
-                      )
-                    )
-                  ),
-                  column(
-                    6,
-                    checkboxInput("balanceTree", "Set equal rectangle size")
-                  )
-                ),
-                plotlyOutput("meshTreePlot", height = "60vh"),
+                mod_meshTree_ui("meshTree_overview"),
                 value = "tab_meshTree"
               ),
               tabPanel(
@@ -380,22 +363,10 @@ server <- function(input, output, session) {
 
       setArticleTable(arIDs, merged = T)
     } else if (input$tabs_exploration == "tab_meshTree") {
-      # selected <- preCompData()$plotData[
-      #   event_data("plotly_click", "treemap_overview")$pointNumber + 1,
-      # ]$branchID
-      # setArticleTable(arIDByMesh(selected))
-      if (input$mtPlotLimit == 0) {
-        branchIDs <- NULL
-      } else {
-        branchIDs <- preCompData()$plotData |>
-          plotDataFilter(input$mtPlotLimit) |>
-          pull(branchID)
-      }
-
-      selected <- branchIDs[
-        event_data("plotly_click", "treemap_overview")$pointNumber + 1
-      ]
-      setArticleTable(arIDByMesh(selected, branchIDs))
+      setArticleTable(arIDByMesh(
+        mtOverviewSelected()$selected,
+        mtOverviewSelected()$branchIDs
+      ))
     } else if (input$tabs_exploration == "tab_comparison") {
       selected <- preCompData()$plotData[
         event_data("plotly_click", "treemap_overlap")$pointNumber + 1,
@@ -565,57 +536,31 @@ server <- function(input, output, session) {
     return(plotData)
   }
 
-  output$meshTreePlot <- renderPlotly({
-    req(preCompData()$plotData)
+  mtOverviewSelected <- mod_meshTree_server(
+    "meshTree_overview",
+    plotData = reactive(preCompData()$plotData)
+  )
 
-    plotData <- preCompData()$plotData |> plotDataFilter(input$mtPlotLimit)
-
-    # Calculate the balancing values
-    if (input$balanceTree) {
-      plotData <- plotData |>
-        left_join(
-          treemapBalance(plotData$branchID, plotData$parentBranchID),
-          by = c("branchID" = "id")
-        )
-    } else {
-      plotData$balanceVal = 1
-    }
-
-    boxText <- str_wrap(
-      paste(plotData$meshSum, plotData$meshterm, sep = " | "),
-      12
-    )
-    boxText <- ifelse(plotData$hasChildren, paste(boxText, "<b>+</b>"), boxText)
-
-    plot_ly(
-      type = "treemap",
-      ids = plotData$branchID,
-      parents = plotData$parentBranchID,
-      labels = ifelse(
-        is.na(plotData$meshSum),
-        plotData$meshterm,
-        paste(plotData$meshSum, plotData$meshterm, sep = " | ")
-      ),
-      text = boxText,
-      values = plotData$balanceVal,
-      marker = list(colors = treemapColour(plotData$meshSum)),
-      textinfo = "text",
-      hovertext = plotData$authors,
-      hoverinfo = "text",
-      maxdepth = 2,
-      source = "treemap_overview"
-    )
+  observeEvent(mtOverviewSelected(), {
+    setArticleTable(arIDByMesh(
+      mtOverviewSelected()$selected,
+      mtOverviewSelected()$branchIDs
+    ))
   })
 
   # Get article IDs based on a branch in the MeSH tree that is selected
   arIDByMesh <- function(branchID, filterIDs = NULL) {
+    if (length(branchID) > 1) {
+      stop("You can only select one tree branch at the same time")
+    }
+
     # This will retrun the full table when supplied to setArticleTable
-    if (length(branchID) == 0 & length(filterIDs) == 0) {
+    if (length(branchID) == 0 || (branchID == 0 & length(filterIDs) == 0)) {
       return(NULL)
     }
 
     # Only filter the full table for limited tree but at root (branchID = NULL)
-    if (length(branchID) == 0 & length(filterIDs) > 0) {
+    if (branchID == 0 & length(filterIDs) > 0) {
       result <- tbl(pool, "meshTree") |>
         filter(mtrID %in% local(filterIDs)) |>
         left_join(tbl(pool, "meshLink"), by = "uid") |>
@@ -624,10 +569,6 @@ server <- function(input, output, session) {
         pull(arID) |>
         unique()
       return(result)
-    }
-
-    if (length(branchID) > 1) {
-      stop("You can only select one tree branch at the same time")
     }
 
     # Case where a brac has been selected
@@ -650,17 +591,6 @@ server <- function(input, output, session) {
       pull(arID) |>
       unique()
   }
-
-  observeEvent(c(input$mtPlotLimit, input$balanceTree), {
-    if (input$mtPlotLimit == 0) {
-      setArticleTable(NULL)
-    } else {
-      branchIDs <- preCompData()$plotData |>
-        plotDataFilter(input$mtPlotLimit) |>
-        pull(branchID)
-      setArticleTable(arIDByMesh(NULL, branchIDs))
-    }
-  })
 
   observeEvent(event_data("plotly_click", "treemap_overview"), {
     branchIDs <- preCompData()$plotData |>
