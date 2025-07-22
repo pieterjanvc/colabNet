@@ -404,8 +404,8 @@ server <- function(input, output, session) {
   #  to the data on the active tab
   observeEvent(input$tabs_exploration, {
     if (input$tabs_exploration == "tab_coAuth") {
-      arIDs <- coPub()$edges |>
-        filter(id %in% unlist(input$coPub_selection$edges)) |>
+      arIDs <- coPub()$edgeArticles |>
+        filter(edgeID %in% unlist(input$coPub_selection$edges)) |>
         pull(arID)
 
       setArticleTable(arIDs, merged = T)
@@ -479,36 +479,37 @@ server <- function(input, output, session) {
   coPub <- reactive({
     req(nrow(preCompData()$allArticles) > 0)
 
-    nodes <- preCompData()$allArticles |>
-      group_by(id = auID) |>
-      summarise(
-        label = sprintf("%s %s", lastName[1], firstName[1]),
-        .groups = "drop"
-      )
-
-    edges <- preCompData()$allArticles |>
-      group_by(arID) |>
-      filter(n() > 1)
-
-    if (nrow(edges) == 0) {
-      edges <- data.frame(
-        arID = integer(),
-        id = integer(),
-        from = integer(),
-        to = integer()
-      )
-    } else {
-      edges <- preCompData()$allArticles |>
-        group_by(arID) |>
-        filter(n() > 1) |>
-        reframe(as.data.frame(combn(auID, 2) |> t())) |>
-        rename(from = V1, to = V2) |>
-        group_by(from, to) |>
-        mutate(id = cur_group_id()) |>
-        ungroup()
-    }
-
-    list(nodes = nodes, edges = edges)
+    # nodes <- preCompData()$allArticles |>
+    #   group_by(id = auID) |>
+    #   summarise(
+    #     label = sprintf("%s %s", lastName[1], firstName[1]),
+    #     .groups = "drop"
+    #   )
+    #
+    # edges <- preCompData()$allArticles |>
+    #   group_by(arID) |>
+    #   filter(n() > 1)
+    #
+    # if (nrow(edges) == 0) {
+    #   edges <- data.frame(
+    #     arID = integer(),
+    #     id = integer(),
+    #     from = integer(),
+    #     to = integer()
+    #   )
+    # } else {
+    #   edges <- preCompData()$allArticles |>
+    #     group_by(arID) |>
+    #     filter(n() > 1) |>
+    #     reframe(as.data.frame(combn(auID, 2) |> t())) |>
+    #     rename(from = V1, to = V2) |>
+    #     group_by(from, to) |>
+    #     mutate(id = cur_group_id()) |>
+    #     ungroup()
+    # }
+    #
+    # list(nodes = nodes, edges = edges)
+    copubGraphElements(preCompData()$allArticles)
   })
 
   # co-publication network
@@ -520,9 +521,11 @@ server <- function(input, output, session) {
       filter(id %in% c(coPub()$edges$from, coPub()$edges$to))
 
     edges <- coPub()$edges |>
-      group_by(id, from, to) |>
-      summarise(width = n(), label = as.character(n()), .groups = "drop") |>
+      # group_by(id, from, to) |>
+      # summarise(width = n(), label = as.character(n()), .groups = "drop") |>
       mutate(
+        width = weight,
+        label = as.character(weight),
         color = case_when(
           width == 1 ~ "#ffcc33",
           width == 2 ~ "#ee6600",
@@ -560,8 +563,8 @@ server <- function(input, output, session) {
   observeEvent(
     input$coPub_selection,
     {
-      arIDs <- coPub()$edges |>
-        filter(id %in% unlist(input$coPub_selection$edges)) |>
+      arIDs <- coPub()$edgeArticles |>
+        filter(edgeID %in% unlist(input$coPub_selection$edges)) |>
         pull(arID)
 
       setArticleTable(arIDs, merged = T)

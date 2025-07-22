@@ -3,6 +3,8 @@
 export(branchID)
 export(checkTreeNums)
 export(colabNet)
+export(copubGraphElements)
+export(copubGraphStats)
 export(dbAddAuthorPublications)
 export(dbAddAuthors)
 export(dbAddMesh)
