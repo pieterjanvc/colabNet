@@ -89,6 +89,7 @@ treemapData <- function(papermeshtree) {
     group_by(branchID) |>
     summarise(
       parentBranchID = min(parentBranchID),
+      minLvl = min(level),
       meshterm = paste(unique(meshterm), collapse = " -> "),
       treemapVal = sum(treemapVal),
       nPapers = sum(nPapers),
@@ -119,10 +120,11 @@ treemapData <- function(papermeshtree) {
     data.frame(
       branchID = as.integer(0),
       parentBranchID = NA,
+      minLvl = 0,
       meshterm = "MeSH Tree",
       treemapVal = 0,
       nPapers = 0,
-      meshSum = NA,
+      meshSum = sum(treemap |> filter(parentBranchID == 0) |> pull(meshSum)),
       hasChildren = T
     ),
     treemap
@@ -310,4 +312,85 @@ treeMapComparison <- function(au1, au2, roots, dbInfo) {
       )
     ) |>
     ungroup()
+}
+
+#' Function to calculate values that will balance all rectangles of a Tree map
+#' to be equal size
+#'
+#' @param id Vector of node IDs in the tree
+#' @param parent Vector of corresponding parent for each node in id (note that
+#' the parent of the root ID should be NA)
+#'
+#' @import dplyr
+#'
+#' @return data frame with two columns
+#' - id: node ID
+#' - balanceVal: value that will balance the box size (only leaves get values)
+#'
+#' @export
+treemapBalance <- function(id, parent) {
+  # Remove any duplicated IDs
+  remDupl <- !duplicated(id)
+  id <- id[remDupl]
+  parent <- parent[remDupl]
+  # Get the root and leave IDs
+  root <- id[is.na(parent)]
+  if (length(root) != 1) {
+    stop("The must be exactly one root (i.e parent = NA)")
+  }
+  leaves <- id[!id %in% parent]
+  #Function to find the leave values
+  leafVal <- function(curID, curVal) {
+    if (curID %in% leaves) {
+      return(list(id = curID, balanceVal = curVal))
+    } else {
+      ids <- id[parent == curID]
+      ids <- ids[!is.na(ids)]
+      results <- lapply(ids, leafVal, curVal = curVal / length(ids))
+      return(do.call(Map, c(f = c, results)))
+    }
+  }
+
+  # Function to calculate the total sum such that all the leaves have integer
+  # values (i.e. curVal value for leafVal function).
+  # Calculations fail when tree is too large because of integer overflow
+  # and thus this function is not being used at the moment but here as backup
+  # A value of 1 is used in leafVal generating floating point numbers instead
+
+  # leafSum <- function(curID, curVal) {
+  #   if (curID %in% leaves) {
+  #     return(curVal)
+  #   } else {
+  #     ids <- id[parent == curID]
+  #     ids <- ids[!is.na(ids)]
+  #     results <- sapply(ids, leafSum, curVal = curVal * length(ids))
+  #     return(unlist(results))
+  #   }
+  # }
+  #
+  # lcm <- function(ints) {
+  #   gcd <- function(x, y) {
+  #     r <- x %% y
+  #     return(ifelse(r, gcd(y, r), y))
+  #   }
+  #
+  #   lcm = 1
+  #   for (x in unique(ints)) {
+  #     lcm = (lcm * x) %/% gcd(lcm, x)
+  #   }
+  #
+  #   return(lcm)
+  # }
+  #
+  # leafsum <- lcm(leafSum(root, 1))
+
+  leafsum <- 1
+
+  leafvals <- leafVal(root, leafsum) |> as.data.frame()
+
+  rbind(
+    data.frame(id = id[!id %in% leafvals$id], balanceVal = 0),
+    leafvals
+  ) |>
+    arrange(id)
 }

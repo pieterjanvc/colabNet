@@ -4,11 +4,11 @@
 
 if (!exists("colabNetDB")) {
   print("DEV TEST")
-  # file.copy("../data/PGG_dev.db", "../local/dev.db", overwrite = T)
-  # colabNetDB <- "../local/dev.db"
+  file.copy("../data/PGG_dev.db", "../local/dev.db", overwrite = T)
+  colabNetDB <- "../local/dev.db"
 
-  colabNetDB <- "C:/Users/pj/Desktop/dev.db"
-  file.remove(colabNetDB)
+  # colabNetDB <- "C:/Users/pj/Desktop/dev.db"
+  # file.remove(colabNetDB)
 }
 
 # Setup for functions in the package
@@ -121,6 +121,10 @@ preCompData <- reactivePoll(
   }
 )
 
+# ///////////////////////////
+# ---- SHARED FUNCTIONS ----
+# //////////////////////////
+
 # Function to extract relevant authors (first, last and of interest) from list
 relevantAuthors <- function(authors, lastName) {
   # Get first and last author, and author of interest if not either
@@ -138,6 +142,55 @@ relevantAuthors <- function(authors, lastName) {
     ifelse(is.na(middleAuth), " ... ", sprintf(" ... %s ... ", middleAuth)),
     lastAuth
   )
+}
+
+# Function to filter MeSH tree plot by top-n scoring categories
+plotDataFilter <- function(plotData, n) {
+  n = as.integer(n)
+
+  if (n > 0) {
+    # Only get the top scoring n branches per level
+    plotData <- plotData |>
+      group_by(parentBranchID) |>
+      slice_max(meshSum, n = n, na_rm = F) |>
+      ungroup()
+
+    # Trim dead branches (parent removed)
+    n <- 0
+    while (nrow(plotData) != n) {
+      n <- nrow(plotData)
+      plotData <- plotData |>
+        filter(parentBranchID %in% branchID | is.na(parentBranchID))
+    }
+  }
+
+  return(plotData)
+}
+
+# Calculate the MeSH Tree overlap between author pairs
+calcOverlap <- function(precompOverlap, treeFilter) {
+  if (!is.null(treeFilter)) {
+    precompOverlap <- precompOverlap |> filter(tree %in% {{ treeFilter }})
+  }
+
+  overlapscore <- precompOverlap |>
+    group_by(au1, au2) |>
+    summarise(score = sum(score), .groups = "drop") |>
+    arrange(desc(score))
+
+  names <- preCompData()$authors |>
+    transmute(auID, name = sprintf("%s, %s", lastName, firstName))
+
+  overlapscoreTable <- overlapscore |>
+    left_join(
+      names |>
+        select(au1 = auID, author1 = name),
+      by = "au1"
+    ) |>
+    left_join(names |> select(au2 = auID, author2 = name), by = "au2") |>
+    select(author1, author2, overlapScore = score)
+
+  return(list(score = overlapscore, table = overlapscoreTable))
 }
 
 # //////////////
@@ -166,7 +219,7 @@ ui <- fluidPage(
               ),
               tabPanel(
                 "MeSH Tree",
-                plotlyOutput("meshTreePlot", height = "60vh"),
+                mod_meshTree_ui("meshTree_overview"),
                 value = "tab_meshTree"
               ),
               tabPanel(
@@ -186,7 +239,7 @@ ui <- fluidPage(
                   ),
                   column(8, DTOutput("overlapscoreTable"))
                 ),
-                plotlyOutput("comparisonMeshTreePlot", height = "60vh"),
+                mod_meshTree_ui("meshTree_comparison"),
                 value = "tab_comparison"
               ),
               id = "tabs_exploration"
@@ -347,6 +400,8 @@ server <- function(input, output, session) {
 
   # ---- Articles Table ----
 
+  # When switching tabs, the shared article table has to be updated according
+  #  to the data on the active tab
   observeEvent(input$tabs_exploration, {
     if (input$tabs_exploration == "tab_coAuth") {
       arIDs <- coPub()$edges |>
@@ -355,15 +410,23 @@ server <- function(input, output, session) {
 
       setArticleTable(arIDs, merged = T)
     } else if (input$tabs_exploration == "tab_meshTree") {
-      selected <- preCompData()$plotData[
-        event_data("plotly_click", "treemap_overview")$pointNumber + 1,
-      ]$branchID
-      setArticleTable(arIDByMesh(selected))
+      setArticleTable(arIDByMesh(
+        mtOverviewSelected()$selected,
+        mtOverviewSelected()$branchIDs
+      ))
     } else if (input$tabs_exploration == "tab_comparison") {
-      selected <- preCompData()$plotData[
-        event_data("plotly_click", "treemap_overlap")$pointNumber + 1,
-      ]$branchID
-      setArticleTable(arIDByMesh(selected), c(1053, 1673))
+      # We're only looking at two authors
+      auIDs <- overlapData()[input$overlapscoreTable_rows_selected, ] |>
+        select(au1, au2) |>
+        unlist()
+
+      setArticleTable(
+        arIDByMesh(
+          mtComparisonSelected()$selected,
+          mtComparisonSelected()$branchIDs
+        ),
+        auIDs = auIDs
+      )
     } else {
       stop("Tab issue:", input$tabs_exploration)
     }
@@ -381,6 +444,8 @@ server <- function(input, output, session) {
 
   artTableProxy <- dataTableProxy("articleTable")
 
+  # Function to update the content of the articles table using the proxy
+  #  Note that this needs a reactive environment as it contains reactive vals inside
   setArticleTable <- function(arIDs, auIDs = c(), merged = F) {
     articles <- preCompData()$allArticles
 
@@ -506,53 +571,55 @@ server <- function(input, output, session) {
 
   # ---- Colab MeSH Tree ----
 
-  output$meshTreePlot <- renderPlotly({
-    req(preCompData()$plotData)
+  mtOverviewSelected <- mod_meshTree_server(
+    "meshTree_overview",
+    plotData = reactive(preCompData()$plotData)
+  )
 
-    plotData <- preCompData()$plotData
-
-    boxText <- str_wrap(
-      paste(plotData$meshSum, plotData$meshterm, sep = " | "),
-      12
-    )
-    boxText <- ifelse(plotData$hasChildren, paste(boxText, "<b>+</b>"), boxText)
-
-    plot_ly(
-      type = "treemap",
-      ids = plotData$branchID,
-      parents = plotData$parentBranchID,
-      labels = ifelse(
-        is.na(plotData$meshSum),
-        plotData$meshterm,
-        paste(plotData$meshSum, plotData$meshterm, sep = " | ")
-      ),
-      text = boxText,
-      values = plotData$treemapVal,
-      marker = list(colors = treemapColour(plotData$meshSum)),
-      textinfo = "text",
-      hovertext = plotData$authors,
-      hoverinfo = "text",
-      maxdepth = 3,
-      source = "treemap_overview"
-    )
+  observeEvent(mtOverviewSelected(), {
+    setArticleTable(arIDByMesh(
+      mtOverviewSelected()$selected,
+      mtOverviewSelected()$branchIDs
+    ))
   })
 
   # Get article IDs based on a branch in the MeSH tree that is selected
-  arIDByMesh <- function(branchID) {
-    if (length(branchID) == 0) {
-      return(NULL)
-    }
-
+  arIDByMesh <- function(branchID, filterIDs = NULL) {
     if (length(branchID) > 1) {
       stop("You can only select one tree branch at the same time")
     }
 
+    # This will retrun the full table when supplied to setArticleTable
+    if (length(branchID) == 0 || (branchID == 0 & length(filterIDs) == 0)) {
+      return(NULL)
+    }
+
+    # Only filter the full table for limited tree but at root (branchID = NULL)
+    if (branchID == 0 & length(filterIDs) > 0) {
+      result <- tbl(pool, "meshTree") |>
+        filter(mtrID %in% local(filterIDs)) |>
+        left_join(tbl(pool, "meshLink"), by = "uid") |>
+        left_join(tbl(pool, "meshTerm"), by = "meshui") |>
+        left_join(tbl(pool, "mesh_article"), by = "meshui") |>
+        pull(arID) |>
+        unique()
+      return(result)
+    }
+
+    # Case where a brac has been selected
     children <- tbl(pool, "meshTree") |>
       filter(mtrID == as.integer(branchID)) |>
       pull(treenum)
+
     children <- paste0(children[1], "%")
-    tbl(pool, "meshTree") |>
-      filter(str_like(treenum, local({{ children }}))) |>
+    result <- tbl(pool, "meshTree") |>
+      filter(str_like(treenum, local({{ children }})))
+    #Filter in case the tree is limited by mtPlotLimit input
+    if (length(filterIDs) > 0) {
+      result <- result |> filter(mtrID %in% local(filterIDs))
+    }
+
+    result |>
       left_join(tbl(pool, "meshLink"), by = "uid") |>
       left_join(tbl(pool, "meshTerm"), by = "meshui") |>
       left_join(tbl(pool, "mesh_article"), by = "meshui") |>
@@ -561,44 +628,20 @@ server <- function(input, output, session) {
   }
 
   observeEvent(event_data("plotly_click", "treemap_overview"), {
-    selected <- preCompData()$plotData[
-      event_data("plotly_click", "treemap_overview")$pointNumber + 1,
-    ]$branchID
-    setArticleTable(arIDByMesh(selected))
+    branchIDs <- preCompData()$plotData |>
+      plotDataFilter(input$mtPlotLimit) |>
+      pull(branchID)
+    selected <- branchIDs[
+      event_data("plotly_click", "treemap_overview")$pointNumber + 1
+    ]
+    setArticleTable(arIDByMesh(selected, branchIDs))
   })
 
   # ---- Research Comparison ----
 
-  calcOverlap <- function(precompOverlap, treeFilter) {
-    if (!is.null(treeFilter)) {
-      precompOverlap <- precompOverlap |> filter(tree %in% {{ treeFilter }})
-    }
-
-    overlapscore <- precompOverlap |>
-      group_by(au1, au2) |>
-      summarise(score = sum(score), .groups = "drop") |>
-      arrange(desc(score))
-
-    names <- preCompData()$authors |>
-      transmute(auID, name = sprintf("%s, %s", lastName, firstName))
-
-    overlapscoreTable <- overlapscore |>
-      left_join(
-        names |>
-          select(au1 = auID, author1 = name),
-        by = "au1"
-      ) |>
-      left_join(names |> select(au2 = auID, author2 = name), by = "au2") |>
-      select(author1, author2, overlapScore = score)
-
-    return(list(score = overlapscore, table = overlapscoreTable))
-  }
-
   # The table that shows the overlap score for pairs of authors
   output$overlapscoreTable <- renderDT(
     {
-      print("INIT")
-
       calcOverlap(preCompData()$overlapscore, NULL)$table
     },
     rownames = F,
@@ -678,51 +721,29 @@ server <- function(input, output, session) {
   })
 
   # MeSH tree for two author comparison
-  output$comparisonMeshTreePlot <- renderPlotly({
-    # Render the plot
-    boxText <- str_wrap(
-      paste(treemapcomp()$meshSum, treemapcomp()$meshterm, sep = " | "),
-      12
-    )
-    boxText <- ifelse(
-      treemapcomp()$hasChildren,
-      paste(boxText, "<b>+</b>"),
-      boxText
-    )
-
-    plot_ly(
-      type = "treemap",
-      ids = treemapcomp()$branchID,
-      parents = treemapcomp()$parentBranchID,
-      labels = ifelse(
-        is.na(treemapcomp()$meshSum),
-        treemapcomp()$meshterm,
-        paste(treemapcomp()$meshSum, treemapcomp()$meshterm, sep = " | ")
-      ),
-      text = boxText,
-      values = treemapcomp()$treemapVal,
-      marker = list(colors = treemapcomp()$colour),
-      textinfo = "text",
-      hovertext = treemapcomp()$authors,
-      hoverinfo = "text",
-      maxdepth = 3,
-      source = "treemap_overlap"
-    )
-  })
+  mtComparisonSelected <- mod_meshTree_server(
+    "meshTree_comparison",
+    plotData = treemapcomp
+  )
 
   # Get articles in part of the author comparison MeSH tree branch selected
   observeEvent(
-    event_data("plotly_click", "treemap_overlap"),
+    mtComparisonSelected(),
     {
       req(nrow(overlapData()) > 0)
 
+      # We're only looking at two authors
       auIDs <- overlapData()[input$overlapscoreTable_rows_selected, ] |>
         select(au1, au2) |>
         unlist()
-      selected <- treemapcomp()[
-        event_data("plotly_click", "treemap_overlap")$pointNumber + 1,
-      ]$branchID
-      setArticleTable(arIDByMesh(selected), auIDs = auIDs)
+
+      setArticleTable(
+        arIDByMesh(
+          mtComparisonSelected()$selected,
+          mtComparisonSelected()$branchIDs
+        ),
+        auIDs = auIDs
+      )
     },
     ignoreNULL = F
   )
