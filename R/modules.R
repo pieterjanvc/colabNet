@@ -132,6 +132,12 @@ mod_meshTree_server <- function(id, plotData) {
         boxText
       )
 
+      if (!"colour" %in% colnames(mtPlotData())) {
+        colour <- treemapColour(mtPlotData()$meshSum)
+      } else {
+        colour <- mtPlotData()$colour
+      }
+
       #Plotly treemap
       plot_ly(
         type = "treemap",
@@ -144,7 +150,7 @@ mod_meshTree_server <- function(id, plotData) {
         ),
         text = boxText,
         values = mtPlotData()$balanceVal,
-        marker = list(colors = treemapColour(mtPlotData()$meshSum)),
+        marker = list(colors = colour),
         textinfo = "text",
         hovertext = mtPlotData()$authors,
         hoverinfo = "text",
