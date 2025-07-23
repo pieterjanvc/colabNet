@@ -2,7 +2,7 @@
 % Please edit documentation in R/graph.R
 \name{copubGraphElements}
 \alias{copubGraphElements}
-\title{Title}
+\title{Create graph elements (nodes, edges) from co-publication data frame}
 \usage{
 copubGraphElements(articleInfo)
 }
@@ -15,12 +15,12 @@ the following columns
 \item lastName
 \item firstName
 \item year: year of article publication
-\item month: month of article publication
+\item month: month of article publication.
 }}
 }
 \value{
 a list of nodes an edges used to generate graphs / stats
 }
 \description{
-Title
+Create graph elements (nodes, edges) from co-publication data frame
 }

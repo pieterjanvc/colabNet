@@ -760,75 +760,14 @@ server <- function(input, output, session) {
     rangeData <- preCompData()$allArticles |>
       filter(between(year, range[1], range[2]))
 
-    nodes <- rangeData |>
-      group_by(id = auID) |>
-      summarise(
-        label = sprintf("%s %s", lastName[1], firstName[1]),
-        year = min(year),
-        month = min(month),
-        .groups = "drop"
-      )
+    graphElements <- copubGraphElements(rangeData)
+    graphStats <- copubGraphStats(graphElements)
 
-    edges <- rangeData |>
-      group_by(arID, year, month) |>
-      filter(n() > 1)
-
-    if (nrow(edges) == 0) {
-      edges <- data.frame(
-        id = integer(),
-        from = integer(),
-        to = integer(),
-        weight = integer()
-      )
-    } else {
-      edges <- edges |>
-        reframe(as.data.frame(combn(auID, 2) |> t())) |>
-        rename(from = V1, to = V2) |>
-        group_by(from, to) |>
-        summarise(id = cur_group_id(), weight = n(), .groups = "drop")
-    }
-
-    g <- graph_from_data_frame(
-      d = edges,
-      vertices = nodes,
-      directed = F
-    )
-
-    # How many others have you published with
-    deg <- degree(g)
-
-    # Check how many sub-graphs there are and who belongs to which
-    comp <- components(g)
-
-    # Check how many are not connected to anyone
-    unconnected <- sum(comp$csize == 1)
-
-    # Distance matrix between authors
-    dis <- distances(g, algorithm = "unweighted", weights = NA)
-
-    # How close is the graph to be being fully connected
-    #  i.e. every author shares at least one publication with every other
-    dens <- edge_density(g)
-
-    # Probability that adjecent nodes (authors are connected)
-    # https://transportgeography.org/contents/methods/graph-theory-measures-indices/transitivity-graph/
-    trans <- transitivity(g)
-    trans <- ifelse(is.nan(trans), 0, trans)
-
-    return(list(
-      nodes = nodes,
-      edges = edges,
-      degree = deg,
-      components = comp,
-      unconnected = unconnected,
-      distances = dis,
-      density = dens,
-      transitivity = trans
-    ))
+    return(list(graphElements = graphElements, graphStats = graphStats))
   })
 
   output$netAnalisisPlot <- renderVisNetwork({
-    edges <- networkanalysis()$edges |>
+    edges <- networkanalysis()$graphElements$edges |>
       mutate(
         width = weight,
         label = as.character(weight),
@@ -840,7 +779,7 @@ server <- function(input, output, session) {
       )
 
     # Create a simple visNetwork graph
-    visNetwork(networkanalysis()$nodes, edges) |>
+    visNetwork(networkanalysis()$graphElements$nodes, edges) |>
       visNodes(
         size = 20,
         color = list(background = "lightblue", border = "blue"),
@@ -861,34 +800,92 @@ server <- function(input, output, session) {
   })
 
   output$summaryStats <- renderUI({
-    x <- networkanalysis()
-    #  average distance, ignoring unconnected
-    dis_avg <- x$dis[upper.tri(x$dis)]
+    x <- networkanalysis()$graphStats
+    # average distance, ignoring unconnected
+    dis_avg <- x$distances[upper.tri(x$dis)]
     dis_avg <- dis_avg[!is.infinite(dis_avg)]
     dis_avg <- ifelse(length(dis_avg) == 0, 0, mean(dis_avg))
-    nCopub <- c(x$edges$weight, rep(0, sum(x$comp$csize == 1)))
+
+    # addSpaces <- function(int, max) {
+    #   sapply(int, function(x) {
+    #     if (x == 0) {
+    #       return(" ")
+    #     }
+    #     paste(
+    #       rep("&nbsp;", floor(log10(max)) - floor(log10(x)) + 1),
+    #       collapse = ""
+    #     )
+    #   })
+    # }
+
+    authorStats <- x$authorStats |>
+      left_join(
+        authors |>
+          transmute(auID, name = paste(lastName, firstName, sep = ", ")),
+        by = "auID"
+      ) |>
+      mutate(
+        papers = sprintf(
+          "%i (%.2f%%)",
+          nColabs,
+          colabPerc
+        )
+      ) |>
+      arrange(desc(degree), desc(nColabs)) |>
+      select(
+        name,
+        connections = degree,
+        `papers (% total)` = papers,
+        nColabs,
+        group = membership,
+        betweenness,
+        closeness
+      )
 
     tagList(
+      h3("Author co-publication stats"),
+      # Table with stats by author
+      datatable(
+        authorStats,
+        rownames = F,
+        options = list(
+          pageLength = 5,
+          # Order papers column by hidden nColabs (0-index!)
+          columnDefs = list(
+            list(targets = 2, orderData = 3),
+            list(targets = 3, visible = F)
+          )
+        ),
+        escape = F
+      ),
       h3("Network Summary Stats"),
       tags$ul(
         tags$li(sprintf(
+          "Total number of authors in network: %i",
+          x$nAuthors
+        )),
+        tags$li(sprintf(
           "Average number of co-publications: %.2f (\u00B1 %.2f)",
-          mean(nCopub),
-          sd(nCopub)
+          mean(x$authorStats$nColabs),
+          sd(x$authorStats$nColabs)
         )),
         tags$li(sprintf(
           "Maximum number of co-publications: %i",
-          max(x$edges$weight, 0)
+          max(x$authorStats$nColabs, 0)
         )),
         tags$li(
           sprintf(
             "Number of authors without any co-publications: %i",
-            sum(x$comp$csize == 1)
+            sum(x$authorStats$unconnected)
           )
         ),
         tags$li(sprintf(
           "Average distance between co-publishing authors: %.1f",
           dis_avg
+        )),
+        tags$li(sprintf(
+          "Maximum distance between authors (network diameter): %i",
+          x$diameter
         )),
         tags$li(sprintf(
           "How close to perfect collaboration (everyone collaborates with everyone else): %.1f%%",
@@ -897,6 +894,10 @@ server <- function(input, output, session) {
         tags$li(sprintf(
           "Probability that authors who share a collborator also collaborated together (transitivity): %.1f%%",
           x$transitivity * 100
+        )),
+        tags$li(sprintf(
+          "How easy would it be to work with anyone in the network (global efficiency): %.1f%%",
+          x$globalEffiency * 100
         ))
       )
     )
