@@ -287,7 +287,7 @@ copubTrendInfo <- function(articleInfo, windowSize = 5) {
         "Co-publication network statistics with %s year sliding window",
         windowSize
       ),
-      color = "Full 5 year data"
+      color = sprintf("Full %i years data", windowSize)
     ) +
     theme_minimal() +
     theme(
