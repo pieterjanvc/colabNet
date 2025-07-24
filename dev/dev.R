@@ -8,140 +8,145 @@ dbSetup(colabNetDB, checkSchema = T)
 
 pool <- dbGetConn()
 
-articleInfo <- allArticles
+# dbDisconnect(pool)
 
-## Get the nodes and edges
-nodes <- articleInfo |>
-  group_by(id = auID) |>
-  summarise(
-    label = sprintf("%s %s", lastName[1], firstName[1]),
-    year = min(year),
-    month = min(month),
-    .groups = "drop"
-  )
+# articleInfo <- allArticles
 
-edges <- articleInfo |>
-  group_by(arID, year, month) |>
-  filter(n() > 1)
+branchID <- selected
+filterIDs <- branchIDs
 
-if (nrow(edges) == 0) {
-  edges <- data.frame(
-    id = integer(),
-    from = integer(),
-    to = integer(),
-    weight = integer()
-  )
-} else {
-  edges <- edges |>
-    reframe(as.data.frame(combn(auID, 2) |> t())) |>
-    rename(from = V1, to = V2) |>
-    group_by(from, to) |>
-    summarise(id = cur_group_id(), weight = n(), .groups = "drop")
+selected %in% branchIDs
+
+
+id = treemap$branchID
+parent = treemap$parentBranchID
+colourCode = treemap$colourCode
+leaves <- id[!id %in% parent]
+
+shared[id %in% leaves] = status[id %in% leaves]
+
+
+sharedCheck <- function(treemap) {
+  sharedCheck <- treemap |>
+    select(branchID, parentBranchID, colourCode) |>
+    group_by(parentBranchID) |>
+    mutate(shared = n_distinct(colourCode[colourCode != 1]) > 1) |>
+    ungroup()
+
+  sharedBranches <- sharedCheck |>
+    filter(branchID %in% leaves) |>
+    filter(shared) |>
+    pull(parentBranchID)
+
+  while (length(sharedBranches) > 0) {
+    sharedCheck <- sharedCheck |>
+      mutate(shared = shared | (branchID %in% sharedBranches))
+
+    sharedBranches <- sharedCheck |>
+      filter(branchID %in% sharedBranches) |>
+      filter(shared) |>
+      pull(parentBranchID) |>
+      unique()
+  }
+
+  treemap$shared = sharedCheck$shared
+  return(treemap)
 }
 
-### Get the graph stats
-colabGraphStats <- function(nodes, egdes) {
-  # Create an igraph graph object
-  g <- graph_from_data_frame(
-    d = edges |> select(from, to, weight),
-    vertices = nodes$id,
-    directed = F
-  )
+test <- sharedCheck(treemap)
 
-  statsTable <- data.frame(
-    id = sort(nodes$id)
-  )
 
-  # Total number of authors
-  nAuthors <- nrow(nodes)
+colourCode[id %in% leaves]
+#Function to find the leave values
+leafVal <- function(curID, curVal) {
+  if (curID %in% leaves) {
+    return(setNames(curID, colourCode[id == curID]))
+  } else {
+    ids <- id[parent == curID]
+    ids <- ids[!is.na(ids)]
+    newVal <- colourCode[id == curID]
+    results <- sapply(ids, leafVal, curVal = newVal)
+    return(results)
+  }
+}
 
-  # Collaborations per author
-  colabs <- rbind(
-    edges |> select(from, to, weight),
-    edges |> select(from = to, to = from, weight)
-  ) |>
-    group_by(id = from) |>
-    summarise(nColabs = sum(weight), .groups = "drop")
+test <- leafVal(0, 1)
 
-  colabs <- rbind(
-    colabs,
-    data.frame(id = nodes$id[!nodes$id %in% colabs$id], nColabs = 0)
-  ) |>
-    mutate(
-      colabPerc = nColabs / sum(nColabs) * 100
+
+sharedCheck <- function(treemap) {
+  sharedCheck <- treemap |>
+    select(branchID, parentBranchID, colourCode, nAuthors)
+
+  parentBranchIDs <- sharedCheck$parentBranchID
+  sharedBranches <- sharedCheck |>
+    filter(!branchID %in% parentBranchIDs) |>
+    group_by(branchID = parentBranchID) |>
+    summarise(
+      code = ifelse(
+        n_distinct(colourCode[colourCode != 1]) > 1,
+        1,
+        colourCode[1]
+      )
     )
 
-  statsTable <- statsTable |> left_join(colabs, by = "id")
+  while (nrow(sharedBranches) > 0) {
+    sharedCheck <- sharedCheck |>
+      left_join(sharedBranches, by = "branchID") |>
+      mutate(
+        colourCode = ifelse(!is.na(code) & nAuthors == 0, code, colourCode)
+      ) |>
+      select(-code)
 
-  # How many others have you published with
-  deg <- degree(g)
-  deg <- data.frame(id = as.integer(names(deg)), degree = unname(deg))
+    sharedBranches <- sharedCheck |>
+      filter(
+        branchID %in% sharedBranches$branchID[!is.na(sharedBranches$code)]
+      ) |>
+      group_by(branchID = parentBranchID) |>
+      summarise(
+        code = ifelse(
+          n_distinct(colourCode[colourCode != 1]) > 1,
+          1,
+          colourCode[1]
+        )
+      )
+  }
 
-  statsTable <- statsTable |> left_join(deg, by = "id")
-
-  # Check how many sub-graphs there are and who belongs to which
-  # Can be used to calculate
-  comp <- components(g)
-  comp$membership <- data.frame(
-    id = as.integer(names(comp$membership)),
-    membership = unname(comp$membership)
-  )
-  comp$largest_n = max(comp$csize)
-  comp$largest_perc = max(comp$csize) / sum(comp$csize) * 100
-
-  statsTable <- statsTable |>
-    left_join(comp$membership, by = "id") |>
-    mutate(unconnected = colabPerc == 0)
-
-  # Check how many are not connected to anyone
-  unconnected <- sum(comp$csize == 1)
-
-  # Distance matrix between authors (Inf = unconnected)
-  dis <- distances(g, algorithm = "unweighted", weights = NA)
-
-  # The graph diameters (longest distance between authors who are connected)
-  diam <- max(dis[!is.infinite(dis)])
-
-  # How close is the graph to be being fully connected
-  #  i.e. every author shares at least one publication with every other
-  dens <- edge_density(g)
-
-  # How often does an author lie on shortest path between two others (i.e. connects them)
-  betw <- betweenness(g, directed = F, weights = NA)
-  betw <- data.frame(id = as.integer(names(betw)), betweenness = unname(betw))
-  statsTable <- statsTable |> left_join(betw, by = "id")
-
-  # How how close an author is to all others in the network (normalised)
-  closeNorm <- closeness(g, weights = NA, normalized = T)
-  closeNorm <- data.frame(
-    id = as.integer(names(closeNorm)),
-    closeness = unname(closeNorm)
-  )
-  statsTable <- statsTable |> left_join(closeNorm, by = "id")
-
-  # Global efficiency
-  glob <- global_efficiency(g, weights = NA, directed = F)
-
-  # Probability that adjecent nodes (authors are connected)
-  # https://transportgeography.org/contents/methods/graph-theory-measures-indices/transitivity-graph/
-  trans <- transitivity(g)
-
-  return(list(
-    authorStats = statsTable,
-    nAuthors = nAuthors,
-    components = comp,
-    nUnconnected = unconnected,
-    distances = dis,
-    diameter = diam,
-    density = dens,
-    globalEffiency = glob,
-    transitivity = trans
-  ))
+  treemap$colourCode = sharedCheck$colourCode
+  return(treemap)
 }
 
-test <- colabGraphStats(nodes, edges)
 
-copubGraphStats(
-  auIDs = nodes$id,
-  copub = edges |> select(au1 = from, au2 = to, n = weight)
-)
+test <- sharedCheck(treemap)
+
+sharedCheck <- function(treemap) {
+  sharedCheck <- treemap |>
+    select(branchID, parentBranchID, colourCode, nAuthors, minLvl)
+
+  for (lvl in max(sharedCheck$minLvl):1) {
+    lvlInfo <- sharedCheck |>
+      filter(minLvl == lvl) |>
+      group_by(branchID = parentBranchID) |>
+      summarise(
+        code = case_when(
+          any(colourCode == 1) ~ 1,
+          n_distinct(colourCode) > 1 ~ 1,
+          TRUE ~ colourCode[1]
+        )
+      )
+
+    sharedCheck <- sharedCheck |>
+      left_join(lvlInfo, by = "branchID") |>
+      mutate(
+        colourCode = case_when(
+          is.na(code) ~ colourCode,
+          nAuthors == 0 ~ code,
+          colourCode != code ~ 1,
+          TRUE ~ colourCode
+        )
+      ) |>
+      select(-code)
+  }
+
+  treemap$colourCode = sharedCheck$colourCode
+  return(treemap)
+}

@@ -380,19 +380,11 @@ paperMeshTree <- function(papermesh, meshtree) {
     full_join(
       meshtree |>
         mutate(root = str_extract(treenum, "^.")),
-      select(
-        meshui,
-        nodeID = branchID,
-        parent = parentBranchID,
-        lvl = level,
-        root
-      ) |>
-        distinct(),
       by = "meshui",
       relationship = "many-to-many"
     ) |>
     mutate(
-      auID = ifelse(is.na(auID), auID[1], auID),
+      auID = ifelse(is.na(auID), 0, auID),
       nPapers = ifelse(is.na(nPapers), as.integer(0), nPapers),
     )
 }

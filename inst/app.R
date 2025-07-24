@@ -106,14 +106,16 @@ preCompData <- reactivePoll(
       left_join(au |> select(auID, name), by = "auID") |>
       mutate(name = ifelse(nPapers == 0, "", name))
 
-    plotData <- treemapData(papermeshtree)
+    # plotData <- treemapData(papermeshtree)
     overlapscore <- zooScore(papermeshtree)
 
     print("... finished")
     return(
       list(
         authors = authors,
-        plotData = plotData,
+        # branchInfo = branchInfo,
+        # plotData = plotData,
+        papermeshtree = papermeshtree,
         overlapscore = overlapscore,
         allArticles = allArticles
       )
@@ -412,7 +414,7 @@ server <- function(input, output, session) {
     } else if (input$tabs_exploration == "tab_meshTree") {
       setArticleTable(arIDByMesh(
         mtOverviewSelected()$selected,
-        mtOverviewSelected()$branchIDs
+        mtOverviewSelected()$mtrIDs
       ))
     } else if (input$tabs_exploration == "tab_comparison") {
       # We're only looking at two authors
@@ -423,7 +425,7 @@ server <- function(input, output, session) {
       setArticleTable(
         arIDByMesh(
           mtComparisonSelected()$selected,
-          mtComparisonSelected()$branchIDs
+          mtComparisonSelected()$mtrIDs
         ),
         auIDs = auIDs
       )
@@ -478,37 +480,6 @@ server <- function(input, output, session) {
   # Nodes and Edges for the co-publication network
   coPub <- reactive({
     req(nrow(preCompData()$allArticles) > 0)
-
-    # nodes <- preCompData()$allArticles |>
-    #   group_by(id = auID) |>
-    #   summarise(
-    #     label = sprintf("%s %s", lastName[1], firstName[1]),
-    #     .groups = "drop"
-    #   )
-    #
-    # edges <- preCompData()$allArticles |>
-    #   group_by(arID) |>
-    #   filter(n() > 1)
-    #
-    # if (nrow(edges) == 0) {
-    #   edges <- data.frame(
-    #     arID = integer(),
-    #     id = integer(),
-    #     from = integer(),
-    #     to = integer()
-    #   )
-    # } else {
-    #   edges <- preCompData()$allArticles |>
-    #     group_by(arID) |>
-    #     filter(n() > 1) |>
-    #     reframe(as.data.frame(combn(auID, 2) |> t())) |>
-    #     rename(from = V1, to = V2) |>
-    #     group_by(from, to) |>
-    #     mutate(id = cur_group_id()) |>
-    #     ungroup()
-    # }
-    #
-    # list(nodes = nodes, edges = edges)
     copubGraphElements(preCompData()$allArticles)
   })
 
@@ -576,31 +547,32 @@ server <- function(input, output, session) {
 
   mtOverviewSelected <- mod_meshTree_server(
     "meshTree_overview",
-    plotData = reactive(preCompData()$plotData)
+    papermeshtree = reactive(preCompData()$papermeshtree)
   )
 
   observeEvent(mtOverviewSelected(), {
     setArticleTable(arIDByMesh(
-      mtOverviewSelected()$selected,
-      mtOverviewSelected()$branchIDs
+      branchID = mtOverviewSelected()$selected,
+      mtrIDs = mtOverviewSelected()$mtrIDs
     ))
   })
 
   # Get article IDs based on a branch in the MeSH tree that is selected
-  arIDByMesh <- function(branchID, filterIDs = NULL) {
+  #  provode a list of mtrIDs if the tree is being filtered
+  arIDByMesh <- function(branchID, mtrIDs = NULL) {
     if (length(branchID) > 1) {
       stop("You can only select one tree branch at the same time")
     }
 
     # This will retrun the full table when supplied to setArticleTable
-    if (length(branchID) == 0 || (branchID == 0 & length(filterIDs) == 0)) {
+    if (length(branchID) == 0 || (branchID == 0 & length(mtrIDs) == 0)) {
       return(NULL)
     }
 
     # Only filter the full table for limited tree but at root (branchID = NULL)
-    if (branchID == 0 & length(filterIDs) > 0) {
+    if (branchID == 0 & length(mtrIDs) > 0) {
       result <- tbl(pool, "meshTree") |>
-        filter(mtrID %in% local(filterIDs)) |>
+        filter(mtrID %in% local(mtrIDs)) |>
         left_join(tbl(pool, "meshLink"), by = "uid") |>
         left_join(tbl(pool, "meshTerm"), by = "meshui") |>
         left_join(tbl(pool, "mesh_article"), by = "meshui") |>
@@ -618,8 +590,8 @@ server <- function(input, output, session) {
     result <- tbl(pool, "meshTree") |>
       filter(str_like(treenum, local({{ children }})))
     #Filter in case the tree is limited by mtPlotLimit input
-    if (length(filterIDs) > 0) {
-      result <- result |> filter(mtrID %in% local(filterIDs))
+    if (length(mtrIDs) > 0) {
+      result <- result |> filter(mtrID %in% local(mtrIDs))
     }
 
     result |>
@@ -630,15 +602,15 @@ server <- function(input, output, session) {
       unique()
   }
 
-  observeEvent(event_data("plotly_click", "treemap_overview"), {
-    branchIDs <- preCompData()$plotData |>
-      plotDataFilter(input$mtPlotLimit) |>
-      pull(branchID)
-    selected <- branchIDs[
-      event_data("plotly_click", "treemap_overview")$pointNumber + 1
-    ]
-    setArticleTable(arIDByMesh(selected, branchIDs))
-  })
+  # observeEvent(event_data("plotly_click", "treemap_overview"), {
+  #   branchIDs <- preCompData()$papermeshtree |>
+  #     plotDataFilter(input$mtPlotLimit) |>
+  #     pull(branchID)
+  #   selected <- branchIDs[
+  #     event_data("plotly_click", "treemap_overview")$pointNumber + 1
+  #   ]
+  #   setArticleTable(arIDByMesh(selected, branchIDs))
+  # })
 
   # ---- Research Comparison ----
 
@@ -707,26 +679,29 @@ server <- function(input, output, session) {
 
     # Get the treemap for the two authors
     if (length(input$overlapCat) == 0) {
-      tmComp <- treeMapComparison(auIDs[1], auIDs[2])
+      tmComp <- papermeshtreeFromAuIDs(c(auIDs[1], auIDs[2]))
     } else {
-      tmComp <- treeMapComparison(auIDs[1], auIDs[2], roots = input$overlapCat)
+      tmComp <- papermeshtreeFromAuIDs(
+        c(auIDs[1], auIDs[2]),
+        roots = input$overlapCat
+      )
       #TODO make sure the table filters with arIDs only found in the selected subtrees
     }
 
     # Update the article table with all articles for either author
-    arIDs <- preCompData()$allArticles |>
-      filter(auID %in% {{ auIDs }}) |>
-      pull(arID)
-    setArticleTable(arIDs = arIDs, auIDs = auIDs)
+    # arIDs <- preCompData()$allArticles |>
+    #   filter(auID %in% {{ auIDs }}) |>
+    #   pull(arID)
+    # setArticleTable(arIDs = arIDs, auIDs = auIDs)
 
     # Return the treemap
-    tmComp
+    tmComp$papermeshtree
   })
 
   # MeSH tree for two author comparison
   mtComparisonSelected <- mod_meshTree_server(
     "meshTree_comparison",
-    plotData = treemapcomp
+    papermeshtree = treemapcomp
   )
 
   # Get articles in part of the author comparison MeSH tree branch selected
@@ -743,7 +718,7 @@ server <- function(input, output, session) {
       setArticleTable(
         arIDByMesh(
           mtComparisonSelected()$selected,
-          mtComparisonSelected()$branchIDs
+          mtComparisonSelected()$mtrIDs
         ),
         auIDs = auIDs
       )

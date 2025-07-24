@@ -75,7 +75,9 @@ nodeSum <- function(node, parent, value) {
 #' @return Dataframe containing all info needed to build a plotly treemap
 #'
 #' @export
-treemapData <- function(papermeshtree) {
+treemapData <- function(papermeshtree, colorComparison = T) {
+  nAuthors <- n_distinct(papermeshtree$auID[papermeshtree$auID != 0])
+  # papermeshtree <<- papermeshtree
   # Merge branches with only one child into a single node
   treemap <- papermeshtree |>
     arrange(treenum) |>
@@ -97,6 +99,12 @@ treemapData <- function(papermeshtree) {
         sort(unique(sprintf("%s", name))),
         collapse = "\n"
       ),
+      nAuthors = n_distinct(auID[auID != 0]),
+      colourCode = ifelse(
+        nAuthors == 1,
+        auID[auID != 0][1],
+        0
+      ),
       root = root[1],
       .groups = "drop"
     )
@@ -104,7 +112,8 @@ treemapData <- function(papermeshtree) {
   treemap <- treemap |>
     mutate(
       parentBranchID = ifelse(is.na(parentBranchID), 0, parentBranchID),
-      hasChildren = branchID %in% parentBranchID
+      hasChildren = branchID %in% parentBranchID,
+      colourCode = colourCode |> factor() |> as.integer()
     )
 
   meshSum <- nodeSum(
@@ -116,7 +125,7 @@ treemapData <- function(papermeshtree) {
 
   treemap <- treemap |> left_join(meshSum, by = "branchID")
 
-  bind_rows(
+  treemap <- bind_rows(
     data.frame(
       branchID = as.integer(0),
       parentBranchID = NA,
@@ -124,11 +133,68 @@ treemapData <- function(papermeshtree) {
       meshterm = "MeSH Tree",
       treemapVal = 0,
       nPapers = 0,
+      colourCode = 1,
       meshSum = sum(treemap |> filter(parentBranchID == 0) |> pull(meshSum)),
       hasChildren = T
     ),
     treemap
   )
+
+  # Calculate the correct colour code working up the tree from the roots
+  updateColourCode <- function(treemap) {
+    sharedCheck <- treemap |>
+      select(branchID, parentBranchID, colourCode, nAuthors, minLvl)
+
+    for (lvl in max(sharedCheck$minLvl):1) {
+      lvlInfo <- sharedCheck |>
+        filter(minLvl == lvl) |>
+        group_by(branchID = parentBranchID) |>
+        summarise(
+          code = case_when(
+            any(colourCode == 1) ~ 1,
+            n_distinct(colourCode) > 1 ~ 1,
+            TRUE ~ colourCode[1]
+          )
+        )
+
+      sharedCheck <- sharedCheck |>
+        left_join(lvlInfo, by = "branchID") |>
+        mutate(
+          colourCode = case_when(
+            is.na(code) ~ colourCode,
+            nAuthors == 0 ~ code,
+            colourCode != code ~ 1,
+            TRUE ~ colourCode
+          )
+        ) |>
+        select(-code)
+    }
+
+    treemap$colourCode = sharedCheck$colourCode
+    return(treemap)
+  }
+
+  treemap <- updateColourCode(treemap)
+
+  # Set the colour scheme based on how many authors are in the data
+  if (nAuthors == 2 & colorComparison) {
+    colSel <- c("#7aa64c", "#3398DB", "#F1C40E")
+
+    treemap <- treemap |>
+      group_by(colourCode) |>
+      mutate(
+        colour = treemapColour(
+          meshSum,
+          minCol = lightenColour(colSel[colourCode[1]], 0.9),
+          maxCol = colSel[colourCode[1]]
+        )
+      ) |>
+      ungroup()
+  } else {
+    treemap$colour <- treemapColour(treemap$meshSum)
+  }
+
+  treemap #|> select(-colourCode)
 }
 
 #' Generate colours for the treemap based on values
@@ -186,11 +252,11 @@ treemapColour <- function(
 #'  Path to the ColabNet database or existing connection
 #'
 #' @return List with two elements
-#'  - treemapdata: Dataframe used to build a TreeMap
+#'  - papermeshtree: Dataframe used to build a TreeMap
 #'  - authors: Data frame with default author name and ID
 #'
 #' @export
-treemapFromAuIDs <- function(auIDs, roots, dbInfo) {
+papermeshtreeFromAuIDs <- function(auIDs, roots, dbInfo) {
   conn <- dbGetConn(dbInfo)
 
   papermesh <- dbPaperMesh(auIDs, roots = roots)
@@ -213,105 +279,7 @@ treemapFromAuIDs <- function(auIDs, roots, dbInfo) {
 
   dbDisconnect(conn)
 
-  return(list(treemapdata = treemapData(papermeshtree), authors = au))
-}
-
-#' Generate a treemap that compares two authors
-#'
-#' @param au1 Author ID for first author
-#' @param au2 Author ID for second author
-#' @param roots (Optional) Vector of single letter representing the tree roots
-#' to include. If not specified, all categories are returned
-#' @param dbInfo (optional if dbSetup() has been run)
-#'  Path to the ColabNet database or existing connection
-#'
-#' @return Dataframe to build TreeMap
-#'
-#' @export
-treeMapComparison <- function(au1, au2, roots, dbInfo) {
-  # Get the treemap based on the tho authors only
-  treemapdata <- treemapFromAuIDs(c(au1, au2), roots = roots, dbInfo)
-
-  plotData <- treemapdata$treemapdata
-
-  # See which author has which MeSH term
-  plotData <- plotData |>
-    mutate(
-      authors = str_remove(authors, "^\n"), # Because sometimes starts with \n
-      colourCode = case_when(
-        is.na(authors) ~ 1,
-        authors == treemapdata$authors$name[1] ~ 2,
-        authors == treemapdata$authors$name[2] ~ 3,
-        authors == paste(sort(treemapdata$authors$name), collapse = "\n") ~ 4,
-        TRUE ~ 1
-      )
-    )
-
-  # test <- plotData
-  # plotData <- test
-
-  # Work up the tree to see which branches are shared
-  toUpdate <- plotData |>
-    filter(!hasChildren) |>
-    select(branchID = parentBranchID, childCol = colourCode) |>
-    group_by(branchID) |>
-    mutate(
-      childCol = case_when(
-        all(2:3 %in% childCol) ~ 4,
-        TRUE ~ max(childCol)
-      )
-    ) |>
-    summarise(
-      childCol = childCol[1],
-      .groups = "drop"
-    ) |>
-    ungroup() |>
-    distinct()
-
-  while (nrow(toUpdate) > 0) {
-    plotData <- plotData |>
-      left_join(toUpdate, by = "branchID") |>
-      mutate(
-        colourCode = case_when(
-          is.na(childCol) ~ colourCode,
-          childCol > colourCode ~ childCol,
-          TRUE ~ colourCode
-        )
-      )
-
-    toUpdate <- plotData |>
-      filter(!is.na(childCol)) |>
-      select(branchID = parentBranchID, childCol = colourCode) |>
-      group_by(branchID) |>
-      mutate(
-        childCol = case_when(
-          all(2:3 %in% childCol) ~ 4,
-          TRUE ~ max(childCol, 1)
-        )
-      ) |>
-      summarise(
-        childCol = childCol[1],
-        .groups = "drop"
-      ) |>
-      ungroup() |>
-      distinct()
-
-    plotData <- plotData |> select(-childCol)
-  }
-
-  # Get a colour for each treemap cell based on the author and MeSH term sum
-  colSel <- c("#CCCCCC", "#3398DB", "#F1C40E", "#7aa64c")
-
-  plotData |>
-    group_by(colourCode) |>
-    mutate(
-      colour = treemapColour(
-        meshSum,
-        minCol = lightenColour(colSel[colourCode[1]], 0.9),
-        maxCol = colSel[colourCode[1]]
-      )
-    ) |>
-    ungroup()
+  return(list(papermeshtree = papermeshtree, authors = au))
 }
 
 #' Function to calculate values that will balance all rectangles of a Tree map

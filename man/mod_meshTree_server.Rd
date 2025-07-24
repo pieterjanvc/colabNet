@@ -4,7 +4,7 @@
 \alias{mod_meshTree_server}
 \title{MeSH Tree Shiny Module - Server}
 \usage{
-mod_meshTree_server(id, plotData)
+mod_meshTree_server(id, papermeshtree)
 }
 \arguments{
 \item{id}{ID for the module}
