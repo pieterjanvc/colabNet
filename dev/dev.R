@@ -12,141 +12,98 @@ pool <- dbGetConn()
 
 # articleInfo <- allArticles
 
-branchID <- selected
-filterIDs <- branchIDs
+# Create time dataframe
+library(ggplot2)
 
-selected %in% branchIDs
+trendInfo <- function(articleInfo, windowSize = 5) {
+  trends <- articleInfo
 
+  # Calculate network stats for each window
+  trends <- lapply(min(trends$year):max(trends$year), function(curYear) {
+    trends <- trends |>
+      filter(between(
+        year,
+        max(min(trends$year), curYear - windowSize),
+        curYear
+      ))
 
-id = treemap$branchID
-parent = treemap$parentBranchID
-colourCode = treemap$colourCode
-leaves <- id[!id %in% parent]
+    graphElements <- copubGraphElements(trends)
+    graphStats <- copubGraphStats(graphElements)
 
-shared[id %in% leaves] = status[id %in% leaves]
-
-
-sharedCheck <- function(treemap) {
-  sharedCheck <- treemap |>
-    select(branchID, parentBranchID, colourCode) |>
-    group_by(parentBranchID) |>
-    mutate(shared = n_distinct(colourCode[colourCode != 1]) > 1) |>
-    ungroup()
-
-  sharedBranches <- sharedCheck |>
-    filter(branchID %in% leaves) |>
-    filter(shared) |>
-    pull(parentBranchID)
-
-  while (length(sharedBranches) > 0) {
-    sharedCheck <- sharedCheck |>
-      mutate(shared = shared | (branchID %in% sharedBranches))
-
-    sharedBranches <- sharedCheck |>
-      filter(branchID %in% sharedBranches) |>
-      filter(shared) |>
-      pull(parentBranchID) |>
-      unique()
-  }
-
-  treemap$shared = sharedCheck$shared
-  return(treemap)
-}
-
-test <- sharedCheck(treemap)
-
-
-colourCode[id %in% leaves]
-#Function to find the leave values
-leafVal <- function(curID, curVal) {
-  if (curID %in% leaves) {
-    return(setNames(curID, colourCode[id == curID]))
-  } else {
-    ids <- id[parent == curID]
-    ids <- ids[!is.na(ids)]
-    newVal <- colourCode[id == curID]
-    results <- sapply(ids, leafVal, curVal = newVal)
-    return(results)
-  }
-}
-
-test <- leafVal(0, 1)
-
-
-sharedCheck <- function(treemap) {
-  sharedCheck <- treemap |>
-    select(branchID, parentBranchID, colourCode, nAuthors)
-
-  parentBranchIDs <- sharedCheck$parentBranchID
-  sharedBranches <- sharedCheck |>
-    filter(!branchID %in% parentBranchIDs) |>
-    group_by(branchID = parentBranchID) |>
-    summarise(
-      code = ifelse(
-        n_distinct(colourCode[colourCode != 1]) > 1,
-        1,
-        colourCode[1]
-      )
+    data.frame(
+      year = curYear,
+      nAuthors = graphStats$nAuthors,
+      nCopubs_avg = graphStats$authorStats$nCopubs |> mean(),
+      nColabs_avg = graphStats$authorStats$degree |> mean(),
+      largestComp = graphStats$components$largest_n,
+      unconnected = graphStats$nUnconnected,
+      distance_avg = graphStats$distance_avg,
+      diameter = graphStats$diameter,
+      density = graphStats$density,
+      globalEfficiency = graphStats$globalEffiency,
+      transitivity = graphStats$transitivity
+    )
+  }) |>
+    bind_rows() |>
+    mutate(
+      # The first years the sliding window is not complete and the last year
+      # is possible having missing data (year not compelte yet)
+      fullWindow = ((year - windowSize) >= min(year)) &
+        year < max(year) - 1,
+      unconnected_perc = unconnected / nAuthors,
+      # Diameter and distance need to be adjusted by network size
+      diameter_adj = diameter / log(nAuthors),
+      distance_avg_adj = distance_avg / log(nAuthors)
     )
 
-  while (nrow(sharedBranches) > 0) {
-    sharedCheck <- sharedCheck |>
-      left_join(sharedBranches, by = "branchID") |>
-      mutate(
-        colourCode = ifelse(!is.na(code) & nAuthors == 0, code, colourCode)
-      ) |>
-      select(-code)
+  # Convert the data into a long format for plotting
+  plotData <- trends |>
+    select(
+      year,
+      fullWindow,
+      nCopubs_avg,
+      nColabs_avg,
+      largestComp,
+      density,
+      globalEfficiency,
+      transitivity,
+      unconnected,
+      diameter_adj,
+      distance_avg_adj
+    ) |>
+    pivot_longer(cols = -c(year, fullWindow))
 
-    sharedBranches <- sharedCheck |>
-      filter(
-        branchID %in% sharedBranches$branchID[!is.na(sharedBranches$code)]
-      ) |>
-      group_by(branchID = parentBranchID) |>
-      summarise(
-        code = ifelse(
-          n_distinct(colourCode[colourCode != 1]) > 1,
-          1,
-          colourCode[1]
-        )
-      )
-  }
+  # Set the labels for the columns (will become facets)
+  facet_labels <- c(
+    nCopubs_avg = "Average co-publications",
+    nColabs_avg = "Average collaborators",
+    largestComp = "Size of largest graph component",
+    density = "Density",
+    globalEfficiency = "Global efficiency",
+    transitivity = "Transitivity",
+    unconnected = "Authors with no co-publications",
+    diameter_adj = "Size adjusted diameter",
+    distance_avg_adj = "Distance adjusted distance"
+  )
 
-  treemap$colourCode = sharedCheck$colourCode
-  return(treemap)
-}
+  # Generate the ggplot
+  plot <- ggplot(plotData, aes(x = year, y = value)) +
+    geom_line(aes(color = fullWindow, group = 1)) +
+    scale_color_manual(values = c("TRUE" = "#4791e5", "FALSE" = "#E59B47")) +
+    facet_wrap(
+      ~name,
+      scales = "free_y",
+      labeller = labeller(name = facet_labels)
+    ) +
+    labs(
+      title = sprintf(
+        "Co-publication network statistics with %s year sliding window",
+        windowSize
+      ),
+      color = "Full 5 year data"
+    ) +
+    theme_minimal() +
+    theme(legend.position = "bottom", legend.box = "horizontal")
 
-
-test <- sharedCheck(treemap)
-
-sharedCheck <- function(treemap) {
-  sharedCheck <- treemap |>
-    select(branchID, parentBranchID, colourCode, nAuthors, minLvl)
-
-  for (lvl in max(sharedCheck$minLvl):1) {
-    lvlInfo <- sharedCheck |>
-      filter(minLvl == lvl) |>
-      group_by(branchID = parentBranchID) |>
-      summarise(
-        code = case_when(
-          any(colourCode == 1) ~ 1,
-          n_distinct(colourCode) > 1 ~ 1,
-          TRUE ~ colourCode[1]
-        )
-      )
-
-    sharedCheck <- sharedCheck |>
-      left_join(lvlInfo, by = "branchID") |>
-      mutate(
-        colourCode = case_when(
-          is.na(code) ~ colourCode,
-          nAuthors == 0 ~ code,
-          colourCode != code ~ 1,
-          TRUE ~ colourCode
-        )
-      ) |>
-      select(-code)
-  }
-
-  treemap$colourCode = sharedCheck$colourCode
-  return(treemap)
+  return(list(trends = trends, plot = plot))
 }

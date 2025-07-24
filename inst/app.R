@@ -106,15 +106,12 @@ preCompData <- reactivePoll(
       left_join(au |> select(auID, name), by = "auID") |>
       mutate(name = ifelse(nPapers == 0, "", name))
 
-    # plotData <- treemapData(papermeshtree)
     overlapscore <- zooScore(papermeshtree)
 
     print("... finished")
     return(
       list(
         authors = authors,
-        # branchInfo = branchInfo,
-        # plotData = plotData,
         papermeshtree = papermeshtree,
         overlapscore = overlapscore,
         allArticles = allArticles
@@ -256,17 +253,23 @@ ui <- fluidPage(
       ),
       tabPanel(
         "Analysis",
-        visNetworkOutput("netAnalisisPlot", height = "60vh"),
-        sliderInput(
-          "analysisRange",
-          "Analysis Range",
-          min = 0,
-          max = 1,
-          value = c(0, 1),
-          step = 1,
-          sep = ""
-        ),
-        uiOutput("summaryStats")
+        tabsetPanel(
+          tabPanel(
+            "Overview",
+            visNetworkOutput("netAnalisisPlot", height = "60vh"),
+            sliderInput(
+              "analysisRange",
+              "Analysis Range",
+              min = 0,
+              max = 1,
+              value = c(0, 1),
+              step = 1,
+              sep = ""
+            ),
+            uiOutput("summaryStats")
+          ),
+          tabPanel("Trends", plotOutput("copubTrendsPlot", height = "80vh"))
+        )
       ),
       tabPanel(
         "Admin",
@@ -732,7 +735,7 @@ server <- function(input, output, session) {
   networkanalysis <- reactive({
     range <- input$analysisRange
     req(range[1] > 0) # Ignore the init stage
-    rangeData <- preCompData()$allArticles |>
+    rangeData <<- preCompData()$allArticles |>
       filter(between(year, range[1], range[2]))
 
     graphElements <- copubGraphElements(rangeData)
@@ -777,9 +780,9 @@ server <- function(input, output, session) {
   output$summaryStats <- renderUI({
     x <- networkanalysis()$graphStats
     # average distance, ignoring unconnected
-    dis_avg <- x$distances[upper.tri(x$dis)]
-    dis_avg <- dis_avg[!is.infinite(dis_avg)]
-    dis_avg <- ifelse(length(dis_avg) == 0, 0, mean(dis_avg))
+    # dis_avg <- x$distances[upper.tri(x$dis)]
+    # dis_avg <- dis_avg[!is.infinite(dis_avg)]
+    # dis_avg <- ifelse(length(dis_avg) == 0, 0, mean(dis_avg))
 
     # addSpaces <- function(int, max) {
     #   sapply(int, function(x) {
@@ -795,23 +798,23 @@ server <- function(input, output, session) {
 
     authorStats <- x$authorStats |>
       left_join(
-        authors |>
+        preCompData()$authors |>
           transmute(auID, name = paste(lastName, firstName, sep = ", ")),
         by = "auID"
       ) |>
       mutate(
         papers = sprintf(
           "%i (%.2f%%)",
-          nColabs,
+          nCopubs,
           colabPerc
         )
       ) |>
-      arrange(desc(degree), desc(nColabs)) |>
+      arrange(desc(degree), desc(nCopubs)) |>
       select(
         name,
         connections = degree,
         `papers (% total)` = papers,
-        nColabs,
+        nCopubs,
         group = membership,
         betweenness,
         closeness
@@ -825,7 +828,7 @@ server <- function(input, output, session) {
         rownames = F,
         options = list(
           pageLength = 5,
-          # Order papers column by hidden nColabs (0-index!)
+          # Order papers column by hidden nCopubs (0-index!)
           columnDefs = list(
             list(targets = 2, orderData = 3),
             list(targets = 3, visible = F)
@@ -841,12 +844,12 @@ server <- function(input, output, session) {
         )),
         tags$li(sprintf(
           "Average number of co-publications: %.2f (\u00B1 %.2f)",
-          mean(x$authorStats$nColabs),
-          sd(x$authorStats$nColabs)
+          mean(x$authorStats$nCopubs),
+          sd(x$authorStats$nCopubs)
         )),
         tags$li(sprintf(
           "Maximum number of co-publications: %i",
-          max(x$authorStats$nColabs, 0)
+          max(x$authorStats$nCopubs, 0)
         )),
         tags$li(
           sprintf(
@@ -856,7 +859,7 @@ server <- function(input, output, session) {
         ),
         tags$li(sprintf(
           "Average distance between co-publishing authors: %.1f",
-          dis_avg
+          x$dis_avg
         )),
         tags$li(sprintf(
           "Maximum distance between authors (network diameter): %i",
@@ -876,6 +879,12 @@ server <- function(input, output, session) {
         ))
       )
     )
+  })
+
+  # ---- Co-publication Network trends over time
+
+  output$copubTrendsPlot <- renderPlot({
+    copubTrendInfo(preCompData()$allArticles)$plot
   })
 
   # ---- ADMIN TAB ----

@@ -94,14 +94,14 @@ copubGraphStats <- function(graphElements) {
     graphElements$edges |> select(from = to, to = from, weight)
   ) |>
     group_by(auID = from) |>
-    summarise(nColabs = sum(weight), .groups = "drop")
+    summarise(nCopubs = sum(weight), .groups = "drop")
 
   colabs <- rbind(
     colabs,
-    data.frame(auID = auIDs[!auIDs %in% colabs$auID], nColabs = 0)
+    data.frame(auID = auIDs[!auIDs %in% colabs$auID], nCopubs = 0)
   ) |>
     mutate(
-      colabPerc = nColabs / sum(nColabs) * 100,
+      colabPerc = nCopubs / sum(nCopubs) * 100,
       colabPerc = ifelse(is.nan(colabPerc), 0, colabPerc)
     )
 
@@ -133,6 +133,11 @@ copubGraphStats <- function(graphElements) {
   # Distance matrix between authors (Inf = unconnected)
   dis <- distances(g, algorithm = "unweighted", weights = NA)
 
+  # average distance, ignoring unconnected
+  dis_avg <- dis[upper.tri(dis)]
+  dis_avg <- dis_avg[!is.infinite(dis_avg)]
+  dis_avg <- ifelse(length(dis_avg) == 0, 0, mean(dis_avg))
+
   # The graph diameters (longest distance between authors who are connected)
   diam <- max(dis[!is.infinite(dis)])
 
@@ -162,10 +167,11 @@ copubGraphStats <- function(graphElements) {
   # Probability that adjecent nodes (authors are connected)
   # https://transportgeography.org/contents/methods/graph-theory-measures-indices/transitivity-graph/
   trans <- transitivity(g)
+  trans <- ifelse(is.nan(trans), 0, trans)
 
   statsTable <- statsTable |>
     mutate(
-      across(c(nColabs, degree, membership, betweenness), as.integer),
+      across(c(nCopubs, degree, membership, betweenness), as.integer),
       across(c(colabPerc, closeness), round, digits = 2)
     )
 
@@ -175,9 +181,120 @@ copubGraphStats <- function(graphElements) {
     components = comp,
     nUnconnected = unconnected,
     distances = dis,
+    distance_avg = dis_avg,
     diameter = diam,
     density = dens,
     globalEffiency = glob,
     transitivity = trans
   ))
+}
+
+#' Calculate the stats trends for a co-publication network over time
+#'
+#' @param articleInfo Data frame with articleInfo
+#' @param windowSize Default = 5. The size of the sliding window to calculate stats
+#'
+#' @import ggplot2 dplyr tidyr
+#'
+#' @returns list with two elements
+#' - trends: A data frame with the trend stats over time
+#' - plot: a ggplot showing the stats over time in facets
+#'
+#' @export
+#'
+copubTrendInfo <- function(articleInfo, windowSize = 5) {
+  trends <- articleInfo
+
+  # Calculate network stats for each window
+  trends <- lapply(min(trends$year):max(trends$year), function(curYear) {
+    trends <- trends |>
+      filter(between(
+        year,
+        max(min(trends$year), curYear - windowSize),
+        curYear
+      ))
+
+    graphElements <- copubGraphElements(trends)
+    graphStats <- copubGraphStats(graphElements)
+
+    data.frame(
+      year = curYear,
+      nAuthors = graphStats$nAuthors,
+      nCopubs_avg = graphStats$authorStats$nCopubs |> mean(),
+      nColabs_avg = graphStats$authorStats$degree |> mean(),
+      largestComp = graphStats$components$largest_n,
+      unconnected = graphStats$nUnconnected,
+      distance_avg = graphStats$distance_avg,
+      diameter = graphStats$diameter,
+      density = graphStats$density,
+      globalEfficiency = graphStats$globalEffiency,
+      transitivity = graphStats$transitivity
+    )
+  }) |>
+    bind_rows() |>
+    mutate(
+      # The first years the sliding window is not complete and the last year
+      # is possible having missing data (year not compelte yet)
+      fullWindow = ((year - windowSize) >= min(year)) &
+        year < max(year) - 1,
+      unconnected_perc = unconnected / nAuthors,
+      # Diameter and distance need to be adjusted by network size
+      diameter_adj = diameter / log(nAuthors),
+      distance_avg_adj = distance_avg / log(nAuthors)
+    )
+
+  # Convert the data into a long format for plotting
+  plotData <- trends |>
+    select(
+      year,
+      fullWindow,
+      nCopubs_avg,
+      nColabs_avg,
+      largestComp,
+      density,
+      globalEfficiency,
+      transitivity,
+      unconnected,
+      diameter_adj,
+      distance_avg_adj
+    ) |>
+    pivot_longer(cols = -c(year, fullWindow))
+
+  # Set the labels for the columns (will become facets)
+  facet_labels <- c(
+    nCopubs_avg = "Average co-publications",
+    nColabs_avg = "Average collaborators",
+    largestComp = "Size of largest graph component",
+    density = "Density",
+    globalEfficiency = "Global efficiency",
+    transitivity = "Transitivity",
+    unconnected = "Authors with no co-publications",
+    diameter_adj = "Size adjusted diameter",
+    distance_avg_adj = "Distance adjusted distance"
+  )
+
+  # Generate the ggplot
+  plot <- ggplot(plotData, aes(x = year, y = value)) +
+    geom_line(aes(color = fullWindow, group = 1)) +
+    scale_color_manual(values = c("TRUE" = "#4791e5", "FALSE" = "#E59B47")) +
+    facet_wrap(
+      ~name,
+      scales = "free_y",
+      labeller = labeller(name = facet_labels)
+    ) +
+    labs(
+      title = sprintf(
+        "Co-publication network statistics with %s year sliding window",
+        windowSize
+      ),
+      color = "Full 5 year data"
+    ) +
+    theme_minimal() +
+    theme(
+      legend.position = "bottom",
+      legend.box = "horizontal",
+      strip.text = element_text(size = rel(1.5))
+    )
+
+  return(list(trends = trends, plot = plot))
 }
