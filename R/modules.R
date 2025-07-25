@@ -82,21 +82,32 @@ mod_meshTree_ui <- function(
 #'
 #' @export
 #'
-mod_meshTree_server <- function(id, plotData) {
+mod_meshTree_server <- function(id, papermeshtree) {
   moduleServer(id, function(input, output, session) {
     # Keep track of which branch is being viewed (also returned)
     selectedBranch <- reactiveVal()
 
+    data <- reactive({
+      list(
+        plotData = treemapData(papermeshtree()),
+        branchInfo = papermeshtree() |> select(branchID, mtrID) |> distinct()
+      )
+    })
+
     # Filter data as needed
     mtPlotData <- reactive({
-      plotData <- plotData()
-      # Filter by limits if needed
+      plotData <- data()$plotData
+
+      # Filter mtrIDs by limits if needed
       if (input$mtLimit > 0) {
         plotData <- plotData |> plotDataFilter(input$mtLimit)
         branchIDs <- plotData$branchID
+        mtrIDs <- data()$branchInfo |>
+          filter(branchID %in% plotData$branchID) |>
+          pull(mtrID)
       } else {
-        # If no limit all branch IDs are being used and NULL is returned
-        branchIDs = NULL
+        # If no limit all mtrIDs are being used and NULL is returned
+        mtrIDs <- NULL
       }
 
       # Calculate the balancing values
@@ -111,7 +122,7 @@ mod_meshTree_server <- function(id, plotData) {
       }
 
       #Plot is being reset so the selected branch is the root (0)
-      selectedBranch(list(branchIDs = branchIDs, selected = 0))
+      selectedBranch(list(mtrIDs = mtrIDs, selected = NULL))
 
       plotData
     })
@@ -132,12 +143,6 @@ mod_meshTree_server <- function(id, plotData) {
         boxText
       )
 
-      if (!"colour" %in% colnames(mtPlotData())) {
-        colour <- treemapColour(mtPlotData()$meshSum)
-      } else {
-        colour <- mtPlotData()$colour
-      }
-
       #Plotly treemap
       plot_ly(
         type = "treemap",
@@ -150,7 +155,7 @@ mod_meshTree_server <- function(id, plotData) {
         ),
         text = boxText,
         values = mtPlotData()$balanceVal,
-        marker = list(colors = colour),
+        marker = list(colors = mtPlotData()$colour),
         textinfo = "text",
         hovertext = mtPlotData()$authors,
         hoverinfo = "text",
@@ -167,11 +172,17 @@ mod_meshTree_server <- function(id, plotData) {
         selected <- branchIDs[
           event_data("plotly_click", "mtPlot")$pointNumber + 1
         ]
-        # If no limit all branch IDs are being used and NULL is returned
-        if (input$mtLimit == 0) {
-          branchIDs <- NULL
+
+        # Filter mtrIDs by limits if needed
+        if (input$mtLimit > 0) {
+          mtrIDs <- data()$branchInfo |>
+            filter(branchID %in% branchIDs) |>
+            pull(mtrID)
+        } else {
+          mtrIDs <- NULL
         }
-        selectedBranch(list(branchIDs = branchIDs, selected = selected))
+
+        selectedBranch(list(mtrIDs = mtrIDs, selected = selected))
       }
     )
 

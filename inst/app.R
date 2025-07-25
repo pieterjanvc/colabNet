@@ -4,7 +4,7 @@
 
 if (!exists("colabNetDB")) {
   print("DEV TEST")
-  file.copy("../data/PGG_dev.db", "../local/dev.db", overwrite = T)
+  file.copy("../data/PGG_full.db", "../local/dev.db", overwrite = T)
   colabNetDB <- "../local/dev.db"
 
   # colabNetDB <- "C:/Users/pj/Desktop/dev.db"
@@ -106,14 +106,13 @@ preCompData <- reactivePoll(
       left_join(au |> select(auID, name), by = "auID") |>
       mutate(name = ifelse(nPapers == 0, "", name))
 
-    plotData <- treemapData(papermeshtree)
     overlapscore <- zooScore(papermeshtree)
 
     print("... finished")
     return(
       list(
         authors = authors,
-        plotData = plotData,
+        papermeshtree = papermeshtree,
         overlapscore = overlapscore,
         allArticles = allArticles
       )
@@ -254,17 +253,32 @@ ui <- fluidPage(
       ),
       tabPanel(
         "Analysis",
-        visNetworkOutput("netAnalisisPlot", height = "60vh"),
-        sliderInput(
-          "analysisRange",
-          "Analysis Range",
-          min = 0,
-          max = 1,
-          value = c(0, 1),
-          step = 1,
-          sep = ""
-        ),
-        uiOutput("summaryStats")
+        tabsetPanel(
+          tabPanel(
+            "Overview",
+            visNetworkOutput("netAnalisisPlot", height = "60vh"),
+            sliderInput(
+              "analysisRange",
+              "Analysis Range",
+              min = 0,
+              max = 1,
+              value = c(0, 1),
+              step = 1,
+              sep = ""
+            ),
+            uiOutput("summaryStats")
+          ),
+          tabPanel(
+            "Trends",
+            selectInput(
+              "slidingWindow",
+              "Time window",
+              choices = c(10, 8, 5, 3, 2, 1),
+              selected = 5
+            ),
+            plotOutput("copubTrendsPlot", height = "80vh")
+          )
+        )
       ),
       tabPanel(
         "Admin",
@@ -404,15 +418,15 @@ server <- function(input, output, session) {
   #  to the data on the active tab
   observeEvent(input$tabs_exploration, {
     if (input$tabs_exploration == "tab_coAuth") {
-      arIDs <- coPub()$edges |>
-        filter(id %in% unlist(input$coPub_selection$edges)) |>
+      arIDs <- coPub()$edgeArticles |>
+        filter(edgeID %in% unlist(input$coPub_selection$edges)) |>
         pull(arID)
 
       setArticleTable(arIDs, merged = T)
     } else if (input$tabs_exploration == "tab_meshTree") {
       setArticleTable(arIDByMesh(
         mtOverviewSelected()$selected,
-        mtOverviewSelected()$branchIDs
+        mtOverviewSelected()$mtrIDs
       ))
     } else if (input$tabs_exploration == "tab_comparison") {
       # We're only looking at two authors
@@ -423,7 +437,7 @@ server <- function(input, output, session) {
       setArticleTable(
         arIDByMesh(
           mtComparisonSelected()$selected,
-          mtComparisonSelected()$branchIDs
+          mtComparisonSelected()$mtrIDs
         ),
         auIDs = auIDs
       )
@@ -478,37 +492,7 @@ server <- function(input, output, session) {
   # Nodes and Edges for the co-publication network
   coPub <- reactive({
     req(nrow(preCompData()$allArticles) > 0)
-
-    nodes <- preCompData()$allArticles |>
-      group_by(id = auID) |>
-      summarise(
-        label = sprintf("%s %s", lastName[1], firstName[1]),
-        .groups = "drop"
-      )
-
-    edges <- preCompData()$allArticles |>
-      group_by(arID) |>
-      filter(n() > 1)
-
-    if (nrow(edges) == 0) {
-      edges <- data.frame(
-        arID = integer(),
-        id = integer(),
-        from = integer(),
-        to = integer()
-      )
-    } else {
-      edges <- preCompData()$allArticles |>
-        group_by(arID) |>
-        filter(n() > 1) |>
-        reframe(as.data.frame(combn(auID, 2) |> t())) |>
-        rename(from = V1, to = V2) |>
-        group_by(from, to) |>
-        mutate(id = cur_group_id()) |>
-        ungroup()
-    }
-
-    list(nodes = nodes, edges = edges)
+    copubGraphElements(preCompData()$allArticles)
   })
 
   # co-publication network
@@ -520,9 +504,11 @@ server <- function(input, output, session) {
       filter(id %in% c(coPub()$edges$from, coPub()$edges$to))
 
     edges <- coPub()$edges |>
-      group_by(id, from, to) |>
-      summarise(width = n(), label = as.character(n()), .groups = "drop") |>
+      # group_by(id, from, to) |>
+      # summarise(width = n(), label = as.character(n()), .groups = "drop") |>
       mutate(
+        width = weight,
+        label = as.character(weight),
         color = case_when(
           width == 1 ~ "#ffcc33",
           width == 2 ~ "#ee6600",
@@ -560,8 +546,8 @@ server <- function(input, output, session) {
   observeEvent(
     input$coPub_selection,
     {
-      arIDs <- coPub()$edges |>
-        filter(id %in% unlist(input$coPub_selection$edges)) |>
+      arIDs <- coPub()$edgeArticles |>
+        filter(edgeID %in% unlist(input$coPub_selection$edges)) |>
         pull(arID)
 
       setArticleTable(arIDs, merged = T)
@@ -573,31 +559,32 @@ server <- function(input, output, session) {
 
   mtOverviewSelected <- mod_meshTree_server(
     "meshTree_overview",
-    plotData = reactive(preCompData()$plotData)
+    papermeshtree = reactive(preCompData()$papermeshtree)
   )
 
   observeEvent(mtOverviewSelected(), {
     setArticleTable(arIDByMesh(
-      mtOverviewSelected()$selected,
-      mtOverviewSelected()$branchIDs
+      branchID = mtOverviewSelected()$selected,
+      mtrIDs = mtOverviewSelected()$mtrIDs
     ))
   })
 
   # Get article IDs based on a branch in the MeSH tree that is selected
-  arIDByMesh <- function(branchID, filterIDs = NULL) {
+  #  provode a list of mtrIDs if the tree is being filtered
+  arIDByMesh <- function(branchID, mtrIDs = NULL) {
     if (length(branchID) > 1) {
       stop("You can only select one tree branch at the same time")
     }
 
     # This will retrun the full table when supplied to setArticleTable
-    if (length(branchID) == 0 || (branchID == 0 & length(filterIDs) == 0)) {
+    if (length(branchID) == 0 || (branchID == 0 & length(mtrIDs) == 0)) {
       return(NULL)
     }
 
     # Only filter the full table for limited tree but at root (branchID = NULL)
-    if (branchID == 0 & length(filterIDs) > 0) {
+    if (branchID == 0 & length(mtrIDs) > 0) {
       result <- tbl(pool, "meshTree") |>
-        filter(mtrID %in% local(filterIDs)) |>
+        filter(mtrID %in% local(mtrIDs)) |>
         left_join(tbl(pool, "meshLink"), by = "uid") |>
         left_join(tbl(pool, "meshTerm"), by = "meshui") |>
         left_join(tbl(pool, "mesh_article"), by = "meshui") |>
@@ -615,8 +602,8 @@ server <- function(input, output, session) {
     result <- tbl(pool, "meshTree") |>
       filter(str_like(treenum, local({{ children }})))
     #Filter in case the tree is limited by mtPlotLimit input
-    if (length(filterIDs) > 0) {
-      result <- result |> filter(mtrID %in% local(filterIDs))
+    if (length(mtrIDs) > 0) {
+      result <- result |> filter(mtrID %in% local(mtrIDs))
     }
 
     result |>
@@ -627,15 +614,15 @@ server <- function(input, output, session) {
       unique()
   }
 
-  observeEvent(event_data("plotly_click", "treemap_overview"), {
-    branchIDs <- preCompData()$plotData |>
-      plotDataFilter(input$mtPlotLimit) |>
-      pull(branchID)
-    selected <- branchIDs[
-      event_data("plotly_click", "treemap_overview")$pointNumber + 1
-    ]
-    setArticleTable(arIDByMesh(selected, branchIDs))
-  })
+  # observeEvent(event_data("plotly_click", "treemap_overview"), {
+  #   branchIDs <- preCompData()$papermeshtree |>
+  #     plotDataFilter(input$mtPlotLimit) |>
+  #     pull(branchID)
+  #   selected <- branchIDs[
+  #     event_data("plotly_click", "treemap_overview")$pointNumber + 1
+  #   ]
+  #   setArticleTable(arIDByMesh(selected, branchIDs))
+  # })
 
   # ---- Research Comparison ----
 
@@ -704,26 +691,29 @@ server <- function(input, output, session) {
 
     # Get the treemap for the two authors
     if (length(input$overlapCat) == 0) {
-      tmComp <- treeMapComparison(auIDs[1], auIDs[2])
+      tmComp <- papermeshtreeFromAuIDs(c(auIDs[1], auIDs[2]))
     } else {
-      tmComp <- treeMapComparison(auIDs[1], auIDs[2], roots = input$overlapCat)
+      tmComp <- papermeshtreeFromAuIDs(
+        c(auIDs[1], auIDs[2]),
+        roots = input$overlapCat
+      )
       #TODO make sure the table filters with arIDs only found in the selected subtrees
     }
 
     # Update the article table with all articles for either author
-    arIDs <- preCompData()$allArticles |>
-      filter(auID %in% {{ auIDs }}) |>
-      pull(arID)
-    setArticleTable(arIDs = arIDs, auIDs = auIDs)
+    # arIDs <- preCompData()$allArticles |>
+    #   filter(auID %in% {{ auIDs }}) |>
+    #   pull(arID)
+    # setArticleTable(arIDs = arIDs, auIDs = auIDs)
 
     # Return the treemap
-    tmComp
+    tmComp$papermeshtree
   })
 
   # MeSH tree for two author comparison
   mtComparisonSelected <- mod_meshTree_server(
     "meshTree_comparison",
-    plotData = treemapcomp
+    papermeshtree = treemapcomp
   )
 
   # Get articles in part of the author comparison MeSH tree branch selected
@@ -740,7 +730,7 @@ server <- function(input, output, session) {
       setArticleTable(
         arIDByMesh(
           mtComparisonSelected()$selected,
-          mtComparisonSelected()$branchIDs
+          mtComparisonSelected()$mtrIDs
         ),
         auIDs = auIDs
       )
@@ -754,78 +744,17 @@ server <- function(input, output, session) {
   networkanalysis <- reactive({
     range <- input$analysisRange
     req(range[1] > 0) # Ignore the init stage
-    rangeData <- preCompData()$allArticles |>
+    rangeData <<- preCompData()$allArticles |>
       filter(between(year, range[1], range[2]))
 
-    nodes <- rangeData |>
-      group_by(id = auID) |>
-      summarise(
-        label = sprintf("%s %s", lastName[1], firstName[1]),
-        year = min(year),
-        month = min(month),
-        .groups = "drop"
-      )
+    graphElements <- copubGraphElements(rangeData)
+    graphStats <- copubGraphStats(graphElements)
 
-    edges <- rangeData |>
-      group_by(arID, year, month) |>
-      filter(n() > 1)
-
-    if (nrow(edges) == 0) {
-      edges <- data.frame(
-        id = integer(),
-        from = integer(),
-        to = integer(),
-        weight = integer()
-      )
-    } else {
-      edges <- edges |>
-        reframe(as.data.frame(combn(auID, 2) |> t())) |>
-        rename(from = V1, to = V2) |>
-        group_by(from, to) |>
-        summarise(id = cur_group_id(), weight = n(), .groups = "drop")
-    }
-
-    g <- graph_from_data_frame(
-      d = edges,
-      vertices = nodes,
-      directed = F
-    )
-
-    # How many others have you published with
-    deg <- degree(g)
-
-    # Check how many sub-graphs there are and who belongs to which
-    comp <- components(g)
-
-    # Check how many are not connected to anyone
-    unconnected <- sum(comp$csize == 1)
-
-    # Distance matrix between authors
-    dis <- distances(g, algorithm = "unweighted", weights = NA)
-
-    # How close is the graph to be being fully connected
-    #  i.e. every author shares at least one publication with every other
-    dens <- edge_density(g)
-
-    # Probability that adjecent nodes (authors are connected)
-    # https://transportgeography.org/contents/methods/graph-theory-measures-indices/transitivity-graph/
-    trans <- transitivity(g)
-    trans <- ifelse(is.nan(trans), 0, trans)
-
-    return(list(
-      nodes = nodes,
-      edges = edges,
-      degree = deg,
-      components = comp,
-      unconnected = unconnected,
-      distances = dis,
-      density = dens,
-      transitivity = trans
-    ))
+    return(list(graphElements = graphElements, graphStats = graphStats))
   })
 
   output$netAnalisisPlot <- renderVisNetwork({
-    edges <- networkanalysis()$edges |>
+    edges <- networkanalysis()$graphElements$edges |>
       mutate(
         width = weight,
         label = as.character(weight),
@@ -837,7 +766,7 @@ server <- function(input, output, session) {
       )
 
     # Create a simple visNetwork graph
-    visNetwork(networkanalysis()$nodes, edges) |>
+    visNetwork(networkanalysis()$graphElements$nodes, edges) |>
       visNodes(
         size = 20,
         color = list(background = "lightblue", border = "blue"),
@@ -858,34 +787,95 @@ server <- function(input, output, session) {
   })
 
   output$summaryStats <- renderUI({
-    x <- networkanalysis()
-    #  average distance, ignoring unconnected
-    dis_avg <- x$dis[upper.tri(x$dis)]
-    dis_avg <- dis_avg[!is.infinite(dis_avg)]
-    dis_avg <- ifelse(length(dis_avg) == 0, 0, mean(dis_avg))
-    nCopub <- c(x$edges$weight, rep(0, sum(x$comp$csize == 1)))
+    x <- networkanalysis()$graphStats
+    # average distance, ignoring unconnected
+    # dis_avg <- x$distances[upper.tri(x$dis)]
+    # dis_avg <- dis_avg[!is.infinite(dis_avg)]
+    # dis_avg <- ifelse(length(dis_avg) == 0, 0, mean(dis_avg))
+
+    # addSpaces <- function(int, max) {
+    #   sapply(int, function(x) {
+    #     if (x == 0) {
+    #       return(" ")
+    #     }
+    #     paste(
+    #       rep("&nbsp;", floor(log10(max)) - floor(log10(x)) + 1),
+    #       collapse = ""
+    #     )
+    #   })
+    # }
+
+    authorStats <- x$authorStats |>
+      left_join(
+        preCompData()$authors |>
+          transmute(auID, name = paste(lastName, firstName, sep = ", ")),
+        by = "auID"
+      ) |>
+      mutate(
+        papers = sprintf(
+          "%i (%.2f%%)",
+          nCopubs,
+          colabPerc
+        )
+      ) |>
+      arrange(desc(degree), desc(nCopubs)) |>
+      select(
+        name,
+        connections = degree,
+        `papers (% total)` = papers,
+        nCopubs,
+        group = membership,
+        betweenness,
+        closeness
+      )
 
     tagList(
+      h3("Author co-publication stats"),
+      # Table with stats by author
+      datatable(
+        authorStats,
+        rownames = F,
+        options = list(
+          pageLength = 5,
+          # Order papers column by hidden nCopubs (0-index!)
+          columnDefs = list(
+            list(targets = 2, orderData = 3),
+            list(targets = 3, visible = F)
+          )
+        ),
+        escape = F
+      ),
       h3("Network Summary Stats"),
       tags$ul(
         tags$li(sprintf(
-          "Average number of co-publications: %.2f (\u00B1 %.2f)",
-          mean(nCopub),
-          sd(nCopub)
+          "Total number of authors in network: %i",
+          x$nAuthors
+        )),
+        tags$li(sprintf(
+          "Median number of co-publications: %i",
+          median(ifelse(
+            length(x$authorStats$nCopubs) == 0,
+            0,
+            x$authorStats$nCopubs
+          ))
         )),
         tags$li(sprintf(
           "Maximum number of co-publications: %i",
-          max(x$edges$weight, 0)
+          max(x$authorStats$nCopubs, 0)
         )),
         tags$li(
           sprintf(
             "Number of authors without any co-publications: %i",
-            sum(x$comp$csize == 1)
+            sum(x$authorStats$unconnected)
           )
         ),
         tags$li(sprintf(
           "Average distance between co-publishing authors: %.1f",
-          dis_avg
+          x$distance_avg
+        )),
+        tags$li(sprintf(
+          "Maximum distance between authors (network diameter): %i",
+          x$diameter
         )),
         tags$li(sprintf(
           "How close to perfect collaboration (everyone collaborates with everyone else): %.1f%%",
@@ -894,9 +884,22 @@ server <- function(input, output, session) {
         tags$li(sprintf(
           "Probability that authors who share a collborator also collaborated together (transitivity): %.1f%%",
           x$transitivity * 100
+        )),
+        tags$li(sprintf(
+          "How easy would it be to work with anyone in the network (global efficiency): %.1f%%",
+          x$globalEffiency * 100
         ))
       )
     )
+  })
+
+  # ---- Co-publication Network trends over time
+
+  output$copubTrendsPlot <- renderPlot({
+    copubTrendInfo(
+      preCompData()$allArticles,
+      windowSize = as.integer(input$slidingWindow)
+    )$plot
   })
 
   # ---- ADMIN TAB ----
