@@ -852,9 +852,12 @@ server <- function(input, output, session) {
           x$nAuthors
         )),
         tags$li(sprintf(
-          "Average number of co-publications: %.2f (\u00B1 %.2f)",
-          mean(x$authorStats$nCopubs),
-          sd(x$authorStats$nCopubs)
+          "Median number of co-publications: %i",
+          median(ifelse(
+            length(x$authorStats$nCopubs) == 0,
+            0,
+            x$authorStats$nCopubs
+          ))
         )),
         tags$li(sprintf(
           "Maximum number of co-publications: %i",
@@ -868,7 +871,7 @@ server <- function(input, output, session) {
         ),
         tags$li(sprintf(
           "Average distance between co-publishing authors: %.1f",
-          x$dis_avg
+          x$distance_avg
         )),
         tags$li(sprintf(
           "Maximum distance between authors (network diameter): %i",

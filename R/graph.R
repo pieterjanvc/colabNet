@@ -357,7 +357,6 @@ copubTrendInfo <- function(articleInfo, windowSize = 5) {
     theme(
       legend.position = "bottom",
       legend.box = "horizontal"
-      # strip.text = element_text(size = rel(1.5))
     )
 
   return(list(trends = trends, plot = plot))
