@@ -15,6 +15,31 @@
 #' @export
 #'
 copubGraphElements <- function(articleInfo) {
+  # Empty dataframe
+  if (nrow(articleInfo) == 0) {
+    nodes <- data.frame(
+      id = integer(),
+      label = character(),
+      year = integer(),
+      month = integer()
+    )
+
+    edges <- data.frame(
+      id = integer(),
+      from = integer(),
+      to = integer(),
+      weight = integer()
+    )
+
+    edgeArticles <- data.frame(
+      arID = integer(),
+      au1 = integer(),
+      au2 = integer(),
+      edgeID = integer()
+    )
+    return(list(nodes = nodes, edges = edges, edgeArticles = edgeArticles))
+  }
+
   ## Get the nodes
   nodes <- articleInfo |>
     group_by(id = auID) |>
@@ -72,6 +97,37 @@ copubGraphElements <- function(articleInfo) {
 #' @export
 #'
 copubGraphStats <- function(graphElements) {
+  #If empty graph ...
+  if (nrow(graphElements$nodes) == 0) {
+    return(list(
+      authorStats = data.frame(
+        auID = integer(),
+        nCopubs = integer(),
+        colabPerc = numeric(),
+        degree = integer(),
+        membership = integer(),
+        unconnected = logical(),
+        betweenness = integer(),
+        closeness = numeric()
+      ),
+      nAuthors = 0,
+      components = list(
+        membership = data.frame(auID = integer(), membership = integer()),
+        csize = 0,
+        no = 0,
+        largest_n = 0,
+        largest_perc = 0
+      ),
+      nUnconnected = 0,
+      distances = matrix(nrow = 0, ncol = 0),
+      distance_avg = 0,
+      diameter = 0,
+      density = 0,
+      globalEffiency = 0,
+      transitivity = 0
+    ))
+  }
+
   auIDs <- graphElements$nodes$id
 
   # Create an igraph graph object
@@ -210,7 +266,7 @@ copubTrendInfo <- function(articleInfo, windowSize = 5) {
     trends <- trends |>
       filter(between(
         year,
-        max(min(trends$year), curYear - windowSize),
+        max(min(trends$year), curYear - windowSize + 1),
         curYear
       ))
 
@@ -220,8 +276,16 @@ copubTrendInfo <- function(articleInfo, windowSize = 5) {
     data.frame(
       year = curYear,
       nAuthors = graphStats$nAuthors,
-      nCopubs_avg = graphStats$authorStats$nCopubs |> mean(),
-      nColabs_avg = graphStats$authorStats$degree |> mean(),
+      nCopubs_median = ifelse(
+        length(graphStats$authorStats$nCopubs) == 0,
+        0,
+        graphStats$authorStats$nCopubs |> median()
+      ),
+      nColabs_avg = ifelse(
+        length(graphStats$authorStats$degree) == 0,
+        0,
+        graphStats$authorStats$degree |> mean()
+      ),
       largestComp = graphStats$components$largest_n,
       unconnected = graphStats$nUnconnected,
       distance_avg = graphStats$distance_avg,
@@ -235,7 +299,7 @@ copubTrendInfo <- function(articleInfo, windowSize = 5) {
     mutate(
       # The first years the sliding window is not complete and the last year
       # is possible having missing data (year not compelte yet)
-      fullWindow = ((year - windowSize) >= min(year)) &
+      fullWindow = ((year - windowSize + 1) >= min(year)) &
         year < max(year) - 1,
       unconnected_perc = unconnected / nAuthors,
       # Diameter and distance need to be adjusted by network size
@@ -248,7 +312,7 @@ copubTrendInfo <- function(articleInfo, windowSize = 5) {
     select(
       year,
       fullWindow,
-      nCopubs_avg,
+      nCopubs_median,
       nColabs_avg,
       largestComp,
       density,
@@ -262,9 +326,9 @@ copubTrendInfo <- function(articleInfo, windowSize = 5) {
 
   # Set the labels for the columns (will become facets)
   facet_labels <- c(
-    nCopubs_avg = "Average co-publications",
+    nCopubs_median = "Median co-publications",
     nColabs_avg = "Average collaborators",
-    largestComp = "Size of largest graph component",
+    largestComp = "Size of largest sub-network",
     density = "Density",
     globalEfficiency = "Global efficiency",
     transitivity = "Transitivity",
@@ -289,11 +353,11 @@ copubTrendInfo <- function(articleInfo, windowSize = 5) {
       ),
       color = sprintf("Full %i years data", windowSize)
     ) +
-    theme_minimal() +
+    theme_minimal(base_size = 16) +
     theme(
       legend.position = "bottom",
-      legend.box = "horizontal",
-      strip.text = element_text(size = rel(1.5))
+      legend.box = "horizontal"
+      # strip.text = element_text(size = rel(1.5))
     )
 
   return(list(trends = trends, plot = plot))

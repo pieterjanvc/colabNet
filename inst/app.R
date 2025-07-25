@@ -4,7 +4,7 @@
 
 if (!exists("colabNetDB")) {
   print("DEV TEST")
-  file.copy("../data/PGG_dev.db", "../local/dev.db", overwrite = T)
+  file.copy("../data/PGG_full.db", "../local/dev.db", overwrite = T)
   colabNetDB <- "../local/dev.db"
 
   # colabNetDB <- "C:/Users/pj/Desktop/dev.db"
@@ -268,7 +268,16 @@ ui <- fluidPage(
             ),
             uiOutput("summaryStats")
           ),
-          tabPanel("Trends", plotOutput("copubTrendsPlot", height = "80vh"))
+          tabPanel(
+            "Trends",
+            selectInput(
+              "slidingWindow",
+              "Time window",
+              choices = c(10, 8, 5, 3, 2, 1),
+              selected = 5
+            ),
+            plotOutput("copubTrendsPlot", height = "80vh")
+          )
         )
       ),
       tabPanel(
@@ -884,7 +893,10 @@ server <- function(input, output, session) {
   # ---- Co-publication Network trends over time
 
   output$copubTrendsPlot <- renderPlot({
-    copubTrendInfo(preCompData()$allArticles)$plot
+    copubTrendInfo(
+      preCompData()$allArticles,
+      windowSize = as.integer(input$slidingWindow)
+    )$plot
   })
 
   # ---- ADMIN TAB ----
