@@ -1,19 +1,24 @@
 #' Setup the ColabNet database for the current session
 #'
 #' @param dbInfo Path to ColabNet Database. If DB does not exist it will be created
-#' @param newDBMsg (Default, TRUE) Output a message when a new database was created
 #' @param checkSchema (Default, FALSE) Check the schema of an existing datbase against the reference
 #' @param returnConn (Default, FALSE) By default this function will save the connection to the database
 #' internally to be used by other functions. If set to TRUE, a connection object is returned
 #' and needs to be closed manually using dbDisconnect()
+#' @param setDBSession (Default, FALSE) Set the dbInfo for the global session so it does not
+#' have to be provided for all other DB functions. Don't use this in Shiny!
 #'
 #' @import RSQLite
 #' @importFrom stringr str_remove
 #'
-#' @return Nothing (default) or a connection to the ColabNet datbase if returnConn = T
+#' @return A list with 4 elements
+#' - success: T/F whether the connection to the database was succesful
+#' - statusCode: 0,1,2 are success, others are failures
+#' - msg: The message for each status code
+#' - conn: a connection object if returnConn = T
 #' @export
 #'
-dbSetup <- function(dbInfo, newDBMsg = T, checkSchema = F, returnConn = F) {
+dbSetup <- function(dbInfo, checkSchema = F, returnConn = F, setDBSession = F) {
   # Get the reference schema
   sqlFile <- readLines(system.file(
     "create_colabNetDB.sql",
@@ -22,18 +27,35 @@ dbSetup <- function(dbInfo, newDBMsg = T, checkSchema = F, returnConn = F) {
     paste(collapse = "") |>
     str_remove(";\\s*$")
 
-  if (missing(dbInfo)) {
-    stop("You need to provide a path for the database")
+  if (
+    missing(dbInfo) ||
+      !dir.exists(dirname(dbInfo)) ||
+      !str_detect(basename(dbInfo), "^[\\w-]+\\.db$")
+  ) {
+    return(list(
+      success = F,
+      statusCode = 4,
+      msg = paste(
+        "You need to provide a valid path a the database",
+        "with a valid filename that ends in .db"
+      ),
+      conn = NULL
+    ))
   }
 
+  # Start with empty connection
+  myConn <- NULL
+
   if (!file.exists(dbInfo)) {
+    # Create a new database
     tables <- strsplit(sqlFile, ";") |> unlist()
     myConn <- dbConnect(SQLite(), dbInfo)
     q <- sapply(tables, function(sql) {
       q <- dbExecute(myConn, sql)
     })
 
-    if (newDBMsg) message("A new database was created")
+    msg <- "A new database was created"
+    statusCode <- 0
   } else if (checkSchema) {
     myConn <- dbConnect(SQLite(), dbInfo)
     # Extract the schema from the database to compare to the reference
@@ -51,27 +73,39 @@ dbSetup <- function(dbInfo, newDBMsg = T, checkSchema = F, returnConn = F) {
     sqlFile <- str_remove(sqlFile, ";INSERT.*")
 
     if (dbSchema != sqlFile) {
-      dbDisconnect(myConn)
-      stop(
+      msg <- paste(
         sprintf("The schema of %s is not valid.\n", dbInfo),
         "- Create a blank database by providing a new path\n",
         "- Edit the schema of the existing database to match the requirements"
       )
+      statusCode <- 3
+    } else {
+      msg <- "Successful connection to existing database; schema validated"
+      statusCode <- 2
     }
   } else {
     myConn <- dbConnect(SQLite(), dbInfo)
+    msg <- "Successful connection to existing database; schema not validated"
+    statusCode <- 1
+  }
+
+  # When not to return the connection
+  if ((!is.null(myConn) & !returnConn) | statusCode == 3) {
+    dbDisconnect(myConn)
+    myConn <- NULL
   }
 
   # Save the connection info for the session
-  options(dbInfo = dbInfo)
-
-  # Only return the connection if requested
-  if (returnConn) {
-    return(myConn)
-  } else {
-    dbDisconnect(myConn)
-    invisible()
+  if (setDBSession) {
+    options(dbInfo = dbInfo)
   }
+
+  return(list(
+    success = statusCode %in% c(0, 1, 2),
+    statusCode = statusCode,
+    msg = msg,
+    conn = myConn
+  ))
 }
 
 #' Get a ColabNet database connection
