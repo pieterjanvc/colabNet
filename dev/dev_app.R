@@ -6,13 +6,20 @@ library(RSQLite)
 localFolder <- file.path("..", "data")
 tempFolder <- file.path("shinyData", "tempDB")
 
-ui <- fluidPage()
+ui <- fluidPage(
+  actionButton("btn", "Test")
+)
 
 server <- function(input, output, session) {
-  mod_dbConnect_ui("getDB")
-  test <- mod_dbConnect_server("getDB", localFolder, tempFolder)
+  # observe({
+  #   if (!"dbmode" %in% names(isolate(getQueryString()))) {
+  #     mod_dbConnect_ui("getDB")
+  #   } else {
+  #     print(getQueryString())
+  #   }
+  # })
 
-  observe(print(test()))
+  test <- mod_dbConnect_server("getDB", localFolder, tempFolder)
 }
 
 shinyApp(ui, server)

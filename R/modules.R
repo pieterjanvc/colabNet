@@ -193,9 +193,13 @@ mod_meshTree_server <- function(id, papermeshtree) {
 
 #' Module UI to connect to an SQLite database in various ways
 #'
+#' Note that the server function will automatically generate the modal pop-up
+#' when initialised based on the settings / URL.
+#'
 #' @param id ID name for the module
 #'
 #' @returns When inserted it will pop-up a modal window. There is no permanent UI
+#'
 #' @export
 mod_dbConnect_ui <- function(id) {
   tagList(
@@ -286,6 +290,7 @@ mod_dbConnect_server <- function(id, localFolder, tempFolder) {
     stop("Invalid path to local or temp folder")
   }
 
+  # Generate a temp name for a new / uploaded database
   tempDBname <- function() {
     paste0(
       Sys.time() |> as.integer(),
@@ -294,141 +299,257 @@ mod_dbConnect_server <- function(id, localFolder, tempFolder) {
     )
   }
 
+  # Connect to a permanent local database
+  dbLocal <- function(dbName, localFolder, localDBs) {
+    # Check if there are any options available
+    if (!dbName %in% localDBs) {
+      return(list(
+        success = F,
+        msg = "The selected database was not found",
+        info = NULL
+      ))
+    }
+
+    # Check if the selected DB is valid
+    dbPath <- file.path(localFolder, paste0(dbName, ".db"))
+    check <- dbSetup(dbInfo = dbPath, checkSchema = T)
+
+    if (!check$success) {
+      return(list(
+        success = F,
+        msg = "There is an issue with the selected database. Please use another option",
+        info = NULL
+      ))
+    }
+    # Update info
+    updateQueryString(
+      sprintf("?dbmode=local&dbcode=%s", URLencode(dbName, reserved = T)),
+      mode = "push"
+    )
+
+    return(list(
+      success = T,
+      msg = "Local database found",
+      info = list(
+        dbPath = dbPath,
+        dbName = dbName,
+        dbCode = dbName,
+        dbType = 1
+      )
+    ))
+  }
+
+  # --- Upload a database
+  dbUpload <- function(uploadInfo, tempFolder) {
+    if (is.null(uploadInfo$datapath)) {
+      return(list(
+        success = F,
+        msg = "You must upload a valid Colabnet database first",
+        info = NULL
+      ))
+    }
+
+    # Check if the selected DB is valid
+    check <- dbSetup(dbInfo = uploadInfo$datapath, checkSchema = T)
+
+    if (!check$success) {
+      return(list(
+        success = F,
+        msg = "The provided database is not a valid Colabnet database",
+        info = NULL
+      ))
+    }
+
+    # Move the DB to the designated temp folder with temp name
+    nameCode <- tempDBname()
+    tempPath <- file.path(tempFolder, paste0(nameCode, ".db"))
+    moveDB <- file.copy(uploadInfo$datapath, tempPath)
+    dbName <- uploadInfo$name |> str_remove(".db$")
+
+    # Update info
+    updateQueryString(
+      sprintf("?dbmode=temp&dbcode=%s", nameCode),
+      mode = "push"
+    )
+
+    return(list(
+      success = T,
+      msg = "Database upload successful",
+      info = list(
+        dbPath = tempPath,
+        dbName = dbName,
+        dbCode = nameCode,
+        dbType = 2
+      )
+    ))
+  }
+
+  # --- Connect to a temporary database with a code
+  dbTemp <- function(dbCode, tempFolder) {
+    # Check if the database is (still) available
+    dbPath <- file.path(tempFolder, paste0(dbCode, ".db"))
+    check <- file.exists(dbPath)
+
+    if (!check) {
+      return(list(
+        success = F,
+        msg = "There is no temporary databases with this code",
+        info = NULL
+      ))
+    }
+
+    # Check if the selected DB is still valid
+    check <- dbSetup(dbInfo = dbPath, checkSchema = T)
+
+    if (!check$success) {
+      return(list(
+        success = F,
+        msg = "There is an issue with the selected database. Please use another option",
+        info = NULL
+      ))
+    }
+
+    # Update info
+    updateQueryString(
+      sprintf("?dbmode=temp&dbcode=%s", dbCode),
+      mode = "push"
+    )
+
+    return(list(
+      success = T,
+      msg = "Temp database found",
+      info = list(
+        dbPath = dbPath,
+        dbName = dbCode,
+        dbCode = dbCode,
+        dbType = 3
+      )
+    ))
+  }
+
+  # --- Create a new, temporary database
+  dbNew <- function(dbName, tempFolder) {
+    # Check th provided name
+    check <- dbName |> str_detect("^[\\w-]+$")
+
+    if (!check) {
+      return(list(
+        success = F,
+        msg = paste(
+          "The name of the new database can only contain",
+          "letters, numbers, underscores or dashes.",
+          "No spaces or other special characters"
+        ),
+        info = NULL
+      ))
+    }
+
+    nameCode <- tempDBname()
+    tempPath <- file.path(tempFolder, paste0(nameCode, ".db"))
+    check <- dbSetup(tempPath)
+
+    updateQueryString(
+      sprintf("?dbmode=temp&dbcode=%s", nameCode),
+      mode = "push"
+    )
+
+    return(list(
+      success = T,
+      msg = "New database creation successful",
+      info = list(
+        dbPath = tempPath,
+        dbName = dbName,
+        dbCode = nameCode,
+        dbType = 4
+      )
+    ))
+  }
+
   moduleServer(id, function(input, output, session) {
     # List existing databases
     localDBs <- list.files(localFolder, pattern = ".db") |> str_remove(".db$")
     updateSelectInput(session, "db_local", choices = localDBs)
 
+    # This reactive will be returned by the module
     connInfo <- reactiveVal()
 
-    # --- OPTION 1 - Connect to a permanent local (demo) database
+    # Check if the URL already contains DB info
+    observe({
+      if (!"dbmode" %in% names(isolate(getQueryString()))) {
+        # No DB data provided, show modal
+        mod_dbConnect_ui("getDB")
+      } else {
+        # Check the provided DB info
+        dbmode <- getQueryString()$dbmode
+
+        if (dbmode == "local") {
+          dbName <- URLdecode(getQueryString()$dbcode)
+          result <- dbLocal(dbName, localFolder, localDBs)
+        } else if (dbmode == "temp") {
+          result <- dbTemp(getQueryString()$dbcode, tempFolder)
+        } else {
+          result(list(
+            success = F,
+            msg = "ERROR - The URL does not point to a valid database"
+          ))
+        }
+
+        # Set connInfo if valid DB or show modal
+        if (result$success) {
+          connInfo(result$info)
+        } else {
+          mod_dbConnect_ui("getDB")
+          showNotification(result$msg, type = "error")
+        }
+      }
+    })
+
+    # --- OPTION 1 - Connect to a permanent local database
     observeEvent(input$goLocal, {
-      # Check if there are any options available
-      if (input$db_local == "") {
-        elementMsg(
-          sprintf("%s-%s", id, "db_local"),
-          "There are no databases available"
-        )
-      }
-      req(input$db_local)
-      # Check if the selected DB is valid
-      dbPath <- file.path(localFolder, paste0(input$db_local, ".db"))
-      check <- dbSetup(dbInfo = dbPath, checkSchema = T)
+      result <- dbLocal(input$db_local, localFolder, localDBs)
 
-      if (!check$success) {
-        elementMsg(
-          sprintf("%s-%s", id, "db_local"),
-          "There is an issue with the selected database. Please use another option"
-        )
+      if (result$success) {
+        connInfo(result$info)
+        removeModal()
+      } else {
+        elementMsg(sprintf("%s-%s", id, "db_local"), result$msg)
       }
-      # Update info
-      req(check$success)
-      connInfo(list(
-        dbPath = dbPath,
-        dbName = input$db_local,
-        dbCode = input$db_local,
-        dbType = 1
-      ))
-      removeModal()
     })
 
-    # --- OPTION 2 - Upload database
+    # --- OPTION 2 - Upload a database
     observeEvent(input$goUpload, {
-      if (is.null(input$db_upload$datapath)) {
-        elementMsg(
-          sprintf("%s-%s", id, "db_upload_msg"),
-          "You must upload a valid Colabnet database first"
-        )
+      result <- dbUpload(input$db_upload, tempFolder)
+
+      if (result$success) {
+        connInfo(result$info)
+        removeModal()
+      } else {
+        elementMsg(sprintf("%s-%s", id, "db_upload_msg"), result$msg)
       }
-
-      req(input$db_upload$datapath)
-      # Check if the selected DB is valid
-      check <- dbSetup(dbInfo = input$db_upload$datapath, checkSchema = T)
-
-      if (!check$success) {
-        elementMsg(
-          sprintf("%s-%s", id, "db_upload_msg"),
-          "The provided database is not a valid Colabnet database"
-        )
-      }
-      req(check$success)
-
-      # Move the DB to the designated temp folder with temp name
-      nameCode <- tempDBname()
-      tempPath <- file.path(tempFolder, paste0(nameCode, ".db"))
-      moveDB <- file.copy(input$db_upload$datapath, tempPath)
-
-      # Update info
-      connInfo(list(
-        dbPath = tempPath,
-        dbName = input$db_upload$name |> str_remove(".db$"),
-        dbCode = nameCode,
-        dbType = 2
-      ))
-      removeModal()
     })
 
-    # --- OPTION 3 - Connect to a temporary database with code
+    # --- OPTION 3 - Connect to a temporary database with a code
     observeEvent(input$goTemp, {
-      # Check if the database is (still) available
-      dbPath <- file.path(tempFolder, paste0(input$db_tempCode, ".db"))
-      check <- file.exists(dbPath)
+      result <- dbTemp(input$db_tempCode, tempFolder)
 
-      if (!check) {
-        elementMsg(
-          sprintf("%s-%s", id, "db_tempCode"),
-          "There is no temporary databases with this code"
-        )
+      if (result$success) {
+        connInfo(result$info)
+        removeModal()
+      } else {
+        elementMsg(sprintf("%s-%s", id, "db_tempCode"), result$msg)
       }
-      req(check)
-      # Check if the selected DB is still valid
-      check <- dbSetup(dbInfo = dbPath, checkSchema = T)
-
-      if (!check$success) {
-        elementMsg(
-          sprintf("%s-%s", id, "db_local"),
-          "There is an issue with the selected database. Please use another option"
-        )
-      }
-      # Update info
-      req(check$success)
-      connInfo(list(
-        dbPath = dbPath,
-        dbName = input$db_tempCode,
-        dbCode = input$db_tempCode,
-        dbType = 3
-      ))
-      removeModal()
     })
 
     # --- OPTION 4 - Create a new, temporary database
     observeEvent(input$goNew, {
-      # Check th provided name
-      check <- input$db_new |> str_detect("^[\\w-]+$")
-      if (!check) {
-        elementMsg(
-          sprintf("%s-%s", id, "db_new"),
-          paste(
-            "The name of the new database can only contain",
-            "letters, numbers, underscores or dashes.",
-            "No spaces or other special characters"
-          )
-        )
-      }
-      req(check)
-      nameCode <- tempDBname()
-      tempPath <- file.path(tempFolder, paste0(nameCode, ".db"))
-      check <- dbSetup(tempPath)
+      result <- dbNew(input$db_new, tempFolder)
 
-      req(check$success)
-      # Update info
-      connInfo(list(
-        dbPath = tempPath,
-        dbName = input$db_new,
-        dbCode = nameCode,
-        dbType = 4
-      ))
-      removeModal()
+      if (result$success) {
+        connInfo(result$info)
+        removeModal()
+      } else {
+        elementMsg(sprintf("%s-%s", id, "db_new"), result$msg)
+      }
     })
 
     return(connInfo)

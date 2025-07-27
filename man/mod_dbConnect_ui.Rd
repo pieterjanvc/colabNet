@@ -13,5 +13,6 @@ mod_dbConnect_ui(id)
 When inserted it will pop-up a modal window. There is no permanent UI
 }
 \description{
-Module UI to connect to an SQLite database in various ways
+Note that the server function will automatically generate the modal pop-up
+when initialised based on the settings / URL.
 }
