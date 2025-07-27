@@ -259,9 +259,9 @@ treemapColour <- function(
 papermeshtreeFromAuIDs <- function(auIDs, roots, dbInfo) {
   conn <- dbGetConn(dbInfo)
 
-  papermesh <- dbPaperMesh(auIDs, roots = roots)
-  meshtree <- dbMeshTree(papermesh, roots = roots)
-  papermeshtree <- paperMeshTree(papermesh, meshtree)
+  papermesh <- dbPaperMesh(auIDs, roots = roots, dbInfo = dbInfo)
+  meshtree <- dbMeshTree(papermesh, roots = roots, dbInfo = dbInfo)
+  papermeshtree <- paperMeshTree(papermesh, meshtree, dbInfo = dbInfo)
 
   # Add author names
   au <- tbl(conn, "author") |>

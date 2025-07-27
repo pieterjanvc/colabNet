@@ -5,6 +5,7 @@ library(RSQLite)
 
 localFolder <- file.path("..", "data")
 tempFolder <- file.path("shinyData", "tempDB")
+schema <- system.file("create_colabNetDB.sql", package = "colabNet")
 
 ui <- fluidPage(
   actionButton("btn", "Test")
@@ -19,7 +20,10 @@ server <- function(input, output, session) {
   #   }
   # })
 
-  test <- mod_dbConnect_server("getDB", localFolder, tempFolder)
+  dbPath <- "../local/dev.db"
+  dir(normalizePath(dbPath))
+
+  test <- mod_dbSetup_server("getDB", localFolder, tempFolder, schema, dbPath)
 }
 
 shinyApp(ui, server)

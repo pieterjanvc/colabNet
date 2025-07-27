@@ -4,7 +4,7 @@
 \alias{colabNet}
 \title{Run the colabNet Shiny App}
 \usage{
-colabNet(colabNetDB)
+colabNet(colabNetDB, dev = F, dbPath = NULL)
 }
 \arguments{
 \item{colabNetDB}{Path to the ColabNet database (will be created if needed)}

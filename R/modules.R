@@ -191,7 +191,7 @@ mod_meshTree_server <- function(id, papermeshtree) {
   })
 }
 
-#' Module UI to connect to an SQLite database in various ways
+#' Module UI to setup an SQLite database in various ways
 #'
 #' Note that the server function will automatically generate the modal pop-up
 #' when initialised based on the settings / URL.
@@ -201,7 +201,7 @@ mod_meshTree_server <- function(id, papermeshtree) {
 #' @returns When inserted it will pop-up a modal window. There is no permanent UI
 #'
 #' @export
-mod_dbConnect_ui <- function(id) {
+mod_dbSetup_ui <- function(id) {
   tagList(
     showModal(modalDialog(
       titlePanel("Select a database"),
@@ -268,11 +268,15 @@ mod_dbConnect_ui <- function(id) {
   )
 }
 
-#' Module server to connect to an SQLite database in various ways
+#' Module server to setup an SQLite database in various ways
 #'
 #' @param id ID name for the server
 #' @param localFolder Folder with existing, permanent databases to provide
 #' @param tempFolder Folder where temp (new and uploaded) databases live
+#' @param schema The schema of the SQLite database (.sql file)
+#' @param useDB Default = NULL. If set, the provided database is used and the
+#' rest is skipped. This is especially useful for dev when you don't want the
+#' modal pop-up. If there is not DB at the specified path, a new one is created
 #'
 #' @import shiny
 #' @importFrom stringr str_remove str_detect
@@ -285,10 +289,16 @@ mod_dbConnect_ui <- function(id) {
 #'
 #' @export
 #'
-mod_dbConnect_server <- function(id, localFolder, tempFolder) {
-  if (!dir.exists(localFolder) | !dir.exists(tempFolder)) {
-    stop("Invalid path to local or temp folder")
-  }
+mod_dbSetup_server <- function(
+  id,
+  localFolder,
+  tempFolder,
+  schema,
+  useDB = NULL
+) {
+  localFolder <- normalizePath(localFolder, mustWork = T)
+  tempFolder <- normalizePath(tempFolder, mustWork = T)
+  schema <- normalizePath(schema, mustWork = T)
 
   # Generate a temp name for a new / uploaded database
   tempDBname <- function() {
@@ -300,7 +310,7 @@ mod_dbConnect_server <- function(id, localFolder, tempFolder) {
   }
 
   # Connect to a permanent local database
-  dbLocal <- function(dbName, localFolder, localDBs) {
+  dbLocal <- function(dbName, localFolder, localDBs, schema) {
     # Check if there are any options available
     if (!dbName %in% localDBs) {
       return(list(
@@ -312,7 +322,7 @@ mod_dbConnect_server <- function(id, localFolder, tempFolder) {
 
     # Check if the selected DB is valid
     dbPath <- file.path(localFolder, paste0(dbName, ".db"))
-    check <- dbSetup(dbInfo = dbPath, checkSchema = T)
+    check <- dbSetup(path = dbPath, checkSchema = T, schema = schema)
 
     if (!check$success) {
       return(list(
@@ -340,7 +350,7 @@ mod_dbConnect_server <- function(id, localFolder, tempFolder) {
   }
 
   # --- Upload a database
-  dbUpload <- function(uploadInfo, tempFolder) {
+  dbUpload <- function(uploadInfo, tempFolder, schema) {
     if (is.null(uploadInfo$datapath)) {
       return(list(
         success = F,
@@ -350,7 +360,11 @@ mod_dbConnect_server <- function(id, localFolder, tempFolder) {
     }
 
     # Check if the selected DB is valid
-    check <- dbSetup(dbInfo = uploadInfo$datapath, checkSchema = T)
+    check <- dbSetup(
+      path = uploadInfo$datapath,
+      checkSchema = T,
+      schema = schema
+    )
 
     if (!check$success) {
       return(list(
@@ -385,7 +399,7 @@ mod_dbConnect_server <- function(id, localFolder, tempFolder) {
   }
 
   # --- Connect to a temporary database with a code
-  dbTemp <- function(dbCode, tempFolder) {
+  dbTemp <- function(dbCode, tempFolder, schema) {
     # Check if the database is (still) available
     dbPath <- file.path(tempFolder, paste0(dbCode, ".db"))
     check <- file.exists(dbPath)
@@ -399,7 +413,7 @@ mod_dbConnect_server <- function(id, localFolder, tempFolder) {
     }
 
     # Check if the selected DB is still valid
-    check <- dbSetup(dbInfo = dbPath, checkSchema = T)
+    check <- dbSetup(path = dbPath, checkSchema = T, schema = schema)
 
     if (!check$success) {
       return(list(
@@ -428,7 +442,7 @@ mod_dbConnect_server <- function(id, localFolder, tempFolder) {
   }
 
   # --- Create a new, temporary database
-  dbNew <- function(dbName, tempFolder) {
+  dbNew <- function(dbName, tempFolder, schema) {
     # Check th provided name
     check <- dbName |> str_detect("^[\\w-]+$")
 
@@ -446,7 +460,7 @@ mod_dbConnect_server <- function(id, localFolder, tempFolder) {
 
     nameCode <- tempDBname()
     tempPath <- file.path(tempFolder, paste0(nameCode, ".db"))
-    check <- dbSetup(tempPath)
+    check <- dbSetup(tempPath, schema = schema)
 
     updateQueryString(
       sprintf("?dbmode=temp&dbcode=%s", nameCode),
@@ -473,20 +487,26 @@ mod_dbConnect_server <- function(id, localFolder, tempFolder) {
     # This reactive will be returned by the module
     connInfo <- reactiveVal()
 
-    # Check if the URL already contains DB info
+    # Runs when the module is intialised
     observe({
-      if (!"dbmode" %in% names(isolate(getQueryString()))) {
+      if (!is.null(useDB)) {
+        # Path has been directly provided
+        useDB <- normalizePath(useDB, mustWork = T)
+        dbName <- basename(useDB) |> str_remove("\\.db$")
+        result <- dbLocal(dbName, dirname(useDB), dbName, schema)
+        connInfo(result$info)
+      } else if (!"dbmode" %in% names(isolate(getQueryString()))) {
         # No DB data provided, show modal
         mod_dbConnect_ui("getDB")
       } else {
-        # Check the provided DB info
+        # Check the provided DB info in URL
         dbmode <- getQueryString()$dbmode
 
         if (dbmode == "local") {
           dbName <- URLdecode(getQueryString()$dbcode)
-          result <- dbLocal(dbName, localFolder, localDBs)
+          result <- dbLocal(dbName, localFolder, localDBs, schema)
         } else if (dbmode == "temp") {
-          result <- dbTemp(getQueryString()$dbcode, tempFolder)
+          result <- dbTemp(getQueryString()$dbcode, tempFolder, schema)
         } else {
           result(list(
             success = F,
@@ -506,7 +526,7 @@ mod_dbConnect_server <- function(id, localFolder, tempFolder) {
 
     # --- OPTION 1 - Connect to a permanent local database
     observeEvent(input$goLocal, {
-      result <- dbLocal(input$db_local, localFolder, localDBs)
+      result <- dbLocal(input$db_local, localFolder, localDBs, schema)
 
       if (result$success) {
         connInfo(result$info)
@@ -518,7 +538,7 @@ mod_dbConnect_server <- function(id, localFolder, tempFolder) {
 
     # --- OPTION 2 - Upload a database
     observeEvent(input$goUpload, {
-      result <- dbUpload(input$db_upload, tempFolder)
+      result <- dbUpload(input$db_upload, tempFolder, schema)
 
       if (result$success) {
         connInfo(result$info)
@@ -530,7 +550,7 @@ mod_dbConnect_server <- function(id, localFolder, tempFolder) {
 
     # --- OPTION 3 - Connect to a temporary database with a code
     observeEvent(input$goTemp, {
-      result <- dbTemp(input$db_tempCode, tempFolder)
+      result <- dbTemp(input$db_tempCode, tempFolder, schema)
 
       if (result$success) {
         connInfo(result$info)
@@ -542,7 +562,7 @@ mod_dbConnect_server <- function(id, localFolder, tempFolder) {
 
     # --- OPTION 4 - Create a new, temporary database
     observeEvent(input$goNew, {
-      result <- dbNew(input$db_new, tempFolder)
+      result <- dbNew(input$db_new, tempFolder, schema)
 
       if (result$success) {
         connInfo(result$info)

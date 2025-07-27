@@ -1,7 +1,8 @@
 #' Setup the ColabNet database for the current session
 #'
-#' @param dbInfo Path to ColabNet Database. If DB does not exist it will be created
-#' @param checkSchema (Default, FALSE) Check the schema of an existing datbase against the reference
+#' @param path Path to a database. If DB does not exist it will be created from the schema
+#' @param schema An SQLite database schema (.sql file)
+#' @param checkSchema (Default, FALSE) Check the schema of an existing database against the reference
 #' @param returnConn (Default, FALSE) By default this function will save the connection to the database
 #' internally to be used by other functions. If set to TRUE, a connection object is returned
 #' and needs to be closed manually using dbDisconnect()
@@ -18,38 +19,38 @@
 #' - conn: a connection object if returnConn = T
 #' @export
 #'
-dbSetup <- function(dbInfo, checkSchema = F, returnConn = F, setDBSession = F) {
-  # Get the reference schema
-  sqlFile <- readLines(system.file(
-    "create_colabNetDB.sql",
-    package = "colabNet"
-  )) |>
-    paste(collapse = "") |>
-    str_remove(";\\s*$")
-
+dbSetup <- function(
+  path,
+  schema,
+  checkSchema = F,
+  returnConn = F,
+  setDBSession = F
+) {
+  # Path check
   if (
-    missing(dbInfo) ||
-      !dir.exists(dirname(dbInfo)) ||
-      !str_detect(basename(dbInfo), "^[\\w-]+\\.db$")
+    missing(path) ||
+      !dir.exists(dirname(path)) ||
+      !str_detect(basename(path), "^[\\w-]+\\.db$")
   ) {
     return(list(
       success = F,
       statusCode = 4,
-      msg = paste(
-        "You need to provide a valid path a the database",
-        "with a valid filename that ends in .db"
-      ),
+      msg = paste("Provide a valid path to a database file ending in .db"),
       conn = NULL
     ))
   }
 
   # Start with empty connection
   myConn <- NULL
+  # Get the reference schema
+  sqlFile <- readLines(schema) |>
+    paste(collapse = "") |>
+    str_remove(";\\s*$")
 
-  if (!file.exists(dbInfo)) {
+  if (!file.exists(path)) {
     # Create a new database
     tables <- strsplit(sqlFile, ";") |> unlist()
-    myConn <- dbConnect(SQLite(), dbInfo)
+    myConn <- dbConnect(SQLite(), path)
     q <- sapply(tables, function(sql) {
       q <- dbExecute(myConn, sql)
     })
@@ -57,7 +58,7 @@ dbSetup <- function(dbInfo, checkSchema = F, returnConn = F, setDBSession = F) {
     msg <- "A new database was created"
     statusCode <- 0
   } else if (checkSchema) {
-    myConn <- dbConnect(SQLite(), dbInfo)
+    myConn <- dbConnect(SQLite(), path)
     # Extract the schema from the database to compare to the reference
     dbSchema <- dbGetQuery(
       myConn,
@@ -69,12 +70,12 @@ dbSetup <- function(dbInfo, checkSchema = F, returnConn = F, setDBSession = F) {
       unlist() |>
       paste(collapse = ";")
 
-    # Remove the INSERT statements as they are not part of the schema
+    # Remove any INSERT statements as they are not part of the schema
     sqlFile <- str_remove(sqlFile, ";INSERT.*")
 
     if (dbSchema != sqlFile) {
       msg <- paste(
-        sprintf("The schema of %s is not valid.\n", dbInfo),
+        sprintf("The schema of %s is not valid.\n", path),
         "- Create a blank database by providing a new path\n",
         "- Edit the schema of the existing database to match the requirements"
       )
@@ -84,7 +85,7 @@ dbSetup <- function(dbInfo, checkSchema = F, returnConn = F, setDBSession = F) {
       statusCode <- 2
     }
   } else {
-    myConn <- dbConnect(SQLite(), dbInfo)
+    myConn <- dbConnect(SQLite(), path)
     msg <- "Successful connection to existing database; schema not validated"
     statusCode <- 1
   }
@@ -97,7 +98,7 @@ dbSetup <- function(dbInfo, checkSchema = F, returnConn = F, setDBSession = F) {
 
   # Save the connection info for the session
   if (setDBSession) {
-    options(dbInfo = dbInfo)
+    options(dbPath = path)
   }
 
   return(list(
@@ -112,15 +113,13 @@ dbSetup <- function(dbInfo, checkSchema = F, returnConn = F, setDBSession = F) {
 #'
 #' @param dbInfo (optional if dbSetup() has been run) Path to the ColabNet database
 #' or existing connection. If the dbSetup() has been run the assigned database will be used
-#' @param checkSchema (Default, TRUE) Check the schema of if dbInfo is explicitly provided.
-#'  Ignored when dbSetup() had been used.
 #'
 #' @import RSQLite
 #'
 #' @return Connection to the ColabNet database
 #' @export
 #'
-dbGetConn <- function(dbInfo, checkSchema = T) {
+dbGetConn <- function(dbInfo) {
   if (missing(dbInfo)) {
     # getOption("dbInfo") has  database info in global environment
     if (is.null(getOption("dbInfo", default = NULL))) {
@@ -133,8 +132,11 @@ dbGetConn <- function(dbInfo, checkSchema = T) {
   } else if (inherits(dbInfo, "DBIConnection")) {
     conn <- dbInfo
     attr(conn, "existing") <- T
+  } else if ("Pool" %in% class(dbInfo)) {
+    conn <- pool::localCheckout(dbInfo)
+    attr(conn, "existing") <- F
   } else {
-    conn <- dbSetup(dbInfo, checkSchema = checkSchema, returnConn = T)
+    conn <- dbSetup(dbInfo, returnConn = T)
     attr(conn, "existing") <- F
   }
 
@@ -693,7 +695,7 @@ dbAddAuthorPublications <- function(
       authorPublications <- filter_PMID(authorPublications, PMIDs = new$PMID)
 
       ### ADD (CO)AUTHOR INFO
-      auInfo <- dbAddAuthors(authorPublications$coAuthors, conn)
+      auInfo <- dbAddAuthors(authorPublications$coAuthors, dbInfo = conn)
 
       # Set authorOfInterest to TRUE to distinguish from co-authors
       if (matchOnFirst) {

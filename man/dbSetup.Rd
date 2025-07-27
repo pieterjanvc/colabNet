@@ -4,12 +4,14 @@
 \alias{dbSetup}
 \title{Setup the ColabNet database for the current session}
 \usage{
-dbSetup(dbInfo, checkSchema = F, returnConn = F, setDBSession = F)
+dbSetup(path, schema, checkSchema = F, returnConn = F, setDBSession = F)
 }
 \arguments{
-\item{dbInfo}{Path to ColabNet Database. If DB does not exist it will be created}
+\item{path}{Path to a database. If DB does not exist it will be created from the schema}
 
-\item{checkSchema}{(Default, FALSE) Check the schema of an existing datbase against the reference}
+\item{schema}{An SQLite database schema (.sql file)}
+
+\item{checkSchema}{(Default, FALSE) Check the schema of an existing database against the reference}
 
 \item{returnConn}{(Default, FALSE) By default this function will save the connection to the database
 internally to be used by other functions. If set to TRUE, a connection object is returned
