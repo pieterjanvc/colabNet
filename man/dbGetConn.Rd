@@ -7,8 +7,7 @@
 dbGetConn(dbInfo)
 }
 \arguments{
-\item{dbInfo}{(optional if dbSetup() has been run) Path to the ColabNet database
-or existing connection. If the dbSetup() has been run the assigned database will be used}
+\item{dbInfo}{Connection to a Colabnet database}
 }
 \value{
 Connection to the ColabNet database

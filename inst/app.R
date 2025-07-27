@@ -7,6 +7,7 @@ if (!exists("envInfo")) {
 
   file.copy("../data/PGG_dev.db", "../local/dev.db", overwrite = T)
   testDB <- "../local/dev.db"
+  # testDB <- NULL
 
   envInfo = list(
     dev = T,
@@ -110,6 +111,7 @@ calcOverlap <- function(precompOverlap, treeFilter, authors) {
 
 ui <- fluidPage(
   useShinyjs(),
+  mod_dbSetup_ui("getDB"), #Placeholder for the DB selection modal
   fluidRow(column(
     12,
     tabsetPanel(
@@ -309,29 +311,8 @@ server <- function(input, output, session) {
   })
 
   onSessionEnded(function() {
-    poolClose(isolate(pool()))
+    isolate(poolClose(pool()))
   })
-
-  # preCompData <- reactivePoll(
-  #   intervalMillis = 5000,
-  #   session = session,
-  #   checkFunc = function() {
-  #     if (is.null(connInfo()$dbPath)) {
-  #       return(NULL)
-  #     }
-  #
-  #     tbl(pool(), "updateData") |>
-  #       arrange(desc(uID)) |>
-  #       head(1) |>
-  #       pull(uID)
-  #   },
-  #   valueFunc = function() {
-  #     tbl(pool(), "updateData") |>
-  #       arrange(desc(uID)) |>
-  #       head(1) |>
-  #       pull(uID)
-  #   }
-  # )
 
   # Precompute data
   preCompData <- reactivePoll(
@@ -348,7 +329,13 @@ server <- function(input, output, session) {
         pull(uID)
     },
     valueFunc = function() {
-      print("Precomuting ...")
+      req(connInfo()$dbPath)
+      showNotification(
+        "Gathering data ... be patient",
+        type = "message",
+        duration = NULL,
+        id = "precalc"
+      )
 
       authors <- tbl(pool(), "author") |>
         filter(authorOfInterest == 1) |>
@@ -423,7 +410,8 @@ server <- function(input, output, session) {
 
       overlapscore <- zooScore(papermeshtree)
 
-      print("... finished")
+      removeNotification("precalc")
+
       return(
         list(
           authors = authors,
@@ -488,7 +476,13 @@ server <- function(input, output, session) {
       ))
     } else if (input$tabs_exploration == "tab_comparison") {
       # We're only looking at two authors
-      auIDs <- overlapData()[input$overlapscoreTable_rows_selected, ] |>
+      if (length(input$overlapscoreTable_rows_selected) == 0) {
+        auIDs <- overlapData()
+      } else {
+        auIDs <- overlapData()[input$overlapscoreTable_rows_selected, ]
+      }
+
+      auIDs <- auIDs |>
         select(au1, au2) |>
         unlist()
 
@@ -747,11 +741,12 @@ server <- function(input, output, session) {
 
     # Get the treemap for the two authors
     if (length(input$overlapCat) == 0) {
-      tmComp <- papermeshtreeFromAuIDs(c(auIDs[1], auIDs[2]))
+      tmComp <- papermeshtreeFromAuIDs(c(auIDs[1], auIDs[2]), dbInfo = pool())
     } else {
       tmComp <- papermeshtreeFromAuIDs(
         c(auIDs[1], auIDs[2]),
-        roots = input$overlapCat
+        roots = input$overlapCat,
+        dbInfo = pool()
       )
       #TODO make sure the table filters with arIDs only found in the selected subtrees
     }

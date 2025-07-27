@@ -16,8 +16,7 @@ dbAddAuthorPublications(
 
 \item{flagUpdate}{Default= T, set an update flag in the DB so the app will refresh once completed}
 
-\item{dbInfo}{(optional if dbSetup() has been run)
-Path to the ColabNet database or existing connection}
+\item{dbInfo}{Connection to a Colabnet database}
 }
 \value{
 Data is inserted into the DB returning a list the author's aritcles (arID and PMID)

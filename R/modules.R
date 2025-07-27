@@ -144,7 +144,7 @@ mod_meshTree_server <- function(id, papermeshtree) {
       )
 
       #Plotly treemap
-      plot_ly(
+      plot <- plot_ly(
         type = "treemap",
         ids = mtPlotData()$branchID,
         parents = mtPlotData()$parentBranchID,
@@ -162,6 +162,8 @@ mod_meshTree_server <- function(id, papermeshtree) {
         maxdepth = 2,
         source = "mtPlot"
       )
+
+      plot
     })
 
     # Keep track of which branch is being viewed
@@ -202,8 +204,44 @@ mod_meshTree_server <- function(id, papermeshtree) {
 #'
 #' @export
 mod_dbSetup_ui <- function(id) {
-  tagList(
-    showModal(modalDialog(
+  tagList()
+}
+
+#' Module server to setup an SQLite database in various ways
+#'
+#' @param id ID name for the server
+#' @param localFolder Folder with existing, permanent databases to provide
+#' @param tempFolder Folder where temp (new and uploaded) databases live
+#' @param schema The schema of the SQLite database (.sql file)
+#' @param useDB Default = NULL. If set, the provided database is used and the
+#' rest is skipped. This is especially useful for dev when you don't want the
+#' modal pop-up. If there is not DB at the specified path, a new one is created
+#'
+#' @import shiny
+#' @importFrom stringr str_remove str_detect
+#'
+#' @returns Reactive list variable with 4 items
+#' - dbPath: path to the database
+#' - dbName: (file) name of the database
+#' - dbCode: temporary code name of the database
+#' - dbType: method chosen from the menu
+#'
+#' @export
+#'
+mod_dbSetup_server <- function(
+  id,
+  localFolder,
+  tempFolder,
+  schema,
+  useDB = NULL
+) {
+  localFolder <- normalizePath(localFolder, mustWork = T)
+  tempFolder <- normalizePath(tempFolder, mustWork = T)
+  schema <- normalizePath(schema, mustWork = T)
+
+  # Modal to show
+  dbSelectionModal <- function(localDBs) {
+    modalDialog(
       titlePanel("Select a database"),
       wellPanel(fluidRow(
         column(
@@ -217,7 +255,7 @@ mod_dbSetup_ui <- function(id) {
           selectInput(
             NS(id, "db_local"),
             "Choose an existing database",
-            choices = NULL
+            choices = localDBs
           )
         )
       )),
@@ -264,41 +302,8 @@ mod_dbSetup_ui <- function(id) {
       )),
       size = "xl",
       footer = NULL
-    ))
-  )
-}
-
-#' Module server to setup an SQLite database in various ways
-#'
-#' @param id ID name for the server
-#' @param localFolder Folder with existing, permanent databases to provide
-#' @param tempFolder Folder where temp (new and uploaded) databases live
-#' @param schema The schema of the SQLite database (.sql file)
-#' @param useDB Default = NULL. If set, the provided database is used and the
-#' rest is skipped. This is especially useful for dev when you don't want the
-#' modal pop-up. If there is not DB at the specified path, a new one is created
-#'
-#' @import shiny
-#' @importFrom stringr str_remove str_detect
-#'
-#' @returns Reactive list variable with 4 items
-#' - dbPath: path to the database
-#' - dbName: (file) name of the database
-#' - dbCode: temporary code name of the database
-#' - dbType: method chosen from the menu
-#'
-#' @export
-#'
-mod_dbSetup_server <- function(
-  id,
-  localFolder,
-  tempFolder,
-  schema,
-  useDB = NULL
-) {
-  localFolder <- normalizePath(localFolder, mustWork = T)
-  tempFolder <- normalizePath(tempFolder, mustWork = T)
-  schema <- normalizePath(schema, mustWork = T)
+    )
+  }
 
   # Generate a temp name for a new / uploaded database
   tempDBname <- function() {
@@ -482,7 +487,6 @@ mod_dbSetup_server <- function(
   moduleServer(id, function(input, output, session) {
     # List existing databases
     localDBs <- list.files(localFolder, pattern = ".db") |> str_remove(".db$")
-    updateSelectInput(session, "db_local", choices = localDBs)
 
     # This reactive will be returned by the module
     connInfo <- reactiveVal()
@@ -497,7 +501,7 @@ mod_dbSetup_server <- function(
         connInfo(result$info)
       } else if (!"dbmode" %in% names(isolate(getQueryString()))) {
         # No DB data provided, show modal
-        mod_dbConnect_ui("getDB")
+        showModal(dbSelectionModal(localDBs))
       } else {
         # Check the provided DB info in URL
         dbmode <- getQueryString()$dbmode

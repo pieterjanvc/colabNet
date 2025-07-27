@@ -11,8 +11,7 @@ dbDeleteArticle(arIDs, dbInfo)
 \arguments{
 \item{arIDs}{Vector of arIDs to delete (as found in article table)}
 
-\item{dbInfo}{(optional if dbSetup() has been run)
-Path to the ColabNet database or existing connection}
+\item{dbInfo}{Connection to a Colabnet database}
 }
 \value{
 Dataframe of articles and authors/author names that have been deleted
