@@ -6,14 +6,14 @@ if (!exists("envInfo")) {
   message("DEV TEST")
 
   file.copy("../data/PGG_dev.db", "../local/dev.db", overwrite = T)
-  testDB <- "../local/dev.db"
-  # testDB <- NULL
+  # testDB <- "../local/dev.db"
+  testDB <- NULL
 
   envInfo = list(
     dev = T,
     dbPath = testDB,
     localFolder = file.path("..", "data"),
-    tempFolder = file.path("..", "temp")
+    tempFolder = NULL
   )
 }
 
@@ -475,7 +475,8 @@ server <- function(input, output, session) {
         mtOverviewSelected()$mtrIDs
       ))
     } else if (input$tabs_exploration == "tab_comparison") {
-      # We're only looking at two authors
+      # We're only looking at two authors.
+      req(overlapData())
       if (length(input$overlapscoreTable_rows_selected) == 0) {
         auIDs <- overlapData()
       } else {
@@ -684,10 +685,8 @@ server <- function(input, output, session) {
 
   # Update table that show the overlap score and return the raw table data
   observeEvent(
-    input$applyFilterCat,
+    c(input$applyFilterCat, preCompData()$overlapscore),
     {
-      req(nrow(preCompData()$overlapscore) > 0)
-
       overlap <- calcOverlap(
         preCompData()$overlapscore,
         input$overlapCat,
@@ -706,8 +705,7 @@ server <- function(input, output, session) {
       }
 
       overlapData(overlap$score)
-    },
-    ignoreNULL = FALSE
+    }
   )
 
   # Remove any tree filters from the scoring categories

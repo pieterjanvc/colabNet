@@ -12,8 +12,12 @@ mod_meshTree_server(id, papermeshtree)
 \item{plotData}{A MeshTree plot data data frame}
 }
 \value{
-Server function for MeSH Tree. The output will retrun the currently
-selected branchID
+Server function for MeSH Tree. The output will return a reactive list:
+\itemize{
+\item mtrIDs: the mtrIDs currently in the treemap (based on filtering),
+\item selected: the currently selected branch,
+\item auIDs: the current author IDs
+}
 }
 \description{
 MeSH Tree Shiny Module - Server

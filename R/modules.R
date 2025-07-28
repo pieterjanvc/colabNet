@@ -75,8 +75,10 @@ mod_meshTree_ui <- function(
 #' @param id ID for the module
 #' @param plotData A MeshTree plot data data frame
 #'
-#' @returns Server function for MeSH Tree. The output will retrun the currently
-#' selected branchID
+#' @returns Server function for MeSH Tree. The output will return a reactive list:
+#' - mtrIDs: the mtrIDs currently in the treemap (based on filtering),
+#' - selected: the currently selected branch,
+#' - auIDs: the current author IDs
 #'
 #' @import shiny dplyr plotly
 #'
@@ -88,7 +90,11 @@ mod_meshTree_server <- function(id, papermeshtree) {
     selectedBranch <- reactiveVal()
 
     data <- reactive({
+      auIDs <- papermeshtree()$auID |> unique()
+      auIDs <- auIDs[auIDs != 0]
+
       list(
+        auIDs = auIDs,
         plotData = treemapData(papermeshtree()),
         branchInfo = papermeshtree() |> select(branchID, mtrID) |> distinct()
       )
@@ -121,8 +127,14 @@ mod_meshTree_server <- function(id, papermeshtree) {
         plotData$balanceVal = 1
       }
 
-      #Plot is being reset so the selected branch is the root (0)
-      selectedBranch(list(mtrIDs = mtrIDs, selected = NULL))
+      #Plot is being reset so the selected branch is the root
+      # we're returning the auIDs also because otherwise lazy eval will not
+      # trigger when other pair has same plot
+      selectedBranch(list(
+        mtrIDs = mtrIDs,
+        selected = NULL,
+        auIDs = data()$auIDs
+      ))
 
       plotData
     })
@@ -184,7 +196,11 @@ mod_meshTree_server <- function(id, papermeshtree) {
           mtrIDs <- NULL
         }
 
-        selectedBranch(list(mtrIDs = mtrIDs, selected = selected))
+        selectedBranch(list(
+          mtrIDs = mtrIDs,
+          selected = selected,
+          auIDs = data()$auIDs
+        ))
       }
     )
 
