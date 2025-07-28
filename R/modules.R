@@ -258,64 +258,48 @@ mod_dbSetup_server <- function(
   # Modal to show
   dbSelectionModal <- function(localDBs) {
     modalDialog(
-      titlePanel("Select a database"),
-      wellPanel(fluidRow(
-        column(
-          4,
-          tags$b("Option 1"),
-          br(),
-          actionButton(NS(id, "goLocal"), "Explore selected")
+      titlePanel("Select a database to get started"),
+      radioButtons(
+        NS(id, "option"),
+        "How would you like to continue ...",
+        choices = c(
+          "Explore a database on the server" = 1,
+          "Upload a database from your computer" = 2,
+          "Resume with a previously uploaded database" = 3,
+          "Start a new database" = 4
         ),
-        column(
-          8,
-          selectInput(
-            NS(id, "db_local"),
-            "Choose an existing database",
-            choices = localDBs
-          )
-        )
-      )),
-      wellPanel(fluidRow(
-        column(
-          4,
-          tags$b("Option 2"),
-          br(),
-          actionButton(NS(id, "goUpload"), "Explore uploaded")
+        width = "100%"
+      ),
+      conditionalPanel(
+        condition = "input.option == '1'",
+        selectInput(
+          NS(id, "db_local"),
+          "Choose an existing database",
+          choices = localDBs
         ),
-        column(
-          8,
-          fileInput(
-            NS(id, "db_upload"),
-            "Upload a database from your computer",
-            accept = ".db"
-          ),
-          div(id = sprintf("%s-%s", id, "db_upload_msg"))
-        )
-      )),
-      wellPanel(fluidRow(
-        column(
-          4,
-          tags$b("Option 3"),
-          br(),
-          actionButton(NS(id, "goTemp"), "Continue with temp")
+        ns = NS(id)
+      ),
+      conditionalPanel(
+        condition = "input.option == '2'",
+        fileInput(
+          NS(id, "db_upload"),
+          "Upload a database from your computer",
+          accept = ".db"
         ),
-        column(
-          8,
-          textInput(NS(id, "db_tempCode"), "Provide temporary database code")
-        )
-      )),
-      wellPanel(fluidRow(
-        column(
-          4,
-          tags$b("Option 4"),
-          br(),
-          actionButton(NS(id, "goNew"), "Start new")
-        ),
-        column(
-          8,
-          textInput(NS(id, "db_new"), "Database name")
-        )
-      )),
+        div(id = sprintf("%s-%s", id, "db_upload_msg")),
+        ns = NS(id)
+      ),
+      conditionalPanel(
+        condition = "input.option == '3'",
+        textInput(NS(id, "db_tempCode"), "Provide temporary database code"),
+        ns = NS(id)
+      ),
+      conditionalPanel(
+        condition = "input.option == '4'",
+        textInput(NS(id, "db_new"), "Database name"),
+        ns = NS(id)
+      ),
+      actionButton(NS(id, "start"), "Continue"),
       size = "xl",
       footer = NULL
     )
@@ -544,51 +528,33 @@ mod_dbSetup_server <- function(
       }
     })
 
-    # --- OPTION 1 - Connect to a permanent local database
-    observeEvent(input$goLocal, {
-      result <- dbLocal(input$db_local, localFolder, localDBs, schema)
-
-      if (result$success) {
-        connInfo(result$info)
-        removeModal()
+    observeEvent(input$start, {
+      if (input$option == "1") {
+        # --- OPTION 1 - Connect to a permanent local database
+        result <- dbLocal(input$db_local, localFolder, localDBs, schema)
+        el <- "db_local"
+      } else if (input$option == "2") {
+        # --- OPTION 2 - Upload a database
+        result <- dbUpload(input$db_upload, tempFolder, schema)
+        el <- "db_upload_msg"
+      } else if (input$option == "3") {
+        # --- OPTION 3 - Connect to a temporary database with a code
+        result <- dbTemp(input$db_tempCode, tempFolder, schema)
+        el <- "db_tempCode"
+      } else if (input$option == "4") {
+        # --- OPTION 4 - Create a new, temporary database
+        result <- dbNew(input$db_new, tempFolder, schema)
+        el <- "db_new"
       } else {
-        elementMsg(sprintf("%s-%s", id, "db_local"), result$msg)
+        result <- list(info = NULL, success = F, msg = "start")
+        el <- "start"
       }
-    })
-
-    # --- OPTION 2 - Upload a database
-    observeEvent(input$goUpload, {
-      result <- dbUpload(input$db_upload, tempFolder, schema)
 
       if (result$success) {
         connInfo(result$info)
         removeModal()
       } else {
-        elementMsg(sprintf("%s-%s", id, "db_upload_msg"), result$msg)
-      }
-    })
-
-    # --- OPTION 3 - Connect to a temporary database with a code
-    observeEvent(input$goTemp, {
-      result <- dbTemp(input$db_tempCode, tempFolder, schema)
-
-      if (result$success) {
-        connInfo(result$info)
-        removeModal()
-      } else {
-        elementMsg(sprintf("%s-%s", id, "db_tempCode"), result$msg)
-      }
-    })
-
-    # --- OPTION 4 - Create a new, temporary database
-    observeEvent(input$goNew, {
-      result <- dbNew(input$db_new, tempFolder, schema)
-
-      if (result$success) {
-        connInfo(result$info)
-        removeModal()
-      } else {
-        elementMsg(sprintf("%s-%s", id, "db_new"), result$msg)
+        elementMsg(sprintf("%s-%s", id, el), result$msg)
       }
     })
 
