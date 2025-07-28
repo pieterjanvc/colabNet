@@ -40,7 +40,7 @@ if (!exists("envInfo")) {
   }
 
   if (is.null(envInfo$tempFolder)) {
-    envInfo$tempFoldertempFolder <- tempdir()
+    envInfo$tempFolder <- tempdir()
   }
 }
 
