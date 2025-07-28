@@ -11,9 +11,11 @@ if (!exists("envInfo")) {
     devtools::load_all()
     message("DEV TEST")
 
-    file.copy("../data/PGG_dev.db", "../local/dev.db", overwrite = T)
-    # testDB <- "../local/dev.db"
-    testDB <- "C:/Users/pj/Desktop/devtst.db"
+    # file.copy("../data/PGG_dev", "../local/dev.db", overwrite = T)
+    testDB <- "../local/dev.db"
+    # testDB <- "C:/Users/pj/Desktop/devtst.db"
+    # testDB <- "C:/Users/pj/Desktop/pjLorenzo.db"
+    # testDB <- NULL
 
     envInfo = list(
       mode = mode,
@@ -91,7 +93,7 @@ plotDataFilter <- function(plotData, n) {
 }
 
 # Calculate the MeSH Tree overlap between author pairs
-calcOverlap <- function(precompOverlap, treeFilter, authors) {
+calcOverlap <- function(precompOverlap, treeFilter, authors, permutation = F) {
   if (!is.null(treeFilter)) {
     precompOverlap <- precompOverlap |> filter(tree %in% {{ treeFilter }})
   }
@@ -112,6 +114,19 @@ calcOverlap <- function(precompOverlap, treeFilter, authors) {
     ) |>
     left_join(names |> select(au2 = auID, author2 = name), by = "au2") |>
     select(author1, author2, overlapScore = score)
+
+  if (permutation) {
+    overlapscore <- bind_rows(
+      overlapscore,
+      overlapscore |> select(au1 = au2, au2 = au1, score)
+    )
+    overlapscoreTable <- bind_rows(
+      overlapscoreTable,
+      overlapscoreTable |>
+        select(author1 = author2, author2 = author1, overlapScore)
+    ) |>
+      arrange(desc(overlapScore), author1, author2)
+  }
 
   return(list(score = overlapscore, table = overlapscoreTable))
 }
@@ -703,7 +718,7 @@ server <- function(input, output, session) {
 
   overlapData <- reactiveVal()
 
-  # Update table that show the overlap score and return the raw table data
+  # Update table that shows the overlap score and return the raw table data
   observeEvent(
     c(input$applyFilterCat, preCompData()$overlapscore),
     {
@@ -768,12 +783,6 @@ server <- function(input, output, session) {
       )
       #TODO make sure the table filters with arIDs only found in the selected subtrees
     }
-
-    # Update the article table with all articles for either author
-    # arIDs <- preCompData()$allArticles |>
-    #   filter(auID %in% {{ auIDs }}) |>
-    #   pull(arID)
-    # setArticleTable(arIDs = arIDs, auIDs = auIDs)
 
     # Return the treemap
     tmComp$papermeshtree

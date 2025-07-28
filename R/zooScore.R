@@ -100,6 +100,7 @@ nodeEval <- function(lvlData, allID, carry, carryOrder, m) {
 #'
 zooScore_tree <- function(tree) {
   auIDs <- sort(unique(tree$auID))
+  auIDs <- auIDs[auIDs != 0] # auID 0 is a placeholder
 
   # Not enough data to build a tree
   if (length(auIDs) < 2) {
