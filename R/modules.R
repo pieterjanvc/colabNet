@@ -215,12 +215,22 @@ mod_meshTree_server <- function(id, papermeshtree) {
 #' when initialised based on the settings / URL.
 #'
 #' @param id ID name for the module
+#' @param download Default = "button". Element to download the current database.
+#' Choose from button, link or none
 #'
-#' @returns When inserted it will pop-up a modal window. There is no permanent UI
+#' @returns Module UI (with download element if not none)
 #'
 #' @export
-mod_dbSetup_ui <- function(id) {
-  tagList()
+mod_dbSetup_ui <- function(id, download = "button") {
+  tagList(
+    if (download == "button") {
+      downloadButton(NS(id, "dbDownload"), "Download database")
+    } else if (download == "link") {
+      downloadLink(NS(id, "dbDownload"), "Download database")
+    } else if (download == "none") {
+      NULL
+    }
+  )
 }
 
 #' Module server to setup an SQLite database in various ways
@@ -583,6 +593,15 @@ mod_dbSetup_server <- function(
         elementMsg(sprintf("%s-%s", id, el), result$msg)
       }
     })
+
+    output$dbDownload <- downloadHandler(
+      filename = function() {
+        paste0(connInfo()$dbName, ".db")
+      },
+      content = function(file) {
+        file.copy(connInfo()$dbPath, file)
+      }
+    )
 
     return(connInfo)
   })

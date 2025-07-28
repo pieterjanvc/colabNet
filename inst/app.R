@@ -13,7 +13,7 @@ if (!exists("envInfo")) {
 
     file.copy("../data/PGG_dev.db", "../local/dev.db", overwrite = T)
     # testDB <- "../local/dev.db"
-    testDB <- NULL
+    testDB <- "C:/Users/pj/Desktop/devtst.db"
 
     envInfo = list(
       mode = mode,
@@ -122,7 +122,15 @@ calcOverlap <- function(precompOverlap, treeFilter, authors) {
 
 ui <- fluidPage(
   useShinyjs(),
-  mod_dbSetup_ui("getDB"), #Placeholder for the DB selection modal
+  # Download button style
+  tags$head(tags$style(HTML(paste(
+    "#cnDB-dbDownload {",
+    "position: fixed; top: 0; right: 0; margin: 10px; z-index:1000;",
+    "background-color:#40928A75; color: white;}"
+  )))),
+  div(
+    mod_dbSetup_ui("cnDB")
+  ),
   fluidRow(column(
     12,
     tabsetPanel(
@@ -267,7 +275,7 @@ ui <- fluidPage(
           actionButton("startBulkImport", "Start Import")
         ),
         value = "exploration"
-      ),
+      )
     )
   )),
   fluidRow(column(

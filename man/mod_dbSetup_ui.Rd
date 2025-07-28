@@ -4,13 +4,16 @@
 \alias{mod_dbSetup_ui}
 \title{Module UI to setup an SQLite database in various ways}
 \usage{
-mod_dbSetup_ui(id)
+mod_dbSetup_ui(id, download = "button")
 }
 \arguments{
 \item{id}{ID name for the module}
+
+\item{download}{Default = "button". Element to download the current database.
+Choose from button, link or none}
 }
 \value{
-When inserted it will pop-up a modal window. There is no permanent UI
+Module UI (with download element if not none)
 }
 \description{
 Note that the server function will automatically generate the modal pop-up
