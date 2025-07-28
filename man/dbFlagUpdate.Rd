@@ -14,8 +14,7 @@ dbFlagUpdate(action, dbInfo)
 \item 2 = delete data
 }}
 
-\item{dbInfo}{(optional if dbSetup() has been run)
-Path to the ColabNet database or existing connection}
+\item{dbInfo}{Connection to a Colabnet database}
 }
 \value{
 Bool to indicate success

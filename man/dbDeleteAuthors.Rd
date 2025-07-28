@@ -10,8 +10,7 @@ dbDeleteAuthors(auIDs, dbInfo)
 \item{auIDs}{auIDs to remove. Co-authors who are not and authorOfInterest and
 do not appear in other non-removed articles, are removed too}
 
-\item{dbInfo}{(optional if dbSetup() has been run) Path to the ColabNet database
-or existing connection}
+\item{dbInfo}{Connection to a Colabnet database}
 }
 \value{
 data frame with all auID and arID that were removed

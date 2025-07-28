@@ -7,3 +7,6 @@
 backup/*
 data
 local/*
+dev/shinyData/*
+**/temp/*
+localDB/*

@@ -283,7 +283,7 @@ dbMeshTree <- function(papermesh, roots, dbInfo) {
   conn <- dbGetConn(dbInfo)
 
   # Build the basic MeSH tree
-  tree <- dbTreeFromMesh(papermesh$uid, roots = roots)
+  tree <- dbTreeFromMesh(papermesh$uid, roots = roots, dbInfo = dbInfo)
 
   # Add the MeSH term (actual description)
   tree <- tree |>

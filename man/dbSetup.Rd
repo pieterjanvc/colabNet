@@ -4,21 +4,30 @@
 \alias{dbSetup}
 \title{Setup the ColabNet database for the current session}
 \usage{
-dbSetup(dbInfo, newDBMsg = T, checkSchema = F, returnConn = F)
+dbSetup(path, schema, checkSchema = F, returnConn = F, setDBSession = F)
 }
 \arguments{
-\item{dbInfo}{Path to ColabNet Database. If DB does not exist it will be created}
+\item{path}{Path to a database. If DB does not exist it will be created from the schema}
 
-\item{newDBMsg}{(Default, TRUE) Output a message when a new database was created}
+\item{schema}{An SQLite database schema (.sql file)}
 
-\item{checkSchema}{(Default, FALSE) Check the schema of an existing datbase against the reference}
+\item{checkSchema}{(Default, FALSE) Check the schema of an existing database against the reference}
 
 \item{returnConn}{(Default, FALSE) By default this function will save the connection to the database
 internally to be used by other functions. If set to TRUE, a connection object is returned
 and needs to be closed manually using dbDisconnect()}
+
+\item{setDBSession}{(Default, FALSE) Set the dbInfo for the global session so it does not
+have to be provided for all other DB functions. Don't use this in Shiny!}
 }
 \value{
-Nothing (default) or a connection to the ColabNet datbase if returnConn = T
+A list with 4 elements
+\itemize{
+\item success: T/F whether the connection to the database was succesful
+\item statusCode: 0,1,2 are success, others are failures
+\item msg: The message for each status code
+\item conn: a connection object if returnConn = T
+}
 }
 \description{
 Setup the ColabNet database for the current session

@@ -4,14 +4,10 @@
 \alias{dbGetConn}
 \title{Get a ColabNet database connection}
 \usage{
-dbGetConn(dbInfo, checkSchema = T)
+dbGetConn(dbInfo)
 }
 \arguments{
-\item{dbInfo}{(optional if dbSetup() has been run) Path to the ColabNet database
-or existing connection. If the dbSetup() has been run the assigned database will be used}
-
-\item{checkSchema}{(Default, TRUE) Check the schema of if dbInfo is explicitly provided.
-Ignored when dbSetup() had been used.}
+\item{dbInfo}{Connection to a Colabnet database}
 }
 \value{
 Connection to the ColabNet database

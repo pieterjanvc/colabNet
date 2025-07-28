@@ -4,10 +4,16 @@
 \alias{colabNet}
 \title{Run the colabNet Shiny App}
 \usage{
-colabNet(colabNetDB)
+colabNet(colabNetDB, localFolder, tempFolder)
 }
 \arguments{
 \item{colabNetDB}{Path to the ColabNet database (will be created if needed)}
+
+\item{localFolder}{(Optional) Path to a folder with database to explore}
+
+\item{tempFolder}{(Optional) Path to a folder where temp databases are stored
+
+If local and temp folders are not set, they will be created in the default temp}
 }
 \value{
 Start the Shiny app

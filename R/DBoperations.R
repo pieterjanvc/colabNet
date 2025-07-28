@@ -1,41 +1,64 @@
 #' Setup the ColabNet database for the current session
 #'
-#' @param dbInfo Path to ColabNet Database. If DB does not exist it will be created
-#' @param newDBMsg (Default, TRUE) Output a message when a new database was created
-#' @param checkSchema (Default, FALSE) Check the schema of an existing datbase against the reference
+#' @param path Path to a database. If DB does not exist it will be created from the schema
+#' @param schema An SQLite database schema (.sql file)
+#' @param checkSchema (Default, FALSE) Check the schema of an existing database against the reference
 #' @param returnConn (Default, FALSE) By default this function will save the connection to the database
 #' internally to be used by other functions. If set to TRUE, a connection object is returned
 #' and needs to be closed manually using dbDisconnect()
+#' @param setDBSession (Default, FALSE) Set the dbInfo for the global session so it does not
+#' have to be provided for all other DB functions. Don't use this in Shiny!
 #'
 #' @import RSQLite
 #' @importFrom stringr str_remove
 #'
-#' @return Nothing (default) or a connection to the ColabNet datbase if returnConn = T
+#' @return A list with 4 elements
+#' - success: T/F whether the connection to the database was succesful
+#' - statusCode: 0,1,2 are success, others are failures
+#' - msg: The message for each status code
+#' - conn: a connection object if returnConn = T
 #' @export
 #'
-dbSetup <- function(dbInfo, newDBMsg = T, checkSchema = F, returnConn = F) {
+dbSetup <- function(
+  path,
+  schema,
+  checkSchema = F,
+  returnConn = F,
+  setDBSession = F
+) {
+  # Path check
+  if (
+    missing(path) ||
+      !dir.exists(dirname(path)) ||
+      !str_detect(basename(path), "^[\\w-]+\\.db$")
+  ) {
+    return(list(
+      success = F,
+      statusCode = 4,
+      msg = paste("Provide a valid path to a database file ending in .db"),
+      conn = NULL
+    ))
+  }
+
+  # Start with empty connection
+  myConn <- NULL
   # Get the reference schema
-  sqlFile <- readLines(system.file(
-    "create_colabNetDB.sql",
-    package = "colabNet"
-  )) |>
+  sqlFile <- readLines(schema) |>
     paste(collapse = "") |>
     str_remove(";\\s*$")
 
-  if (missing(dbInfo)) {
-    stop("You need to provide a path for the database")
-  }
-
-  if (!file.exists(dbInfo)) {
+  if (!file.exists(path)) {
+    # Create a new database
     tables <- strsplit(sqlFile, ";") |> unlist()
-    myConn <- dbConnect(SQLite(), dbInfo)
+    myConn <- dbConnect(SQLite(), path)
     q <- sapply(tables, function(sql) {
       q <- dbExecute(myConn, sql)
     })
 
-    if (newDBMsg) message("A new database was created")
+    msg <- "A new database was created"
+    statusCode <- 0
   } else if (checkSchema) {
-    myConn <- dbConnect(SQLite(), dbInfo)
+    myConn <- dbConnect(SQLite(), path)
     # Extract the schema from the database to compare to the reference
     dbSchema <- dbGetQuery(
       myConn,
@@ -47,46 +70,55 @@ dbSetup <- function(dbInfo, newDBMsg = T, checkSchema = F, returnConn = F) {
       unlist() |>
       paste(collapse = ";")
 
-    # Remove the INSERT statements as they are not part of the schema
+    # Remove any INSERT statements as they are not part of the schema
     sqlFile <- str_remove(sqlFile, ";INSERT.*")
 
     if (dbSchema != sqlFile) {
-      dbDisconnect(myConn)
-      stop(
-        sprintf("The schema of %s is not valid.\n", dbInfo),
+      msg <- paste(
+        sprintf("The schema of %s is not valid.\n", path),
         "- Create a blank database by providing a new path\n",
         "- Edit the schema of the existing database to match the requirements"
       )
+      statusCode <- 3
+    } else {
+      msg <- "Successful connection to existing database; schema validated"
+      statusCode <- 2
     }
   } else {
-    myConn <- dbConnect(SQLite(), dbInfo)
+    myConn <- dbConnect(SQLite(), path)
+    msg <- "Successful connection to existing database; schema not validated"
+    statusCode <- 1
+  }
+
+  # When not to return the connection
+  if ((!is.null(myConn) & !returnConn) | statusCode == 3) {
+    dbDisconnect(myConn)
+    myConn <- NULL
   }
 
   # Save the connection info for the session
-  options(dbInfo = dbInfo)
-
-  # Only return the connection if requested
-  if (returnConn) {
-    return(myConn)
-  } else {
-    dbDisconnect(myConn)
-    invisible()
+  if (setDBSession) {
+    options(dbPath = path)
   }
+
+  return(list(
+    success = statusCode %in% c(0, 1, 2),
+    statusCode = statusCode,
+    msg = msg,
+    conn = myConn
+  ))
 }
 
 #' Get a ColabNet database connection
 #'
-#' @param dbInfo (optional if dbSetup() has been run) Path to the ColabNet database
-#' or existing connection. If the dbSetup() has been run the assigned database will be used
-#' @param checkSchema (Default, TRUE) Check the schema of if dbInfo is explicitly provided.
-#'  Ignored when dbSetup() had been used.
+#' @param dbInfo Connection to a Colabnet database
 #'
 #' @import RSQLite
 #'
 #' @return Connection to the ColabNet database
 #' @export
 #'
-dbGetConn <- function(dbInfo, checkSchema = T) {
+dbGetConn <- function(dbInfo) {
   if (missing(dbInfo)) {
     # getOption("dbInfo") has  database info in global environment
     if (is.null(getOption("dbInfo", default = NULL))) {
@@ -99,9 +131,13 @@ dbGetConn <- function(dbInfo, checkSchema = T) {
   } else if (inherits(dbInfo, "DBIConnection")) {
     conn <- dbInfo
     attr(conn, "existing") <- T
-  } else {
-    conn <- dbSetup(dbInfo, checkSchema = checkSchema, returnConn = T)
+  } else if ("Pool" %in% class(dbInfo)) {
+    conn <- pool::localCheckout(dbInfo)
     attr(conn, "existing") <- F
+  } else {
+    stop("You must provide a database connection or Pool object")
+    # conn <- dbSetup(dbInfo, returnConn = T)
+    # attr(conn, "existing") <- F
   }
 
   # Make sure that foreign key constraints and cascading are enforced
@@ -110,11 +146,26 @@ dbGetConn <- function(dbInfo, checkSchema = T) {
   return(conn)
 }
 
+#' Finish the current DB operation and disconnect if needed
+#'
+#' @param conn A database connection
+#'
+#' @returns Nothing
+#' @export
+#'
+dbFinish <- function(conn) {
+  #Pool will auto disconnect with localCheckout, and existing needs to be kept open
+  if (
+    !"pool_metadata" %in% names(attributes(conn)) && !attr(conn, "existing")
+  ) {
+    dbDisconnect(conn)
+  }
+}
+
 #' Add authors to the database
 #'
 #' @param authors The coAuthors data frame generated by ncbi_authorPublications
-#' @param dbInfo (optional if dbSetup() has been run) Path to the ColabNet database
-#'  or existing connection
+#' @param dbInfo Connection to a Colabnet database
 #'
 #' @import RSQLite
 #' @import dplyr
@@ -234,10 +285,7 @@ dbAddAuthors <- function(authors, dbInfo) {
 
       if (endTransaction) {
         dbCommit(conn)
-
-        if (!attr(conn, "existing")) {
-          dbDisconnect(conn)
-        }
+        dbFinish(conn)
       }
 
       return(bind_rows(new, updated, existing) |> select(-tempId))
@@ -245,9 +293,7 @@ dbAddAuthors <- function(authors, dbInfo) {
     error = function(e) {
       # If an error occurs, rollback the current transaction
       dbRollback(conn)
-      if (!attr(conn, "existing")) {
-        dbDisconnect(conn)
-      }
+      dbFinish(conn)
       stop(e)
     }
   )
@@ -257,8 +303,7 @@ dbAddAuthors <- function(authors, dbInfo) {
 #'
 #' @param auIDs auIDs to remove. Co-authors who are not and authorOfInterest and
 #' do not appear in other non-removed articles, are removed too
-#' @param dbInfo (optional if dbSetup() has been run) Path to the ColabNet database
-#'  or existing connection
+#' @param dbInfo Connection to a Colabnet database
 #'
 #' @import dplyr
 #'
@@ -326,9 +371,7 @@ dbDeleteAuthors <- function(auIDs, dbInfo) {
 
       if (endTransaction) {
         dbCommit(conn)
-        if (!attr(conn, "existing")) {
-          dbDisconnect(conn)
-        }
+        dbFinish(conn)
       }
 
       return(toRemove)
@@ -336,9 +379,7 @@ dbDeleteAuthors <- function(auIDs, dbInfo) {
     error = function(e) {
       # If an error occurs, rollback the current transaction
       dbRollback(conn)
-      if (!attr(conn, "existing")) {
-        dbDisconnect(conn)
-      }
+      dbFinish(conn)
       stop(e)
     }
   )
@@ -348,8 +389,7 @@ dbDeleteAuthors <- function(auIDs, dbInfo) {
 #'
 #' @param values vector of MeSH values to search for
 #' @param type The type needs to be 'meshui' (MeSH ui), 'treenum' (tree number) or 'uid' (MeSH Entrez uid)
-#' @param dbInfo (optional if dbSetup() has been run) Path to the ColabNet database
-#'  or existing connection
+#' @param dbInfo Connection to a Colabnet database
 #'
 #' @import dplyr
 #'
@@ -452,9 +492,7 @@ dbAddMesh <- function(values, type, dbInfo) {
 
       if (endTransaction) {
         dbCommit(conn)
-        if (!attr(conn, "existing")) {
-          dbDisconnect(conn)
-        }
+        dbFinish(conn)
       }
 
       return(bind_rows(
@@ -465,9 +503,7 @@ dbAddMesh <- function(values, type, dbInfo) {
     error = function(e) {
       # If an error occurs, rollback the current transaction
       dbRollback(conn)
-      if (!attr(conn, "existing")) {
-        dbDisconnect(conn)
-      }
+      dbFinish(conn)
       stop(e)
     }
   )
@@ -479,8 +515,7 @@ dbAddMesh <- function(values, type, dbInfo) {
 #'  - 0 = new database init
 #'  - 1 = add data
 #'  - 2 = delete data
-#' @param dbInfo (optional if dbSetup() has been run)
-#'  Path to the ColabNet database or existing connection
+#' @param dbInfo Connection to a Colabnet database
 #'
 #' @import RSQLite
 #'
@@ -515,17 +550,13 @@ dbFlagUpdate <- function(action, dbInfo) {
 
       if (endTransaction) {
         dbCommit(conn)
-        if (!attr(conn, "existing")) {
-          dbDisconnect(conn)
-        }
+        dbFinish(conn)
       }
     },
     error = function(e) {
       # If an error occurs, rollback the current transaction
       dbRollback(conn)
-      if (!attr(conn, "existing")) {
-        dbDisconnect(conn)
-      }
+      dbFinish(conn)
       stop(e)
     }
   )
@@ -535,8 +566,7 @@ dbFlagUpdate <- function(action, dbInfo) {
 #'
 #' @param authorPublications List of data frames geneated by ncbi_publicationDetails()
 #' @param flagUpdate Default= T, set an update flag in the DB so the app will refresh once completed
-#' @param dbInfo (optional if dbSetup() has been run)
-#'  Path to the ColabNet database or existing connection
+#' @param dbInfo Connection to a Colabnet database
 #'
 #' @import RSQLite
 #' @import dplyr
@@ -624,9 +654,7 @@ dbAddAuthorPublications <- function(
 
         if (length(auID) != 1) {
           dbRollback(conn)
-          if (!attr(conn, "existing")) {
-            dbDisconnect(conn)
-          }
+          dbFinish(conn)
           stop(ifelse(
             length(auID) > 1,
             "Ambiguous author of interest",
@@ -647,9 +675,7 @@ dbAddAuthorPublications <- function(
 
         if (endTransaction) {
           dbCommit(conn)
-          if (!attr(conn, "existing")) {
-            dbDisconnect(conn)
-          }
+          dbFinish(conn)
         }
 
         return(arInfo %>% mutate(auID = {{ auID }}))
@@ -659,7 +685,7 @@ dbAddAuthorPublications <- function(
       authorPublications <- filter_PMID(authorPublications, PMIDs = new$PMID)
 
       ### ADD (CO)AUTHOR INFO
-      auInfo <- dbAddAuthors(authorPublications$coAuthors, conn)
+      auInfo <- dbAddAuthors(authorPublications$coAuthors, dbInfo = conn)
 
       # Set authorOfInterest to TRUE to distinguish from co-authors
       if (matchOnFirst) {
@@ -682,9 +708,7 @@ dbAddAuthorPublications <- function(
 
       if (length(auID) != 1) {
         dbRollback(conn)
-        if (!attr(conn, "existing")) {
-          dbDisconnect(conn)
-        }
+        dbFinish(conn)
         stop(ifelse(
           length(auID) > 1,
           "Ambiguous author of interest",
@@ -812,9 +836,7 @@ dbAddAuthorPublications <- function(
 
       if (endTransaction) {
         dbCommit(conn)
-        if (!attr(conn, "existing")) {
-          dbDisconnect(conn)
-        }
+        dbFinish(conn)
       }
 
       return(arInfo %>% mutate(auID = {{ auID }}))
@@ -822,9 +844,7 @@ dbAddAuthorPublications <- function(
     error = function(e) {
       # If an error occurs, rollback the current transaction
       dbRollback(conn)
-      if (!attr(conn, "existing")) {
-        dbDisconnect(conn)
-      }
+      dbFinish(conn)
       stop(e)
     }
   )
@@ -835,8 +855,7 @@ dbAddAuthorPublications <- function(
 #' example because of name overlap
 #'
 #' @param arIDs Vector of arIDs to delete (as found in article table)
-#' @param dbInfo (optional if dbSetup() has been run)
-#'  Path to the ColabNet database or existing connection
+#' @param dbInfo Connection to a Colabnet database
 #'
 #' @import RSQLite
 #' @import dplyr
@@ -926,9 +945,7 @@ dbDeleteArticle <- function(arIDs, dbInfo) {
 
       if (endTransaction) {
         dbCommit(conn)
-        if (!attr(conn, "existing")) {
-          dbDisconnect(conn)
-        }
+        dbFinish(conn)
       }
 
       return(removeAuth)
@@ -936,9 +953,7 @@ dbDeleteArticle <- function(arIDs, dbInfo) {
     error = function(e) {
       # If an error occurs, rollback the current transaction
       dbRollback(conn)
-      if (!attr(conn, "existing")) {
-        dbDisconnect(conn)
-      }
+      dbFinish(conn)
       stop(e)
     }
   )

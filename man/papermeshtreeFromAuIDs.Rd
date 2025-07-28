@@ -12,8 +12,7 @@ papermeshtreeFromAuIDs(auIDs, roots, dbInfo)
 \item{roots}{(Optional) Vector of single letter representing the tree roots
 to include. If not specified, all categories are returned}
 
-\item{dbInfo}{(optional if dbSetup() has been run)
-Path to the ColabNet database or existing connection}
+\item{dbInfo}{Connection to a Colabnet database}
 }
 \value{
 List with two elements

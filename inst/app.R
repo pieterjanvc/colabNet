@@ -2,123 +2,49 @@
 # ---- DATA ----
 # //////////////
 
-if (!exists("colabNetDB")) {
-  print("DEV TEST")
-  file.copy("../data/PGG_full.db", "../local/dev.db", overwrite = T)
-  colabNetDB <- "../local/dev.db"
+# ---- SETUP ----
+if (!exists("envInfo")) {
+  mode <- "dev" # Set to dev or prod
 
-  # colabNetDB <- "C:/Users/pj/Desktop/dev.db"
-  # file.remove(colabNetDB)
-}
+  if (mode == "dev") {
+    # Add any code here to use for dev (running the file in IDE)
+    devtools::load_all()
+    message("DEV TEST")
 
-# Setup for functions in the package
-dbSetup(colabNetDB, checkSchema = F)
+    # file.copy("../data/PGG_dev", "../local/dev.db", overwrite = T)
+    testDB <- "../local/dev.db"
+    # testDB <- "C:/Users/pj/Desktop/devtst.db"
+    # testDB <- "C:/Users/pj/Desktop/pjLorenzo.db"
+    # testDB <- NULL
 
-# Pool for the Shiny app
-pool <- dbPool(SQLite(), dbname = colabNetDB)
+    envInfo = list(
+      mode = mode,
+      dbPath = testDB,
+      localFolder = file.path("..", "data"),
+      tempFolder = file.path("..", "temp")
+    )
+  } else if (mode == "prod") {
+    # This is used when the app is published to the web
+    library(colabNet)
+    message("ColabNet Production Mode")
 
-onStop(function() {
-  poolClose(pool)
-})
-
-# Precompute data
-preCompData <- reactivePoll(
-  5000,
-  NULL,
-  checkFunc = function() {
-    if (!pool::dbIsValid(pool)) {
-      return(NULL)
-    }
-
-    tbl(pool, "updateData") |>
-      arrange(desc(uID)) |>
-      head(1) |>
-      pull(uID)
-  },
-  valueFunc = function() {
-    print("Precomuting ...")
-
-    authors <- tbl(pool, "author") |>
-      filter(authorOfInterest == 1) |>
-      left_join(
-        tbl(pool, "authorName") |>
-          group_by(auID) |>
-          filter(default) |>
-          ungroup(),
-        by = "auID"
-      ) |>
-      select(auID, lastName, firstName, initials) |>
-      collect()
-
-    if (length(nrow(authors)) == 0) {
-      return(list(
-        authors = NULL,
-        plotData = NULL,
-        overlapscore = NULL,
-        allArticles = NULL
-      ))
-    }
-
-    allArticles <- tbl(pool, "coAuthor") |>
-      filter(auID %in% local(authors$auID)) |>
-      distinct() |>
-      left_join(tbl(pool, "article"), by = "arID") |>
-      collect() |>
-      left_join(authors, by = "auID") |>
-      select(
-        auID,
-        arID,
-        PMID,
-        lastName,
-        firstName,
-        month,
-        year,
-        title,
-        journal
-      ) |>
-      arrange(desc(PMID)) |>
-      collect() |>
-      mutate(
-        PMID = sprintf(
-          '<a href="https://pubmed.ncbi.nlm.nih.gov/%s" target="_blank">%s</a>',
-          PMID,
-          PMID
-        ),
-        name = paste(lastName, firstName, sep = ", "),
-        month = as.integer(month)
-      )
-
-    papermesh <- dbPaperMesh(authors$auID)
-    meshtree <- dbMeshTree(papermesh)
-    papermeshtree <- paperMeshTree(papermesh, meshtree)
-
-    # Add author names
-    au <- tbl(pool, "author") |>
-      filter(auID %in% local(unique(papermeshtree$auID))) |>
-      select(auID) |>
-      left_join(tbl(pool, "authorName") |> filter(default == 1), by = "auID") |>
-      collect() |>
-      rowwise() |>
-      mutate(name = paste(lastName, firstName, sep = ", ")) |>
-      select(auID, name)
-
-    papermeshtree <- papermeshtree |>
-      left_join(au |> select(auID, name), by = "auID") |>
-      mutate(name = ifelse(nPapers == 0, "", name))
-
-    overlapscore <- zooScore(papermeshtree)
-
-    print("... finished")
-    return(
-      list(
-        authors = authors,
-        papermeshtree = papermeshtree,
-        overlapscore = overlapscore,
-        allArticles = allArticles
-      )
+    envInfo = list(
+      mode = mode,
+      dbPath = NULL,
+      localFolder = file.path("localDB"),
+      tempFolder = file.path("tempDB")
     )
   }
-)
+} else {
+  # Generate temp dirs
+  if (is.null(envInfo$localFolder)) {
+    envInfo$localFolder <- tempdir()
+  }
+
+  if (is.null(envInfo$tempFolder)) {
+    envInfo$tempFolder <- tempdir()
+  }
+}
 
 # ///////////////////////////
 # ---- SHARED FUNCTIONS ----
@@ -167,7 +93,7 @@ plotDataFilter <- function(plotData, n) {
 }
 
 # Calculate the MeSH Tree overlap between author pairs
-calcOverlap <- function(precompOverlap, treeFilter) {
+calcOverlap <- function(precompOverlap, treeFilter, authors, permutation = F) {
   if (!is.null(treeFilter)) {
     precompOverlap <- precompOverlap |> filter(tree %in% {{ treeFilter }})
   }
@@ -177,7 +103,7 @@ calcOverlap <- function(precompOverlap, treeFilter) {
     summarise(score = sum(score), .groups = "drop") |>
     arrange(desc(score))
 
-  names <- preCompData()$authors |>
+  names <- authors |>
     transmute(auID, name = sprintf("%s, %s", lastName, firstName))
 
   overlapscoreTable <- overlapscore |>
@@ -189,6 +115,19 @@ calcOverlap <- function(precompOverlap, treeFilter) {
     left_join(names |> select(au2 = auID, author2 = name), by = "au2") |>
     select(author1, author2, overlapScore = score)
 
+  if (permutation) {
+    overlapscore <- bind_rows(
+      overlapscore,
+      overlapscore |> select(au1 = au2, au2 = au1, score)
+    )
+    overlapscoreTable <- bind_rows(
+      overlapscoreTable,
+      overlapscoreTable |>
+        select(author1 = author2, author2 = author1, overlapScore)
+    ) |>
+      arrange(desc(overlapScore), author1, author2)
+  }
+
   return(list(score = overlapscore, table = overlapscoreTable))
 }
 
@@ -198,6 +137,15 @@ calcOverlap <- function(precompOverlap, treeFilter) {
 
 ui <- fluidPage(
   useShinyjs(),
+  # Download button style
+  tags$head(tags$style(HTML(paste(
+    "#cnDB-dbDownload {",
+    "position: fixed; top: 0; right: 0; margin: 10px; z-index:1000;",
+    "background-color:#40928A75; color: white;}"
+  )))),
+  div(
+    mod_dbSetup_ui("cnDB")
+  ),
   fluidRow(column(
     12,
     tabsetPanel(
@@ -342,7 +290,7 @@ ui <- fluidPage(
           actionButton("startBulkImport", "Start Import")
         ),
         value = "exploration"
-      ),
+      )
     )
   )),
   fluidRow(column(
@@ -379,13 +327,146 @@ ui <- fluidPage(
 # /////////////////
 
 server <- function(input, output, session) {
+  # ---- SETUP ----
+  # ///////////////
+
+  # Setup the DB
+  connInfo <- mod_dbSetup_server(
+    id = "cnDB",
+    localFolder = envInfo$localFolder,
+    tempFolder = envInfo$tempFolder,
+    schema = system.file("create_colabNetDB.sql", package = "colabNet"),
+    useDB = envInfo$dbPath
+  )
+
+  # pool for the current DB
+  pool <- eventReactive(connInfo(), {
+    dbPool(SQLite(), dbname = connInfo()$dbPath)
+  })
+
+  onSessionEnded(function() {
+    isolate(poolClose(pool()))
+  })
+
+  # Precompute data
+  preCompData <- reactivePoll(
+    intervalMillis = 5000,
+    session = session,
+    checkFunc = function() {
+      if (is.null(connInfo()$dbPath)) {
+        return(NULL)
+      }
+
+      tbl(pool(), "updateData") |>
+        arrange(desc(uID)) |>
+        head(1) |>
+        pull(uID)
+    },
+    valueFunc = function() {
+      req(connInfo()$dbPath)
+      showNotification(
+        "Gathering data ... be patient",
+        type = "message",
+        duration = NULL,
+        id = "precalc"
+      )
+
+      authors <- tbl(pool(), "author") |>
+        filter(authorOfInterest == 1) |>
+        left_join(
+          tbl(pool(), "authorName") |>
+            group_by(auID) |>
+            filter(default) |>
+            ungroup(),
+          by = "auID"
+        ) |>
+        select(auID, lastName, firstName, initials) |>
+        collect()
+
+      if (length(nrow(authors)) == 0) {
+        return(list(
+          authors = NULL,
+          plotData = NULL,
+          overlapscore = NULL,
+          allArticles = NULL
+        ))
+      }
+
+      allArticles <- tbl(pool(), "coAuthor") |>
+        filter(auID %in% local(authors$auID)) |>
+        distinct() |>
+        left_join(tbl(pool(), "article"), by = "arID") |>
+        collect() |>
+        left_join(authors, by = "auID") |>
+        select(
+          auID,
+          arID,
+          PMID,
+          lastName,
+          firstName,
+          month,
+          year,
+          title,
+          journal
+        ) |>
+        arrange(desc(PMID)) |>
+        collect() |>
+        mutate(
+          PMID = sprintf(
+            '<a href="https://pubmed.ncbi.nlm.nih.gov/%s" target="_blank">%s</a>',
+            PMID,
+            PMID
+          ),
+          name = paste(lastName, firstName, sep = ", "),
+          month = as.integer(month)
+        )
+
+      papermesh <- dbPaperMesh(authors$auID, dbInfo = pool())
+      meshtree <- dbMeshTree(papermesh, dbInfo = pool())
+      papermeshtree <- paperMeshTree(papermesh, meshtree)
+
+      # Add author names
+      au <- tbl(pool(), "author") |>
+        filter(auID %in% local(unique(papermeshtree$auID))) |>
+        select(auID) |>
+        left_join(
+          tbl(pool(), "authorName") |> filter(default == 1),
+          by = "auID"
+        ) |>
+        collect() |>
+        rowwise() |>
+        mutate(name = paste(lastName, firstName, sep = ", ")) |>
+        select(auID, name)
+
+      papermeshtree <- papermeshtree |>
+        left_join(au |> select(auID, name), by = "auID") |>
+        mutate(name = ifelse(nPapers == 0, "", name))
+
+      overlapscore <- zooScore(papermeshtree)
+
+      removeNotification("precalc")
+
+      return(
+        list(
+          authors = authors,
+          papermeshtree = papermeshtree,
+          overlapscore = overlapscore,
+          allArticles = allArticles
+        )
+      )
+    }
+  )
+
   #Updates when the pre-calculated data changes
   observeEvent(preCompData(), {
+    req(nrow(preCompData()$authors) > 0)
+    authorList(preCompData()$authors)
+
     # Update the tree root categories as filter options for the comparison tree
-    roots <- tbl(pool, "meshTree") |>
+    roots <- tbl(pool(), "meshTree") |>
       filter(treenum %in% local(unique(preCompData()$overlapscore$tree))) |>
-      left_join(tbl(pool, "meshLink"), by = "uid") |>
-      left_join(tbl(pool, "meshTerm"), by = "meshui") |>
+      left_join(tbl(pool(), "meshLink"), by = "uid") |>
+      left_join(tbl(pool(), "meshTerm"), by = "meshui") |>
       collect() |>
       arrange(meshterm)
 
@@ -429,8 +510,15 @@ server <- function(input, output, session) {
         mtOverviewSelected()$mtrIDs
       ))
     } else if (input$tabs_exploration == "tab_comparison") {
-      # We're only looking at two authors
-      auIDs <- overlapData()[input$overlapscoreTable_rows_selected, ] |>
+      # We're only looking at two authors.
+      req(overlapData())
+      if (length(input$overlapscoreTable_rows_selected) == 0) {
+        auIDs <- overlapData()
+      } else {
+        auIDs <- overlapData()[input$overlapscoreTable_rows_selected, ]
+      }
+
+      auIDs <- auIDs |>
         select(au1, au2) |>
         unlist()
 
@@ -583,23 +671,23 @@ server <- function(input, output, session) {
 
     # Only filter the full table for limited tree but at root (branchID = NULL)
     if (branchID == 0 & length(mtrIDs) > 0) {
-      result <- tbl(pool, "meshTree") |>
+      result <- tbl(pool(), "meshTree") |>
         filter(mtrID %in% local(mtrIDs)) |>
-        left_join(tbl(pool, "meshLink"), by = "uid") |>
-        left_join(tbl(pool, "meshTerm"), by = "meshui") |>
-        left_join(tbl(pool, "mesh_article"), by = "meshui") |>
+        left_join(tbl(pool(), "meshLink"), by = "uid") |>
+        left_join(tbl(pool(), "meshTerm"), by = "meshui") |>
+        left_join(tbl(pool(), "mesh_article"), by = "meshui") |>
         pull(arID) |>
         unique()
       return(result)
     }
 
     # Case where a brac has been selected
-    children <- tbl(pool, "meshTree") |>
+    children <- tbl(pool(), "meshTree") |>
       filter(mtrID == as.integer(branchID)) |>
       pull(treenum)
 
     children <- paste0(children[1], "%")
-    result <- tbl(pool, "meshTree") |>
+    result <- tbl(pool(), "meshTree") |>
       filter(str_like(treenum, local({{ children }})))
     #Filter in case the tree is limited by mtPlotLimit input
     if (length(mtrIDs) > 0) {
@@ -607,29 +695,19 @@ server <- function(input, output, session) {
     }
 
     result |>
-      left_join(tbl(pool, "meshLink"), by = "uid") |>
-      left_join(tbl(pool, "meshTerm"), by = "meshui") |>
-      left_join(tbl(pool, "mesh_article"), by = "meshui") |>
+      left_join(tbl(pool(), "meshLink"), by = "uid") |>
+      left_join(tbl(pool(), "meshTerm"), by = "meshui") |>
+      left_join(tbl(pool(), "mesh_article"), by = "meshui") |>
       pull(arID) |>
       unique()
   }
-
-  # observeEvent(event_data("plotly_click", "treemap_overview"), {
-  #   branchIDs <- preCompData()$papermeshtree |>
-  #     plotDataFilter(input$mtPlotLimit) |>
-  #     pull(branchID)
-  #   selected <- branchIDs[
-  #     event_data("plotly_click", "treemap_overview")$pointNumber + 1
-  #   ]
-  #   setArticleTable(arIDByMesh(selected, branchIDs))
-  # })
 
   # ---- Research Comparison ----
 
   # The table that shows the overlap score for pairs of authors
   output$overlapscoreTable <- renderDT(
     {
-      calcOverlap(preCompData()$overlapscore, NULL)$table
+      calcOverlap(preCompData()$overlapscore, NULL, preCompData()$authors)$table
     },
     rownames = F,
     selection = list(mode = "single", selected = 1),
@@ -640,13 +718,15 @@ server <- function(input, output, session) {
 
   overlapData <- reactiveVal()
 
-  # Update table that show the overlap score and return the raw table data
+  # Update table that shows the overlap score and return the raw table data
   observeEvent(
-    input$applyFilterCat,
+    c(input$applyFilterCat, preCompData()$overlapscore),
     {
-      req(nrow(preCompData()$overlapscore) > 0)
-
-      overlap <- calcOverlap(preCompData()$overlapscore, input$overlapCat)
+      overlap <- calcOverlap(
+        preCompData()$overlapscore,
+        input$overlapCat,
+        preCompData()$authors
+      )
 
       req(
         is.null(overlapData()) ||
@@ -660,8 +740,7 @@ server <- function(input, output, session) {
       }
 
       overlapData(overlap$score)
-    },
-    ignoreNULL = FALSE
+    }
   )
 
   # Remove any tree filters from the scoring categories
@@ -669,7 +748,11 @@ server <- function(input, output, session) {
     req(length(input$overlapCat) > 0)
 
     updateSelectInput(session, "overlapCat", selected = character(0))
-    overlap <- calcOverlap(preCompData()$overlapscore, NULL)
+    overlap <- calcOverlap(
+      preCompData()$overlapscore,
+      NULL,
+      preCompData()$authors
+    )
 
     replaceData(overlapscoreTable_proxy, overlap$table, rownames = F)
 
@@ -691,20 +774,15 @@ server <- function(input, output, session) {
 
     # Get the treemap for the two authors
     if (length(input$overlapCat) == 0) {
-      tmComp <- papermeshtreeFromAuIDs(c(auIDs[1], auIDs[2]))
+      tmComp <- papermeshtreeFromAuIDs(c(auIDs[1], auIDs[2]), dbInfo = pool())
     } else {
       tmComp <- papermeshtreeFromAuIDs(
         c(auIDs[1], auIDs[2]),
-        roots = input$overlapCat
+        roots = input$overlapCat,
+        dbInfo = pool()
       )
       #TODO make sure the table filters with arIDs only found in the selected subtrees
     }
-
-    # Update the article table with all articles for either author
-    # arIDs <- preCompData()$allArticles |>
-    #   filter(auID %in% {{ auIDs }}) |>
-    #   pull(arID)
-    # setArticleTable(arIDs = arIDs, auIDs = auIDs)
 
     # Return the treemap
     tmComp$papermeshtree
@@ -744,7 +822,7 @@ server <- function(input, output, session) {
   networkanalysis <- reactive({
     range <- input$analysisRange
     req(range[1] > 0) # Ignore the init stage
-    rangeData <<- preCompData()$allArticles |>
+    rangeData <- preCompData()$allArticles |>
       filter(between(year, range[1], range[2]))
 
     graphElements <- copubGraphElements(rangeData)
@@ -906,16 +984,10 @@ server <- function(input, output, session) {
   # ///////////////////
 
   # ---- Existing authors ----
-  authorList <- reactiveVal({
-    tbl(pool, "author") |>
-      filter(authorOfInterest == 1) |>
-      left_join(tbl(pool, "authorName"), by = "auID") |>
-      collect() |>
-      arrange(lastName, firstName)
-  })
+  authorList <- reactiveVal()
 
   observeEvent(authorList(), {
-    newVals <- authorList() |> filter(default == 1)
+    newVals <- authorList()
     updateSelectInput(
       session,
       "auID",
@@ -931,16 +1003,12 @@ server <- function(input, output, session) {
   })
 
   output$alternativeNames <- renderUI({
-    auNames <- tbl(pool, "authorName") |>
+    auNames <- tbl(pool(), "authorName") |>
       filter(auID == local(input$auID)) |>
       collect()
 
     # Set the Pubmed Search to match selection
     default <- auNames |> filter(default == 1)
-    # updateTextInput(session, "lastName", value = default$lastName)
-    # updateTextInput(session, "firstName", value = default$firstName)
-    # updateTextInput(session, "PMIDs", value = "")
-
     altNames <- auNames |> filter(default == 0)
 
     if (nrow(altNames) == 0) {
@@ -963,12 +1031,12 @@ server <- function(input, output, session) {
     # pubmedSearch$articles = NULL
     elementMsg("pubmedByAuthor")
 
-    authors <- tbl(pool, "coAuthor") |>
+    authors <- tbl(pool(), "coAuthor") |>
       group_by(arID) |>
       filter(any(local(input$auID) == auID)) |>
       ungroup() |>
       left_join(
-        tbl(pool, "authorName") |>
+        tbl(pool(), "authorName") |>
           filter(default) |>
           select(auID, lastName, initials),
         by = "auID"
@@ -983,7 +1051,7 @@ server <- function(input, output, session) {
         .groups = "drop"
       )
 
-    articles <- tbl(pool, "article") |>
+    articles <- tbl(pool(), "article") |>
       filter(arID %in% local(authors$arID)) |>
       collect() |>
       left_join(authors, by = "arID")
@@ -1014,12 +1082,12 @@ server <- function(input, output, session) {
     {
       # elementMsg("pubmedByAuthor")
 
-      authors <- tbl(pool, "coAuthor") |>
+      authors <- tbl(pool(), "coAuthor") |>
         group_by(arID) |>
         filter(any(auID == local(as.integer(input$auID)))) |>
         ungroup() |>
         left_join(
-          tbl(pool, "authorName") |>
+          tbl(pool(), "authorName") |>
             filter(default) |>
             select(auID, lastName, initials),
           by = "auID"
@@ -1034,7 +1102,7 @@ server <- function(input, output, session) {
           .groups = "drop"
         )
 
-      df <- tbl(pool, "article") |>
+      df <- tbl(pool(), "article") |>
         filter(arID %in% local(authors$arID)) |>
         collect() |>
         left_join(authors, by = "arID")
@@ -1053,10 +1121,10 @@ server <- function(input, output, session) {
         return()
       }
 
-      lastName <- tbl(pool, "author") |>
+      lastName <- tbl(pool(), "author") |>
         filter(authorOfInterest == 1, auID == local(input$auID)) |>
         left_join(
-          tbl(pool, "authorName") |> filter(default == 1),
+          tbl(pool(), "authorName") |> filter(default == 1),
           by = "auID"
         ) |>
         pull(lastName)
@@ -1125,7 +1193,7 @@ server <- function(input, output, session) {
 
       # If the author is not in the database, set to unknown
 
-      inDB <- tbl(pool, "authorName") |>
+      inDB <- tbl(pool(), "authorName") |>
         collect() |>
         filter(
           simpleText(lastName) %in% simpleText(input$lastName),
@@ -1218,7 +1286,7 @@ server <- function(input, output, session) {
         pubDetails <- NULL
       }
 
-      existing <- tbl(pool, "article") |>
+      existing <- tbl(pool(), "article") |>
         filter(PMID %in% local(df$PMID)) |>
         pull(PMID)
 
@@ -1310,7 +1378,7 @@ server <- function(input, output, session) {
       new <- filter_PMID(searchResults()$pubDetails, PMIDs)
     }
 
-    new <- dbAddAuthorPublications(new, dbInfo = localCheckout(pool))
+    new <- dbAddAuthorPublications(new, dbInfo = localCheckout(pool()))
 
     # Remove added articles from search results
     searchResults(
@@ -1322,9 +1390,9 @@ server <- function(input, output, session) {
 
     # Because of lazy eval we have to make a switch of inputs to update the table
     authorList({
-      tbl(pool, "author") |>
+      tbl(pool(), "author") |>
         filter(authorOfInterest == 1) |>
-        left_join(tbl(pool, "authorName"), by = "auID") |>
+        left_join(tbl(pool(), "authorName"), by = "auID") |>
         collect() |>
         arrange(lastName, firstName)
     })
@@ -1352,11 +1420,11 @@ server <- function(input, output, session) {
 
     req(length(PMIDs) > 0)
     disable("artDel")
-    arIDs <- tbl(pool, "article") |>
+    arIDs <- tbl(pool(), "article") |>
       filter(PMID %in% local(noHTML)) |>
       pull(arID)
 
-    deleted <- dbDeleteArticle(arIDs, dbInfo = localCheckout(pool))
+    deleted <- dbDeleteArticle(arIDs, dbInfo = localCheckout(pool()))
 
     updatedTable <- auArtList() |>
       mutate(InDB = ifelse(PMID %in% PMIDs, "NO", InDB))
@@ -1565,7 +1633,6 @@ server <- function(input, output, session) {
     withProgress(message = 'Gather author data from NCBI', value = 0, {
       n <- length(bulkImport()$importData)
 
-      # test <<- bulkImport()
       toImport <- which(
         sapply(bulkImport()$importData, "[[", c("statusCode")) == 0
       )
@@ -1596,7 +1663,7 @@ server <- function(input, output, session) {
 
         new <- dbAddAuthorPublications(
           new,
-          dbInfo = localCheckout(pool),
+          dbInfo = localCheckout(pool()),
           flagUpdate = F
         )
 
@@ -1611,7 +1678,7 @@ server <- function(input, output, session) {
       }
     })
 
-    dbFlagUpdate(1, dbInfo = localCheckout(pool))
+    dbFlagUpdate(1, dbInfo = localCheckout(pool()))
 
     nImported <- nImported |>
       mutate(

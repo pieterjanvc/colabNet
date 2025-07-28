@@ -269,6 +269,10 @@ profvisRender <- function(expr, folder = "local") {
 #' Run the colabNet Shiny App
 #'
 #' @param colabNetDB Path to the ColabNet database (will be created if needed)
+#' @param localFolder (Optional) Path to a folder with database to explore
+#' @param tempFolder (Optional) Path to a folder where temp databases are stored
+#'
+#' If local and temp folders are not set, they will be created in the default temp
 #'
 #' @import shiny dplyr stringr tidyr purrr visNetwork pool plotly
 #' @importFrom shinyjs useShinyjs enable disable
@@ -280,8 +284,28 @@ profvisRender <- function(expr, folder = "local") {
 #'
 #' @export
 #'
-colabNet <- function(colabNetDB) {
-  normalizePath(dirname(colabNetDB), mustWork = T)
+colabNet <- function(colabNetDB, localFolder, tempFolder) {
+  # env <- new.env()
+  envInfo = list(
+    mode = "package",
+    dbPath = if (missing(colabNetDB)) {
+      NULL
+    } else {
+      check <- normalizePath(dirname(colabNetDB), mustWork = T)
+      colabNetDB
+    },
+    localFolder = if (missing(localFolder)) {
+      NULL
+    } else {
+      localFolder
+    },
+    tempFolder = if (missing(tempFolder)) {
+      NULL
+    } else {
+      tempFolder
+    }
+  )
+
   sys.source(
     system.file("app.R", package = "colabNet"),
     envir = environment()
