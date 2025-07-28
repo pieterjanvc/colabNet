@@ -225,10 +225,17 @@ mod_dbSetup_ui <- function(id) {
 
 #' Module server to setup an SQLite database in various ways
 #'
+#' Option 1 - Explore a database on the server
+#' Option 2 - Upload a database from your computer
+#' Option 3 - Resume with a previously uploaded database
+#' Option 4 - Start a new database
+#'
 #' @param id ID name for the server
 #' @param localFolder Folder with existing, permanent databases to provide
 #' @param tempFolder Folder where temp (new and uploaded) databases live
 #' @param schema The schema of the SQLite database (.sql file)
+#' @param options (Optional) If set, vector with integers indicating which DB
+#' options will be available. By default all are
 #' @param useDB Default = NULL. If set, the provided database is used and the
 #' rest is skipped. This is especially useful for dev when you don't want the
 #' modal pop-up. If there is not DB at the specified path, a new one is created
@@ -249,6 +256,7 @@ mod_dbSetup_server <- function(
   localFolder,
   tempFolder,
   schema,
+  options,
   useDB = NULL
 ) {
   localFolder <- normalizePath(localFolder, mustWork = T)
@@ -256,49 +264,67 @@ mod_dbSetup_server <- function(
   schema <- normalizePath(schema, mustWork = T)
 
   # Modal to show
-  dbSelectionModal <- function(localDBs) {
+  dbSelectionModal <- function(localDBs, options) {
+    choices = c(
+      "Explore a database on the server" = 1,
+      "Upload a database from your computer" = 2,
+      "Resume with a previously uploaded database" = 3,
+      "Start a new database" = 4
+    )
+
+    if (missing(options) || is.null(optoins)) {
+      options = 1:length(choices)
+    }
+
+    if (!all(options) %in% 1:length(choices)) {
+      stop("The DB selection options must be any of", 1:length(choices))
+    }
+
     modalDialog(
       titlePanel("Select a database to get started"),
       radioButtons(
         NS(id, "option"),
         "How would you like to continue ...",
-        choices = c(
-          "Explore a database on the server" = 1,
-          "Upload a database from your computer" = 2,
-          "Resume with a previously uploaded database" = 3,
-          "Start a new database" = 4
-        ),
+        choices = choices[options],
         width = "100%"
       ),
-      conditionalPanel(
-        condition = "input.option == '1'",
-        selectInput(
-          NS(id, "db_local"),
-          "Choose an existing database",
-          choices = localDBs
-        ),
-        ns = NS(id)
-      ),
-      conditionalPanel(
-        condition = "input.option == '2'",
-        fileInput(
-          NS(id, "db_upload"),
-          "Upload a database from your computer",
-          accept = ".db"
-        ),
-        div(id = sprintf("%s-%s", id, "db_upload_msg")),
-        ns = NS(id)
-      ),
-      conditionalPanel(
-        condition = "input.option == '3'",
-        textInput(NS(id, "db_tempCode"), "Provide temporary database code"),
-        ns = NS(id)
-      ),
-      conditionalPanel(
-        condition = "input.option == '4'",
-        textInput(NS(id, "db_new"), "Database name"),
-        ns = NS(id)
-      ),
+      if (1 %in% options) {
+        conditionalPanel(
+          condition = "input.option == '1'",
+          selectInput(
+            NS(id, "db_local"),
+            "Choose an existing database",
+            choices = localDBs
+          ),
+          ns = NS(id)
+        )
+      },
+      if (2 %in% options) {
+        conditionalPanel(
+          condition = "input.option == '2'",
+          fileInput(
+            NS(id, "db_upload"),
+            "Upload a database from your computer",
+            accept = ".db"
+          ),
+          div(id = sprintf("%s-%s", id, "db_upload_msg")),
+          ns = NS(id)
+        )
+      },
+      if (3 %in% options) {
+        conditionalPanel(
+          condition = "input.option == '3'",
+          textInput(NS(id, "db_tempCode"), "Provide temporary database code"),
+          ns = NS(id)
+        )
+      },
+      if (4 %in% options) {
+        conditionalPanel(
+          condition = "input.option == '4'",
+          textInput(NS(id, "db_new"), "Database name"),
+          ns = NS(id)
+        )
+      },
       actionButton(NS(id, "start"), "Continue"),
       size = "xl",
       footer = NULL

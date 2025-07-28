@@ -4,7 +4,7 @@
 \alias{mod_dbSetup_server}
 \title{Module server to setup an SQLite database in various ways}
 \usage{
-mod_dbSetup_server(id, localFolder, tempFolder, schema, useDB = NULL)
+mod_dbSetup_server(id, localFolder, tempFolder, schema, options, useDB = NULL)
 }
 \arguments{
 \item{id}{ID name for the server}
@@ -14,6 +14,9 @@ mod_dbSetup_server(id, localFolder, tempFolder, schema, useDB = NULL)
 \item{tempFolder}{Folder where temp (new and uploaded) databases live}
 
 \item{schema}{The schema of the SQLite database (.sql file)}
+
+\item{options}{(Optional) If set, vector with integers indicating which DB
+options will be available. By default all are}
 
 \item{useDB}{Default = NULL. If set, the provided database is used and the
 rest is skipped. This is especially useful for dev when you don't want the
@@ -29,5 +32,8 @@ Reactive list variable with 4 items
 }
 }
 \description{
-Module server to setup an SQLite database in various ways
+Option 1 - Explore a database on the server
+Option 2 - Upload a database from your computer
+Option 3 - Resume with a previously uploaded database
+Option 4 - Start a new database
 }
