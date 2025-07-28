@@ -464,6 +464,9 @@ mod_dbSetup_server <- function(
       ))
     }
 
+    # Update the modified time stamp to indicate the file is being used again
+    Sys.setFileTime(dbPath, Sys.time())
+
     # Update info
     updateQueryString(
       sprintf("?dbmode=temp&dbcode=%s", dbCode),

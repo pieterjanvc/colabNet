@@ -21,18 +21,26 @@ if (!exists("envInfo")) {
       mode = mode,
       dbPath = testDB,
       localFolder = file.path("..", "data"),
-      tempFolder = file.path("..", "temp")
+      tempFolder = file.path("temp"),
+      autoCleanTemp = NULL
     )
   } else if (mode == "prod") {
     # This is used when the app is published to the web
     library(colabNet)
     message("ColabNet Production Mode")
+    dir.create("localDB", showWarnings = F)
+    dir.create("tempDB", showWarnings = F)
 
     envInfo = list(
       mode = mode,
       dbPath = NULL,
-      localFolder = file.path("localDB"),
-      tempFolder = file.path("tempDB")
+      localFolder = "localDB",
+      tempFolder = "tempDB",
+      autoCleanTemp = list(
+        checkTime = 1, # How often to check (in hours)
+        maxTime = 24, # Hours before deleting temp DB
+        maxSize = 50 # Max size of temp folder
+      )
     )
   }
 } else {
@@ -129,6 +137,49 @@ calcOverlap <- function(precompOverlap, treeFilter, authors, permutation = F) {
   }
 
   return(list(score = overlapscore, table = overlapscoreTable))
+}
+
+# Clean up the temp folder regularly
+if (!is.null(envInfo$autoCleanTemp)) {
+  tempClean <- reactivePoll(
+    envInfo$autoCleanTemp$checkTime * 3600000, #check every hour
+    NULL,
+    checkFunc = function() {
+      toDelete <- tempFileCheck(
+        envInfo$tempFolder,
+        envInfo$autoCleanTemp$maxTime,
+        envInfo$autoCleanTemp$maxSize,
+        ".db"
+      )
+
+      if (nrow(toDelete$fileInfo) > 0) {
+        Sys.time()
+      } else {
+        NULL
+      }
+    },
+    valueFunc = function() {
+      # Delete flagged temp files
+      toDelete <- tempFileCheck(
+        envInfo$tempFolder,
+        envInfo$autoCleanTemp$maxTime,
+        envInfo$autoCleanTemp$maxSize,
+        ".db"
+      )
+      files <- toDelete$fileInfo |> filter(toRemove) |> pull(path)
+
+      if (length(files) > 0) {
+        # file.remove(files)
+      }
+
+      toDelete$summary
+    }
+  )
+
+  observe({
+    message(Sys.time(), " - Auto clean up temp files")
+    print(tempClean())
+  })
 }
 
 # //////////////
@@ -1717,6 +1768,10 @@ server <- function(input, output, session) {
 
     shinyjs::show("startBulkImport")
   })
+
+  # observe({
+  #   print(tempClean())
+  # })
 }
 
 shinyApp(ui, server)
