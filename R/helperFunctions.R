@@ -280,11 +280,11 @@ profvisRender <- function(expr, folder = "local") {
 #'
 #' @export
 #'
-colabNet <- function(colabNetDB, dev = F, dbPath = NULL) {
+colabNet <- function(colabNetDB) {
   normalizePath(dirname(colabNetDB), mustWork = T)
   envInfo = list(
-    dev = dev,
-    dbPath = dbPath
+    mode = "package",
+    dbPath = colabNetDB
   )
   sys.source(
     system.file("app.R", package = "colabNet"),

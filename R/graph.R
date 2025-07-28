@@ -261,6 +261,10 @@ copubGraphStats <- function(graphElements) {
 copubTrendInfo <- function(articleInfo, windowSize = 5) {
   trends <- articleInfo
 
+  if (nrow(trends) == 0) {
+    return(NULL)
+  }
+
   # Calculate network stats for each window
   trends <- lapply(min(trends$year):max(trends$year), function(curYear) {
     trends <- trends |>

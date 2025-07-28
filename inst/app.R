@@ -2,36 +2,47 @@
 # ---- DATA ----
 # //////////////
 
+# ---- SETUP ----
 if (!exists("envInfo")) {
-  message("DEV TEST")
+  mode <- "dev" # Set to dev or prod
 
-  file.copy("../data/PGG_dev.db", "../local/dev.db", overwrite = T)
-  # testDB <- "../local/dev.db"
-  testDB <- NULL
+  if (mode == "dev") {
+    # Add any code here to use for dev (running the file in IDE)
+    devtools::load_all()
+    message("DEV TEST")
 
-  envInfo = list(
-    dev = T,
-    dbPath = testDB,
-    localFolder = file.path("..", "data"),
-    tempFolder = NULL
-  )
-}
+    file.copy("../data/PGG_dev.db", "../local/dev.db", overwrite = T)
+    # testDB <- "../local/dev.db"
+    testDB <- NULL
 
-if (is.null(envInfo$localFolder)) {
-  dir.create("localDB", showWarnings = F)
-  localFolder <- "localDB"
+    envInfo = list(
+      mode = mode,
+      dbPath = testDB,
+      localFolder = file.path("..", "data"),
+      tempFolder = file.path("..", "temp")
+    )
+  } else if (mode == "prod") {
+    # This is used when the app is published to the web
+    library(colabNet)
+    message("ColabNet Production Mode")
+
+    envInfo = list(
+      mode = mode,
+      dbPath = NULL,
+      localFolder = file.path("localDB"),
+      tempFolder = file.path("tempDB")
+    )
+  }
 } else {
-  localFolder <- envInfo$localFolder
-}
+  # Generate temp dirs
+  if (is.null(envInfo$localFolder)) {
+    envInfo$localFolder <- tempdir()
+  }
 
-if (is.null(envInfo$tempFolder)) {
-  dir.create("temp", showWarnings = F)
-  tempFolder <- "temp"
-} else {
-  tempFolder <- envInfo$tempFolder
+  if (is.null(envInfo$tempFolder)) {
+    envInfo$tempFoldertempFolder <- tempdir()
+  }
 }
-
-sqlSchema <- system.file("create_colabNetDB.sql", package = "colabNet")
 
 # ///////////////////////////
 # ---- SHARED FUNCTIONS ----
@@ -299,9 +310,9 @@ server <- function(input, output, session) {
   # Setup the DB
   connInfo <- mod_dbSetup_server(
     id = "cnDB",
-    localFolder = localFolder,
-    tempFolder = tempFolder,
-    schema = sqlSchema,
+    localFolder = envInfo$localFolder,
+    tempFolder = envInfo$tempFolder,
+    schema = system.file("create_colabNetDB.sql", package = "colabNet"),
     useDB = envInfo$dbPath
   )
 
@@ -425,6 +436,7 @@ server <- function(input, output, session) {
 
   #Updates when the pre-calculated data changes
   observeEvent(preCompData(), {
+    req(nrow(preCompData()$authors) > 0)
     authorList(preCompData()$authors)
 
     # Update the tree root categories as filter options for the comparison tree

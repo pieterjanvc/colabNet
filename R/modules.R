@@ -521,9 +521,9 @@ mod_dbSetup_server <- function(
     observe({
       if (!is.null(useDB)) {
         # Path has been directly provided
-        useDB <- normalizePath(useDB, mustWork = T)
-        dbName <- basename(useDB) |> str_remove("\\.db$")
-        result <- dbLocal(dbName, dirname(useDB), dbName, schema)
+        dir <- normalizePath(dirname(useDB), mustWork = T)
+        dbName <- basename(normalizePath(useDB)) |> str_remove("\\.db$")
+        result <- dbLocal(dbName, dir, dbName, schema)
         connInfo(result$info)
       } else if (!"dbmode" %in% names(isolate(getQueryString()))) {
         # No DB data provided, show modal

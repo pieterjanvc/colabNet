@@ -8,5 +8,5 @@ backup/*
 data
 local/*
 dev/shinyData/*
-temp/*
+**/temp/*
 localDB/*
