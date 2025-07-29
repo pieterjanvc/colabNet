@@ -14,7 +14,8 @@ Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.2
 Suggests: 
-    testthat (>= 3.0.0)
+    testthat (>= 3.0.0),
+    profvis
 Config/testthat/edition: 3
 Depends: 
     R (>= 4.00)
@@ -22,8 +23,12 @@ LazyData: true
 Imports: 
     dplyr,
     DT,
+    ggplot2,
+    plotly,
+    pool,
     purrr,
     rentrez,
+    RSQLite,
     shiny,
     stringi,
     stringr,
