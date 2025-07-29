@@ -4,7 +4,14 @@
 \alias{dbSetup}
 \title{Setup the ColabNet database for the current session}
 \usage{
-dbSetup(path, schema, checkSchema = F, returnConn = F, setDBSession = F)
+dbSetup(
+  path,
+  schema,
+  checkSchema = F,
+  returnConn = F,
+  setDBSession = F,
+  createNew = T
+)
 }
 \arguments{
 \item{path}{Path to a database. If DB does not exist it will be created from the schema}
@@ -19,6 +26,9 @@ and needs to be closed manually using dbDisconnect()}
 
 \item{setDBSession}{(Default, FALSE) Set the dbInfo for the global session so it does not
 have to be provided for all other DB functions. Don't use this in Shiny!}
+
+\item{createNew}{Default = TRUE. Create a new database if the file does not
+exist, otherwise return fail.}
 }
 \value{
 A list with 4 elements

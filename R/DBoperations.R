@@ -8,6 +8,8 @@
 #' and needs to be closed manually using dbDisconnect()
 #' @param setDBSession (Default, FALSE) Set the dbInfo for the global session so it does not
 #' have to be provided for all other DB functions. Don't use this in Shiny!
+#' @param createNew Default = TRUE. Create a new database if the file does not
+#' exist, otherwise return fail.
 #'
 #' @import RSQLite
 #' @importFrom stringr str_remove
@@ -24,7 +26,8 @@ dbSetup <- function(
   schema,
   checkSchema = F,
   returnConn = F,
-  setDBSession = F
+  setDBSession = F,
+  createNew = T
 ) {
   # Path check
   if (
@@ -36,6 +39,15 @@ dbSetup <- function(
       success = F,
       statusCode = 4,
       msg = paste("Provide a valid path to a database file ending in .db"),
+      conn = NULL
+    ))
+  }
+
+  if (!createNew & !file.exists(path)) {
+    return(list(
+      success = F,
+      statusCode = 5,
+      msg = sprintf("createNew = FALSE and no database found at %s", path),
       conn = NULL
     ))
   }

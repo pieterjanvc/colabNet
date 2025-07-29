@@ -303,7 +303,8 @@ colabNet <- function(colabNetDB, localFolder, tempFolder) {
       NULL
     } else {
       tempFolder
-    }
+    },
+    autoCleanTemp = NULL
   )
 
   sys.source(
@@ -311,4 +312,50 @@ colabNet <- function(colabNetDB, localFolder, tempFolder) {
     envir = environment()
   )
   shinyApp(ui, server)
+}
+
+#' Function to check which temp files can be deleted based on time / size
+#'
+#'
+#' @param folder Temp folder
+#' @param hours Number of hours after which files should be removed
+#' @param totalSize Max size the temp folder can have in MB. This will mark files
+#' for deletion, even if not expired (oldest first) until below limit
+#' @param pattern (Optional) File name filter (e.g. extension)
+#'
+#' @returns list with two elements
+#' - fileInfo: data frame with all files and annotation which ones to remove
+#' - summary: data frame with summary stats of the files
+#'
+#' @export
+#'
+tempFileCheck <- function(folder, hours, totalSize, pattern = NULL) {
+  # Get the file info
+  fileInfo <- file.info(list.files(
+    folder,
+    pattern = pattern,
+    full.names = T
+  ))
+
+  fileInfo <- fileInfo |>
+    arrange(desc(mtime)) |>
+    mutate(
+      delta = difftime(Sys.time(), mtime, units = "hours") |> as.numeric(),
+      expired = delta > hours,
+      cumSum = cumsum(ifelse(expired, 0, size)),
+      exceedCapacity = cumSum / 1024^2 > totalSize,
+      toRemove = expired | exceedCapacity,
+      path = rownames(fileInfo)
+    )
+
+  summary <- fileInfo |>
+    group_by(toRemove) |>
+    summarise(
+      n = n(),
+      totalSize = sum(size) / 1024^2,
+      nExpired = sum(expired),
+      nExceedCapacity = sum(exceedCapacity & !expired)
+    )
+
+  return(list(fileInfo = fileInfo, summary = summary))
 }
