@@ -19,7 +19,8 @@ Config/testthat/edition: 3
 Depends: 
     R (>= 4.00)
 LazyData: true
-Imports: 
+Imports:
+    dbplyr,
     dplyr,
     DT,
     ggplot2,
