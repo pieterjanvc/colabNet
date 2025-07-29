@@ -14,7 +14,7 @@ if (!exists("envInfo")) {
     # file.copy("../data/PGG_dev", "../local/dev.db", overwrite = T)
     testDB <- "../local/dev.db"
     # testDB <- "C:/Users/pj/Desktop/devtst.db"
-    # testDB <- "C:/Users/pj/Desktop/pjLorenzo.db"
+    # testDB <- "../data/pjLorenzo.db"
     # testDB <- NULL
 
     envInfo = list(

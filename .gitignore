@@ -11,3 +11,4 @@ dev/shinyData/*
 **/temp/*
 localDB/*
 **/*.html
+prod
