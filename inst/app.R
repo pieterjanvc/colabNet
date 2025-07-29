@@ -26,7 +26,16 @@ if (!exists("envInfo")) {
     )
   } else if (mode == "prod") {
     # This is used when the app is published to the web
+    library(dplyr)
+    library(dbplyr)
+    library(DT)
+    library(pool)
+    library(shiny)
+    library(shinyjs)
+    library(stringr)
+    library(visNetwork)
     library(colabNet)
+
     message("ColabNet Production Mode")
     dir.create("localDB", showWarnings = F)
     dir.create("tempDB", showWarnings = F)
