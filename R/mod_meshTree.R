@@ -53,7 +53,7 @@ mod_meshTree_ui <- function(
 #' @export
 #'
 mod_meshTree_server <- function(id, papermeshtree) {
-  #' Filter treemap plot data based on limits
+  # Filter treemap plot data based on limits
   plotDataFilter <- function(plotData, n) {
     n = as.integer(n)
 
