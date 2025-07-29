@@ -10,3 +10,4 @@ local/*
 dev/shinyData/*
 **/temp/*
 localDB/*
+**/*.html
