@@ -12,16 +12,16 @@ if (!exists("envInfo")) {
     message("DEV TEST")
 
     # file.copy("../data/PGG_dev", "../local/dev.db", overwrite = T)
-    testDB <- "../local/dev.db"
+    # testDB <- "../local/dev.db"
     # testDB <- "C:/Users/pj/Desktop/devtst.db"
     # testDB <- "C:/Users/pj/Desktop/pjLorenzo.db"
-    # testDB <- NULL
+    testDB <- NULL
 
     envInfo = list(
       mode = mode,
       dbPath = testDB,
       localFolder = file.path("..", "data"),
-      tempFolder = file.path("temp"),
+      tempFolder = file.path("..", "temp"),
       autoCleanTemp = NULL
     )
   } else if (mode == "prod") {
@@ -758,6 +758,7 @@ server <- function(input, output, session) {
   # The table that shows the overlap score for pairs of authors
   output$overlapscoreTable <- renderDT(
     {
+      req(nrow(preCompData()$overlapscore) > 0)
       calcOverlap(preCompData()$overlapscore, NULL, preCompData()$authors)$table
     },
     rownames = F,
@@ -773,6 +774,7 @@ server <- function(input, output, session) {
   observeEvent(
     c(input$applyFilterCat, preCompData()$overlapscore),
     {
+      req(nrow(preCompData()$overlapscore) > 0)
       overlap <- calcOverlap(
         preCompData()$overlapscore,
         input$overlapCat,
