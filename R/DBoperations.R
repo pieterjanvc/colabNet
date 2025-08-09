@@ -304,7 +304,9 @@ dbAddAuthors <- function(authors, dbInfo) {
     },
     error = function(e) {
       # If an error occurs, rollback the current transaction
-      dbRollback(conn)
+      if (sqliteIsTransacting(conn)) {
+        dbRollback(conn)
+      }
       dbFinish(conn)
       stop(e)
     }
@@ -390,7 +392,9 @@ dbDeleteAuthors <- function(auIDs, dbInfo) {
     },
     error = function(e) {
       # If an error occurs, rollback the current transaction
-      dbRollback(conn)
+      if (sqliteIsTransacting(conn)) {
+        dbRollback(conn)
+      }
       dbFinish(conn)
       stop(e)
     }
@@ -514,7 +518,9 @@ dbAddMesh <- function(values, type, dbInfo) {
     },
     error = function(e) {
       # If an error occurs, rollback the current transaction
-      dbRollback(conn)
+      if (sqliteIsTransacting(conn)) {
+        dbRollback(conn)
+      }
       dbFinish(conn)
       stop(e)
     }
@@ -567,7 +573,9 @@ dbFlagUpdate <- function(action, dbInfo) {
     },
     error = function(e) {
       # If an error occurs, rollback the current transaction
-      dbRollback(conn)
+      if (sqliteIsTransacting(conn)) {
+        dbRollback(conn)
+      }
       dbFinish(conn)
       stop(e)
     }
@@ -665,7 +673,9 @@ dbAddAuthorPublications <- function(
         }
 
         if (length(auID) != 1) {
-          dbRollback(conn)
+          if (sqliteIsTransacting(conn)) {
+            dbRollback(conn)
+          }
           dbFinish(conn)
           stop(ifelse(
             length(auID) > 1,
@@ -700,7 +710,17 @@ dbAddAuthorPublications <- function(
       auInfo <- dbAddAuthors(authorPublications$coAuthors, dbInfo = conn)
 
       # Set authorOfInterest to TRUE to distinguish from co-authors
-      if (matchOnFirst) {
+      auID <- auInfo |>
+        filter(
+          lastName %in% authorPublications$author$lastName,
+          initials %in% authorPublications$author$initials
+        ) |>
+        pull(auID) |>
+        unique()
+
+      # TODO This is a bit of a hack if length(auID) > 1
+      # IN this case the author has a conflict with last name + initials with another
+      if (matchOnFirst | length(auID) > 1) {
         auID <- auInfo |>
           filter(
             lastName %in% authorPublications$author$lastName,
@@ -708,18 +728,12 @@ dbAddAuthorPublications <- function(
           ) |>
           pull(auID) |>
           unique()
-      } else {
-        auID <- auInfo |>
-          filter(
-            lastName %in% authorPublications$author$lastName,
-            initials %in% authorPublications$author$initials
-          ) |>
-          pull(auID) |>
-          unique()
       }
 
       if (length(auID) != 1) {
-        dbRollback(conn)
+        if (sqliteIsTransacting(conn)) {
+          dbRollback(conn)
+        }
         dbFinish(conn)
         stop(ifelse(
           length(auID) > 1,
@@ -855,7 +869,9 @@ dbAddAuthorPublications <- function(
     },
     error = function(e) {
       # If an error occurs, rollback the current transaction
-      dbRollback(conn)
+      if (sqliteIsTransacting(conn)) {
+        dbRollback(conn)
+      }
       dbFinish(conn)
       stop(e)
     }
@@ -964,7 +980,9 @@ dbDeleteArticle <- function(arIDs, dbInfo) {
     },
     error = function(e) {
       # If an error occurs, rollback the current transaction
-      dbRollback(conn)
+      if (sqliteIsTransacting(conn)) {
+        dbRollback(conn)
+      }
       dbFinish(conn)
       stop(e)
     }

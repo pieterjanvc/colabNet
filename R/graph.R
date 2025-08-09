@@ -337,8 +337,8 @@ copubTrendInfo <- function(articleInfo, windowSize = 5) {
     globalEfficiency = "Global efficiency",
     transitivity = "Transitivity",
     unconnected = "Authors with no co-publications",
-    diameter_adj = "Size adjusted diameter",
-    distance_avg_adj = "Distance adjusted distance"
+    diameter_adj = "Size adjusted network diameter",
+    distance_avg_adj = "Size adjusted network distance"
   )
 
   # Generate the ggplot

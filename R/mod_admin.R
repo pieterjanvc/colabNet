@@ -82,6 +82,12 @@ mod_admin_ui <- function(id) {
 mod_admin_server <- function(id, pool) {
   # Function to extract relevant authors (first, last and of interest) from list
   relevantAuthors <- function(authors, lastName) {
+    lastName <- unique(lastName)
+
+    if (length(lastName) > 1) {
+      stop("Only a single last name can be used")
+    }
+
     # Get first and last author, and author of interest if not either
     firstAuth <- str_extract(authors, "^[^,]+")
     lastAuth <- str_extract(authors, "\\s([^,]+)$", group = 1)

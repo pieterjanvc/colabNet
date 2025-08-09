@@ -760,11 +760,38 @@ extractAuthors <- function(authorList, PMIDs, lastName, firstName) {
     ungroup() |>
     select(-simple, -n, -simpleColl)
 
+  # If authors in the same publications have identical last + initials this
+  # will cause a conflict. Change those temp IDs and add conflict warning
+  conflict <- authors |>
+    group_by(PMID, tempId) |>
+    filter(n() > 1) |>
+    ungroup()
+
+  if (nrow(conflict) > 0) {
+    conflict <- conflict |>
+      group_by(lastName, firstName, initials) |>
+      slice(1) |>
+      ungroup() |>
+      mutate(newTempId = max(authors$tempId) + 1:n()) |>
+      select(lastName, firstName, newTempId)
+
+    authors <- authors |>
+      left_join(conflict, by = c("lastName", "firstName")) |>
+      mutate(
+        tempId = ifelse(is.na(newTempId), tempId, newTempId),
+        default = ifelse(is.na(newTempId), default, T),
+        conflict = !is.na(newTempId)
+      ) |>
+      select(-newTempId)
+  } else {
+    authors$conflict = F
+  }
+
   ln <- simpleText(lastName)
   fn <- simpleText(firstName)
 
   author <- authors |>
-    select(tempId, lastName, firstName, initials, default) |>
+    select(tempId, lastName, firstName, initials, default, conflict) |>
     filter(
       simpleText(lastName) == {{ ln }},
       (simpleText(firstName) == {{ fn }}) | (simpleText(initials) == {{ fn }})
