@@ -127,6 +127,7 @@ mod_admin_server <- function(id, pool) {
     # Update the list of authors user can select from
     observeEvent(authorList(), {
       newVals <- authorList()
+
       updateSelectInput(
         session,
         "auID",
@@ -137,7 +138,7 @@ mod_admin_server <- function(id, pool) {
             "Not in DB"
           )
         ),
-        selected = newVals$auID[1]
+        selected = as.character(newVals$auID[1])
       )
     })
 
