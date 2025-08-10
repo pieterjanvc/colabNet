@@ -11,9 +11,9 @@ if (!exists("envInfo")) {
     devtools::load_all()
     message("DEV TEST")
 
-    file.copy("../data/dbmi.db", "../local/dev.db", overwrite = T)
-    testDB <- "../local/dev.db"
-    # testDB <- "C:/Users/pj/Desktop/devtst.db"
+    # file.copy("../data/dbmi.db", "../local/dev.db", overwrite = T)
+    # testDB <- "../local/dev.db"
+    testDB <- "C:/Users/pj/Desktop/sz.db"
     # testDB <- "../data/dbmi.db"
     # testDB <- NULL
 

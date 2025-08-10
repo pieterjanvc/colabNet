@@ -152,10 +152,15 @@ copubGraphStats <- function(graphElements) {
     group_by(auID = from) |>
     summarise(nCopubs = sum(weight), .groups = "drop")
 
-  colabs <- rbind(
-    colabs,
-    data.frame(auID = auIDs[!auIDs %in% colabs$auID], nCopubs = 0)
-  ) |>
+  # Add authors without colabs
+  if (length(auIDs[!auIDs %in% colabs$auID]) > 0) {
+    colabs <- rbind(
+      colabs,
+      data.frame(auID = auIDs[!auIDs %in% colabs$auID], nCopubs = 0)
+    )
+  }
+
+  colabs <- colabs |>
     mutate(
       colabPerc = nCopubs / sum(nCopubs) * 100,
       colabPerc = ifelse(is.nan(colabPerc), 0, colabPerc)
