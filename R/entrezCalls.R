@@ -180,11 +180,19 @@ ncbi_authorArticleList <- function(
 
   # Get article info
   if (returnHistory) {
-    result <- entrez_summary(
-      "pubmed",
-      web_history = history,
-      always_return_list = T
-    )
+    result <- list()
+    # NCBI allows only chunks of 500 articles at once
+    for (start in seq(0, searchResult$count - 1, by = 500)) {
+      Sys.sleep(0.5) # Don't burden API
+      nextChunk <- entrez_summary(
+        "pubmed",
+        web_history = history,
+        always_return_list = T,
+        retstart = start,
+        retmax = 500
+      )
+      result <- append(result, nextChunk)
+    }
   } else {
     result <- entrez_summary("pubmed", PMID, always_return_list = T)
   }

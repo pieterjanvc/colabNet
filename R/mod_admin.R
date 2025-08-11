@@ -327,6 +327,7 @@ mod_admin_server <- function(id, pool) {
         }
 
         # Don't allow clicking button again while searching
+        busyModal(session, title = "Searching NCBI for author articles")
         disable("pubmedByAuthor")
 
         # If the author is not in the database, set to unknown
@@ -357,6 +358,7 @@ mod_admin_server <- function(id, pool) {
               input$firstName
             )
           )
+          removeModal()
           enable("pubmedByAuthor")
           updateSelectInput(session, "auID", selected = "0")
           replaceData(authorSearch_proxy, emptyTable, rownames = F)
@@ -370,7 +372,8 @@ mod_admin_server <- function(id, pool) {
           lastName = input$lastName,
           firstName = input$firstName,
           PMIDs = str_split(input$PMIDs, ",")[[1]] |> str_trim(),
-          returnHistory = T
+          returnHistory = T,
+          stopFetching = 2000
         )
 
         if (!search$success) {
@@ -459,6 +462,7 @@ mod_admin_server <- function(id, pool) {
           elementMsg(sprintf("%s-%s", id, "pubmedByAuthor"))
         }
 
+        removeModal()
         enable("pubmedByAuthor")
         searchResults(
           list(
@@ -579,6 +583,7 @@ mod_admin_server <- function(id, pool) {
     bulkImport <- eventReactive(
       input$bulkImportAuthor,
       {
+        busyModal(session, title = "Checking author data and searching PubMed")
         shinyjs::hide("startBulkImport")
 
         tryCatch(
@@ -618,6 +623,7 @@ mod_admin_server <- function(id, pool) {
                 )
               )
             )
+            removeModal()
             shinyjs::hide("startBulkImport")
 
             return()
@@ -676,11 +682,12 @@ mod_admin_server <- function(id, pool) {
                 data$lastName[i],
                 data$firstName[i],
                 PMIDonly = T,
-                returnHistory = T
+                returnHistory = T,
+                stopFetching = 2000
               )
 
               if (!search$success) {
-                status <- "> 1000 matches. Will be skipped"
+                status <- "Too many matches. Will be skipped"
                 importData <- importData |>
                   append(list(
                     list(
@@ -726,6 +733,7 @@ mod_admin_server <- function(id, pool) {
               history <- history |> append(list(search$history))
             }
 
+            removeModal()
             shinyjs::show("startBulkImport")
           }
         )
@@ -772,6 +780,7 @@ mod_admin_server <- function(id, pool) {
     })
 
     observeEvent(input$startBulkImport, {
+      busyModal(session, title = "Importing data from NCBI")
       nImported <- data.frame()
 
       withProgress(message = 'Gather author data from NCBI', value = 0, {
@@ -859,6 +868,7 @@ mod_admin_server <- function(id, pool) {
         rownames = F
       )
 
+      removeModal()
       shinyjs::show("startBulkImport")
     })
 

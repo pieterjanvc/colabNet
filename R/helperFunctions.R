@@ -359,3 +359,32 @@ tempFileCheck <- function(folder, hours, totalSize, pattern = NULL) {
 
   return(list(fileInfo = fileInfo, summary = summary))
 }
+
+#' Show a screen overlay when busy to prevent other actions
+#' By default an animation is played to indicate the server is busy.
+#' removeModal has to be called separately
+#'
+#' @param session A Shiny session object
+#' @param message (Optional) Text to add to the modal
+#' @param title (Optional) Title of the modal
+#' @param showAnimation Default = T. Show a busy animation
+#'
+#' @returns A modal pop-up window
+#' @export
+#'
+busyModal <- function(
+  session,
+  message = NULL,
+  title = NULL,
+  showAnimation = T
+) {
+  showModal(modalDialog(
+    if (showAnimation) {
+      tags$img(src = "busy.gif", style = "width:100%;")
+    },
+
+    tags$div(message),
+    footer = NULL,
+    title = title
+  ))
+}
