@@ -167,36 +167,6 @@ mod_admin_server <- function(id, pool) {
       }
     })
 
-    authorArticles <- reactive({
-      # Reset UI
-      elementMsg(sprintf("%s-%s", id, "pubmedByAuthor"))
-
-      authors <- tbl(pool(), "coAuthor") |>
-        group_by(arID) |>
-        filter(any(local(input$auID) == auID)) |>
-        ungroup() |>
-        left_join(
-          tbl(pool(), "authorName") |>
-            filter(default) |>
-            select(auID, lastName, initials),
-          by = "auID"
-        ) |>
-        arrange(arID, authorOrder) |>
-        mutate(name = paste(lastName, initials)) |>
-        collect() |>
-        group_by(arID) |>
-        summarise(
-          auID = local(input$auID),
-          authors = paste(name, collapse = ", "),
-          .groups = "drop"
-        )
-
-      articles <- tbl(pool(), "article") |>
-        filter(arID %in% local(authors$arID)) |>
-        collect() |>
-        left_join(authors, by = "arID")
-    })
-
     # ---- EXISTING ARTICLES BY AUTHOR ----
     emptyTable <- data.frame(
       PMID = character(),
@@ -215,7 +185,7 @@ mod_admin_server <- function(id, pool) {
 
     authorInDB_proxy <- dataTableProxy("authorInDB")
 
-    articlesInDB <- reactiveVal(NULL)
+    articlesInDB <- reactiveVal()
 
     observeEvent(
       input$auID,
@@ -247,8 +217,8 @@ mod_admin_server <- function(id, pool) {
 
         articlesInDB(df)
       },
-      ignoreInit = T,
-      ignoreNULL = F
+      ignoreInit = F,
+      ignoreNULL = T
     )
 
     observeEvent(
@@ -256,38 +226,42 @@ mod_admin_server <- function(id, pool) {
       {
         if (is.null(articlesInDB()) || nrow(articlesInDB()) == 0) {
           replaceData(authorInDB_proxy, emptyTable, rownames = F)
+          print("NULL rows")
           return()
         }
 
         lastName <- tbl(pool(), "author") |>
-          filter(authorOfInterest == 1, auID == local(input$auID)) |>
+          filter(
+            authorOfInterest == 1,
+            auID == local(as.integer(input$auID))
+          ) |>
           left_join(
             tbl(pool(), "authorName") |> filter(default == 1),
             by = "auID"
           ) |>
           pull(lastName)
 
-        replaceData(
-          authorInDB_proxy,
-          articlesInDB() |>
-            mutate(
-              Info = sprintf(
-                "%s | <i>%s</i> (%s)",
-                relevantAuthors(authors, lastName),
-                journal,
-                year
-              ),
-              PMID = sprintf(
-                '<a href="https://pubmed.ncbi.nlm.nih.gov/%s" target="_blank">%s</a>',
-                PMID,
-                PMID
-              )
-            ) |>
-            select(PMID, Title = title, Info),
-          rownames = F
-        )
+        newData <- articlesInDB() |>
+          mutate(
+            Info = sprintf(
+              "%s | <i>%s</i> (%s)",
+              relevantAuthors(authors, lastName),
+              journal,
+              year
+            ),
+            PMID = sprintf(
+              '<a href="https://pubmed.ncbi.nlm.nih.gov/%s" target="_blank">%s</a>',
+              PMID,
+              PMID
+            )
+          ) |>
+          select(PMID, Title = title, Info)
+
+        print(sprintf("update %i rows", nrow(newData)))
+
+        replaceData(authorInDB_proxy, newData, rownames = F)
       },
-      ignoreNULL = F
+      ignoreNULL = T
     )
 
     # ----- NEW ARTICLE SEARCH ----
@@ -551,28 +525,19 @@ mod_admin_server <- function(id, pool) {
       bindEvent(input$artAdd)
 
     observe({
-      PMIDs <- auArtList()[input$authorArticleList_rows_selected, ] |>
-        filter(InDB == "YES") |>
-        pull(PMID)
+      toDelete <- articlesInDB()[input$authorInDB_rows_selected, ] |>
+        select(arID, PMID)
 
-      noHTML <- PMIDs |>
-        str_extract(".*>(.+)<", group = 1)
-
-      if (length(PMIDs) == 0) {
+      if (nrow(toDelete) == 0) {
         showNotification("No articles to remove", type = "message")
       }
 
-      req(length(PMIDs) > 0)
+      req(nrow(toDelete) > 0)
       disable("artDel")
-      arIDs <- tbl(pool(), "article") |>
-        filter(PMID %in% local(noHTML)) |>
-        pull(arID)
 
-      deleted <- dbDeleteArticle(arIDs, dbInfo = localCheckout(pool()))
-
-      updatedTable <- auArtList() |>
-        mutate(InDB = ifelse(PMID %in% PMIDs, "NO", InDB))
-      replaceData(authorArticleList_proxy, updatedTable)
+      deleted <- dbDeleteArticle(toDelete$arID, dbInfo = pool())
+      articlesInDB(articlesInDB() |> filter(!arID %in% toDelete$arID))
+      dbFlagUpdate(action = 2, dbInfo = pool())
       enable("artDel")
     }) |>
       bindEvent(input$artDel)

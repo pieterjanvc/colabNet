@@ -894,7 +894,6 @@ dbAddAuthorPublications <- function(
 dbDeleteArticle <- function(arIDs, dbInfo) {
   tryCatch(
     {
-      s
       conn <- dbGetConn(dbInfo)
 
       if (sqliteIsTransacting(conn)) {
@@ -911,7 +910,13 @@ dbDeleteArticle <- function(arIDs, dbInfo) {
 
       # Keep author names that are in other articles not being removed
       toKeep <- tbl(conn, "coAuthor") |>
-        filter(anID %in% local(toRemove$anID), !arID %in% local(toRemove$arID))
+        filter(
+          anID %in% local(unique(toRemove$anID)),
+          !arID %in% local(unique(toRemove$arID))
+        ) |>
+        select(anID) |>
+        distinct() |>
+        pull(anID)
 
       toRemove <- toRemove |> filter(!anID %in% toKeep)
 
