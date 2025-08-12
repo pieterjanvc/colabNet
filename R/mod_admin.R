@@ -105,6 +105,36 @@ mod_admin_server <- function(id, pool) {
     )
   }
 
+  # Function to convert the articlesInDB() df into a table for authorInDB display
+  authorInDBTable <- function(auID, articlesInDB, pool) {
+    lastName <- tbl(pool, "author") |>
+      filter(
+        authorOfInterest == 1,
+        auID == local(as.integer(auID))
+      ) |>
+      left_join(
+        tbl(pool, "authorName") |> filter(default == 1),
+        by = "auID"
+      ) |>
+      pull(lastName)
+
+    articlesInDB |>
+      mutate(
+        Info = sprintf(
+          "%s | <i>%s</i> (%s)",
+          relevantAuthors(authors, lastName),
+          journal,
+          year
+        ),
+        PMID = sprintf(
+          '<a href="https://pubmed.ncbi.nlm.nih.gov/%s" target="_blank">%s</a>',
+          PMID,
+          PMID
+        )
+      ) |>
+      select(PMID, Title = title, Info)
+  }
+
   moduleServer(id, function(input, output, session) {
     # ---- Existing authors ----
     authorList <- reactiveVal()
@@ -177,7 +207,16 @@ mod_admin_server <- function(id, pool) {
     # Table that shows author articles
     output$authorInDB <- renderDT(
       {
-        emptyTable
+        # Initial table
+        isolate({
+          if (input$auID == "") {
+            # Case of a new or blank database
+            emptyTable
+          } else {
+            # Other case
+            authorInDBTable(input$auID, articlesInDB(), pool())
+          }
+        })
       },
       escape = F,
       rownames = F
@@ -226,38 +265,10 @@ mod_admin_server <- function(id, pool) {
       {
         if (is.null(articlesInDB()) || nrow(articlesInDB()) == 0) {
           replaceData(authorInDB_proxy, emptyTable, rownames = F)
-          print("NULL rows")
           return()
         }
 
-        lastName <- tbl(pool(), "author") |>
-          filter(
-            authorOfInterest == 1,
-            auID == local(as.integer(input$auID))
-          ) |>
-          left_join(
-            tbl(pool(), "authorName") |> filter(default == 1),
-            by = "auID"
-          ) |>
-          pull(lastName)
-
-        newData <- articlesInDB() |>
-          mutate(
-            Info = sprintf(
-              "%s | <i>%s</i> (%s)",
-              relevantAuthors(authors, lastName),
-              journal,
-              year
-            ),
-            PMID = sprintf(
-              '<a href="https://pubmed.ncbi.nlm.nih.gov/%s" target="_blank">%s</a>',
-              PMID,
-              PMID
-            )
-          ) |>
-          select(PMID, Title = title, Info)
-
-        print(sprintf("update %i rows", nrow(newData)))
+        newData <- authorInDBTable(input$auID, articlesInDB(), pool())
 
         replaceData(authorInDB_proxy, newData, rownames = F)
       },
