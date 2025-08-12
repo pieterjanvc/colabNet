@@ -152,10 +152,15 @@ copubGraphStats <- function(graphElements) {
     group_by(auID = from) |>
     summarise(nCopubs = sum(weight), .groups = "drop")
 
-  colabs <- rbind(
-    colabs,
-    data.frame(auID = auIDs[!auIDs %in% colabs$auID], nCopubs = 0)
-  ) |>
+  # Add authors without colabs
+  if (length(auIDs[!auIDs %in% colabs$auID]) > 0) {
+    colabs <- rbind(
+      colabs,
+      data.frame(auID = auIDs[!auIDs %in% colabs$auID], nCopubs = 0)
+    )
+  }
+
+  colabs <- colabs |>
     mutate(
       colabPerc = nCopubs / sum(nCopubs) * 100,
       colabPerc = ifelse(is.nan(colabPerc), 0, colabPerc)
@@ -337,8 +342,8 @@ copubTrendInfo <- function(articleInfo, windowSize = 5) {
     globalEfficiency = "Global efficiency",
     transitivity = "Transitivity",
     unconnected = "Authors with no co-publications",
-    diameter_adj = "Size adjusted diameter",
-    distance_avg_adj = "Distance adjusted distance"
+    diameter_adj = "Size adjusted network diameter",
+    distance_avg_adj = "Size adjusted network distance"
   )
 
   # Generate the ggplot

@@ -82,6 +82,12 @@ mod_admin_ui <- function(id) {
 mod_admin_server <- function(id, pool) {
   # Function to extract relevant authors (first, last and of interest) from list
   relevantAuthors <- function(authors, lastName) {
+    lastName <- unique(lastName)
+
+    if (length(lastName) > 1) {
+      stop("Only a single last name can be used")
+    }
+
     # Get first and last author, and author of interest if not either
     firstAuth <- str_extract(authors, "^[^,]+")
     lastAuth <- str_extract(authors, "\\s([^,]+)$", group = 1)
@@ -97,6 +103,36 @@ mod_admin_server <- function(id, pool) {
       ifelse(is.na(middleAuth), " ... ", sprintf(" ... %s ... ", middleAuth)),
       lastAuth
     )
+  }
+
+  # Function to convert the articlesInDB() df into a table for authorInDB display
+  authorInDBTable <- function(auID, articlesInDB, pool) {
+    lastName <- tbl(pool, "author") |>
+      filter(
+        authorOfInterest == 1,
+        auID == local(as.integer(auID))
+      ) |>
+      left_join(
+        tbl(pool, "authorName") |> filter(default == 1),
+        by = "auID"
+      ) |>
+      pull(lastName)
+
+    articlesInDB |>
+      mutate(
+        Info = sprintf(
+          "%s | <i>%s</i> (%s)",
+          relevantAuthors(authors, lastName),
+          journal,
+          year
+        ),
+        PMID = sprintf(
+          '<a href="https://pubmed.ncbi.nlm.nih.gov/%s" target="_blank">%s</a>',
+          PMID,
+          PMID
+        )
+      ) |>
+      select(PMID, Title = title, Info)
   }
 
   moduleServer(id, function(input, output, session) {
@@ -121,6 +157,7 @@ mod_admin_server <- function(id, pool) {
     # Update the list of authors user can select from
     observeEvent(authorList(), {
       newVals <- authorList()
+
       updateSelectInput(
         session,
         "auID",
@@ -131,7 +168,7 @@ mod_admin_server <- function(id, pool) {
             "Not in DB"
           )
         ),
-        selected = newVals$auID[1]
+        selected = as.character(newVals$auID[1])
       )
     })
 
@@ -160,36 +197,6 @@ mod_admin_server <- function(id, pool) {
       }
     })
 
-    authorArticles <- reactive({
-      # Reset UI
-      elementMsg(sprintf("%s-%s", id, "pubmedByAuthor"))
-
-      authors <- tbl(pool(), "coAuthor") |>
-        group_by(arID) |>
-        filter(any(local(input$auID) == auID)) |>
-        ungroup() |>
-        left_join(
-          tbl(pool(), "authorName") |>
-            filter(default) |>
-            select(auID, lastName, initials),
-          by = "auID"
-        ) |>
-        arrange(arID, authorOrder) |>
-        mutate(name = paste(lastName, initials)) |>
-        collect() |>
-        group_by(arID) |>
-        summarise(
-          auID = local(input$auID),
-          authors = paste(name, collapse = ", "),
-          .groups = "drop"
-        )
-
-      articles <- tbl(pool(), "article") |>
-        filter(arID %in% local(authors$arID)) |>
-        collect() |>
-        left_join(authors, by = "arID")
-    })
-
     # ---- EXISTING ARTICLES BY AUTHOR ----
     emptyTable <- data.frame(
       PMID = character(),
@@ -200,7 +207,16 @@ mod_admin_server <- function(id, pool) {
     # Table that shows author articles
     output$authorInDB <- renderDT(
       {
-        emptyTable
+        # Initial table
+        isolate({
+          if (input$auID == "") {
+            # Case of a new or blank database
+            emptyTable
+          } else {
+            # Other case
+            authorInDBTable(input$auID, articlesInDB(), pool())
+          }
+        })
       },
       escape = F,
       rownames = F
@@ -208,7 +224,7 @@ mod_admin_server <- function(id, pool) {
 
     authorInDB_proxy <- dataTableProxy("authorInDB")
 
-    articlesInDB <- reactiveVal(NULL)
+    articlesInDB <- reactiveVal()
 
     observeEvent(
       input$auID,
@@ -240,8 +256,8 @@ mod_admin_server <- function(id, pool) {
 
         articlesInDB(df)
       },
-      ignoreInit = T,
-      ignoreNULL = F
+      ignoreInit = F,
+      ignoreNULL = T
     )
 
     observeEvent(
@@ -252,35 +268,11 @@ mod_admin_server <- function(id, pool) {
           return()
         }
 
-        lastName <- tbl(pool(), "author") |>
-          filter(authorOfInterest == 1, auID == local(input$auID)) |>
-          left_join(
-            tbl(pool(), "authorName") |> filter(default == 1),
-            by = "auID"
-          ) |>
-          pull(lastName)
+        newData <- authorInDBTable(input$auID, articlesInDB(), pool())
 
-        replaceData(
-          authorInDB_proxy,
-          articlesInDB() |>
-            mutate(
-              Info = sprintf(
-                "%s | <i>%s</i> (%s)",
-                relevantAuthors(authors, lastName),
-                journal,
-                year
-              ),
-              PMID = sprintf(
-                '<a href="https://pubmed.ncbi.nlm.nih.gov/%s" target="_blank">%s</a>',
-                PMID,
-                PMID
-              )
-            ) |>
-            select(PMID, Title = title, Info),
-          rownames = F
-        )
+        replaceData(authorInDB_proxy, newData, rownames = F)
       },
-      ignoreNULL = F
+      ignoreNULL = T
     )
 
     # ----- NEW ARTICLE SEARCH ----
@@ -320,6 +312,7 @@ mod_admin_server <- function(id, pool) {
         }
 
         # Don't allow clicking button again while searching
+        busyModal(session, title = "Searching NCBI for author articles")
         disable("pubmedByAuthor")
 
         # If the author is not in the database, set to unknown
@@ -350,6 +343,7 @@ mod_admin_server <- function(id, pool) {
               input$firstName
             )
           )
+          removeModal()
           enable("pubmedByAuthor")
           updateSelectInput(session, "auID", selected = "0")
           replaceData(authorSearch_proxy, emptyTable, rownames = F)
@@ -363,7 +357,8 @@ mod_admin_server <- function(id, pool) {
           lastName = input$lastName,
           firstName = input$firstName,
           PMIDs = str_split(input$PMIDs, ",")[[1]] |> str_trim(),
-          returnHistory = T
+          returnHistory = T,
+          stopFetching = 2000
         )
 
         if (!search$success) {
@@ -452,6 +447,7 @@ mod_admin_server <- function(id, pool) {
           elementMsg(sprintf("%s-%s", id, "pubmedByAuthor"))
         }
 
+        removeModal()
         enable("pubmedByAuthor")
         searchResults(
           list(
@@ -540,28 +536,19 @@ mod_admin_server <- function(id, pool) {
       bindEvent(input$artAdd)
 
     observe({
-      PMIDs <- auArtList()[input$authorArticleList_rows_selected, ] |>
-        filter(InDB == "YES") |>
-        pull(PMID)
+      toDelete <- articlesInDB()[input$authorInDB_rows_selected, ] |>
+        select(arID, PMID)
 
-      noHTML <- PMIDs |>
-        str_extract(".*>(.+)<", group = 1)
-
-      if (length(PMIDs) == 0) {
+      if (nrow(toDelete) == 0) {
         showNotification("No articles to remove", type = "message")
       }
 
-      req(length(PMIDs) > 0)
+      req(nrow(toDelete) > 0)
       disable("artDel")
-      arIDs <- tbl(pool(), "article") |>
-        filter(PMID %in% local(noHTML)) |>
-        pull(arID)
 
-      deleted <- dbDeleteArticle(arIDs, dbInfo = localCheckout(pool()))
-
-      updatedTable <- auArtList() |>
-        mutate(InDB = ifelse(PMID %in% PMIDs, "NO", InDB))
-      replaceData(authorArticleList_proxy, updatedTable)
+      deleted <- dbDeleteArticle(toDelete$arID, dbInfo = pool())
+      articlesInDB(articlesInDB() |> filter(!arID %in% toDelete$arID))
+      dbFlagUpdate(action = 2, dbInfo = pool())
       enable("artDel")
     }) |>
       bindEvent(input$artDel)
@@ -572,6 +559,7 @@ mod_admin_server <- function(id, pool) {
     bulkImport <- eventReactive(
       input$bulkImportAuthor,
       {
+        busyModal(session, title = "Checking author data and searching PubMed")
         shinyjs::hide("startBulkImport")
 
         tryCatch(
@@ -611,6 +599,7 @@ mod_admin_server <- function(id, pool) {
                 )
               )
             )
+            removeModal()
             shinyjs::hide("startBulkImport")
 
             return()
@@ -669,11 +658,12 @@ mod_admin_server <- function(id, pool) {
                 data$lastName[i],
                 data$firstName[i],
                 PMIDonly = T,
-                returnHistory = T
+                returnHistory = T,
+                stopFetching = 2000
               )
 
               if (!search$success) {
-                status <- "> 1000 matches. Will be skipped"
+                status <- "Too many matches. Will be skipped"
                 importData <- importData |>
                   append(list(
                     list(
@@ -719,6 +709,7 @@ mod_admin_server <- function(id, pool) {
               history <- history |> append(list(search$history))
             }
 
+            removeModal()
             shinyjs::show("startBulkImport")
           }
         )
@@ -765,6 +756,7 @@ mod_admin_server <- function(id, pool) {
     })
 
     observeEvent(input$startBulkImport, {
+      busyModal(session, title = "Importing data from NCBI")
       nImported <- data.frame()
 
       withProgress(message = 'Gather author data from NCBI', value = 0, {
@@ -852,6 +844,7 @@ mod_admin_server <- function(id, pool) {
         rownames = F
       )
 
+      removeModal()
       shinyjs::show("startBulkImport")
     })
 

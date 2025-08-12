@@ -11,10 +11,10 @@ if (!exists("envInfo")) {
     devtools::load_all()
     message("DEV TEST")
 
-    # file.copy("../data/PGG_dev", "../local/dev.db", overwrite = T)
-    testDB <- "../local/dev.db"
-    # testDB <- "C:/Users/pj/Desktop/devtst.db"
-    # testDB <- "../data/pjLorenzo.db"
+    # file.copy("../data/dbmi.db", "../local/dev.db", overwrite = T)
+    # testDB <- "../local/dev.db"
+    testDB <- "C:/Users/pj/Desktop/sz.db"
+    # testDB <- "../data/dbmi.db"
     # testDB <- NULL
 
     envInfo = list(
@@ -330,23 +330,24 @@ server <- function(input, output, session) {
       connInfo()$dbType != 1 |
         ifelse(exists("adminPassword"), adminPass == adminPassword, T)
     ) {
-      mod_admin_ui("admin")
+      # Admin module UI
+      newUI <- mod_admin_ui("admin")
+      # Admin module server
+      admin <- mod_admin_server("admin", pool)
     } else {
-      wellPanel(
+      newUI <- wellPanel(
         "This database is locked. Please provide the password",
         passwordInput("adminPass", "Admin Password"),
         actionButton("login", "Login")
       )
     }
+    return(newUI)
   })
 
   # pool for the current DB
   pool <- eventReactive(connInfo(), {
     dbPool(SQLite(), dbname = connInfo()$dbPath)
   })
-
-  # Admin module server
-  admin <- mod_admin_server("admin", pool)
 
   onSessionEnded(function() {
     isolate(poolClose(pool()))
