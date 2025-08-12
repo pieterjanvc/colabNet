@@ -20,16 +20,21 @@ additional options_
 
 ## OPTION 2 - Deployment on a remote server
 
-### 1. Create a new blank folder
+### 1. Generate the app production files
 
-- Copy the [app.R](../inst/app.R) file from the inst folder to this new folder
-- If you have any local databases you would like to upload, create and
-  additional `localDB` sub folder and put all databases in there
+- Run the generateProdFolder() function to create a ColabNet folder which
+contains all files needed to publish the app on a server
 
-### 2. Make the following changes to the app.R file
+### 2. Reinstall the latest colabNet package from GitHib
 
-- Set the `mode` variable to `mode <- "prod"`
-- Adjust the `autoCleanTemp` variables as needed
+In order for a Shiny server to accept the colabNet package, it has to be 
+installed locally through GitHub first. This means if you installed the 
+package by cloning the repo and using devtools (or in R Studio Build --> Install Package) you might 
+get an error. Just replace the current package with the latest version from
+GitHub
+```r
+remotes::install_github("https://github.com/pieterjanvc/colabNet")
+```
 
 ### 3. Deploy the app
 

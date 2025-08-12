@@ -29,6 +29,7 @@ if (!exists("envInfo")) {
     library(dplyr)
     library(dbplyr)
     library(DT)
+    library(RSQLite)
     library(pool)
     library(shiny)
     library(shinyjs)
