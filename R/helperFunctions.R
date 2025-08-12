@@ -54,65 +54,6 @@ lightenColour <- function(hex, factor) {
   rgb_to_hex(lighter_rgb)
 }
 
-#' Decorate an HTML element with a message
-#'
-#' @param elementID The ID of the element as set in Shiny
-#' @param message (Optional) If set, this message will be shown, if not any
-#' existing message for this ID will be removed
-#' @param type (Default = "error"). info, error or success (will define the colour)
-#' @param where (Default = "afterEnd) Relative position of the message to the
-#' ID. Any of "beforeStart", "afterStart", "beforeEnd" or "afterEnd"
-#' @param session (Default = getDefaultReactiveDomain()). Shiny session object
-#'
-#' @importFrom dplyr case_when
-#' @importFrom stringr str_detect
-#' @importFrom shiny insertUI removeUI getDefaultReactiveDomain
-#'
-#' @return A dataset that can be used to create a (plotly) Treemap
-#' @export
-#'
-elementMsg <- function(
-  elementID,
-  message,
-  type = "error",
-  where = "afterEnd",
-  session = getDefaultReactiveDomain()
-) {
-  # Make sure the tag ID starts with # or .
-  tagID <- ifelse(
-    str_detect(elementID, "^[.#]"),
-    elementID,
-    paste0("#", elementID)
-  )
-
-  # Remove existing element
-  removeUI(paste0(tagID, "_msg"), session = session)
-
-  # Stop if no new message
-  if (missing(message)) {
-    return()
-  }
-
-  # Add / update message
-  msg <- tags$div(
-    tags$i(
-      message,
-      style = sprintf(
-        "color:%s",
-        case_when(
-          type == "info" ~ "#2196f3",
-          type == "error" ~ "#f44336",
-          type == "success" ~ "#4caf50",
-          TRUE ~ "#262626"
-        )
-      )
-    ),
-    id = paste0(elementID, "_msg")
-  )
-
-  insertUI(selector = tagID, where = where, msg, session = session)
-}
-
 #' Filter publicationDetails object based on author of interest affiliation match
 #'
 #' This function is useful in case there are a lot of suprious matches that
@@ -266,53 +207,6 @@ profvisRender <- function(expr, folder = "local") {
   browseURL(normalizePath(file.path(folder, "proftest.html"), winslash = "/"))
 }
 
-#' Run the colabNet Shiny App
-#'
-#' @param colabNetDB Path to the ColabNet database (will be created if needed)
-#' @param localFolder (Optional) Path to a folder with database to explore
-#' @param tempFolder (Optional) Path to a folder where temp databases are stored
-#'
-#' If local and temp folders are not set, they will be created in the default temp
-#'
-#' @import shiny dplyr stringr tidyr purrr visNetwork pool plotly
-#' @importFrom shinyjs useShinyjs enable disable
-#' @importFrom RSQLite SQLite
-#' @importFrom DT DTOutput renderDT datatable dataTableProxy replaceData
-#' @importFrom igraph graph_from_data_frame E degree components distances edge_density transitivity
-#'
-#' @return Start the Shiny app
-#'
-#' @export
-#'
-colabNet <- function(colabNetDB, localFolder, tempFolder) {
-  # env <- new.env()
-  envInfo = list(
-    mode = "package",
-    dbPath = if (missing(colabNetDB)) {
-      NULL
-    } else {
-      check <- normalizePath(dirname(colabNetDB), mustWork = T)
-      colabNetDB
-    },
-    localFolder = if (missing(localFolder)) {
-      NULL
-    } else {
-      localFolder
-    },
-    tempFolder = if (missing(tempFolder)) {
-      NULL
-    } else {
-      tempFolder
-    },
-    autoCleanTemp = NULL
-  )
-
-  sys.source(
-    system.file("app.R", package = "colabNet"),
-    envir = environment()
-  )
-  shinyApp(ui, server)
-}
 
 #' Function to check which temp files can be deleted based on time / size
 #'
@@ -358,33 +252,4 @@ tempFileCheck <- function(folder, hours, totalSize, pattern = NULL) {
     )
 
   return(list(fileInfo = fileInfo, summary = summary))
-}
-
-#' Show a screen overlay when busy to prevent other actions
-#' By default an animation is played to indicate the server is busy.
-#' removeModal has to be called separately
-#'
-#' @param session A Shiny session object
-#' @param message (Optional) Text to add to the modal
-#' @param title (Optional) Title of the modal
-#' @param showAnimation Default = T. Show a busy animation
-#'
-#' @returns A modal pop-up window
-#' @export
-#'
-busyModal <- function(
-  session,
-  message = NULL,
-  title = NULL,
-  showAnimation = T
-) {
-  showModal(modalDialog(
-    if (showAnimation) {
-      tags$img(src = "busy.gif", style = "width:100%;")
-    },
-
-    tags$div(message),
-    footer = NULL,
-    title = title
-  ))
 }
