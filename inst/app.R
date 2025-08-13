@@ -11,9 +11,9 @@ if (!exists("envInfo")) {
     devtools::load_all()
     message("DEV TEST")
 
-    # file.copy("../data/dbmi.db", "../local/dev.db", overwrite = T)
-    # testDB <- "../local/dev.db"
-    testDB <- "C:/Users/pj/Desktop/sz.db"
+    file.copy("../data/dbmi.db", "../local/dev.db", overwrite = T)
+    testDB <- "../local/dev.db"
+    # testDB <- "C:/Users/pj/Desktop/sz.db"
     # testDB <- "../data/dbmi.db"
     # testDB <- NULL
 
@@ -204,6 +204,12 @@ ui <- fluidPage(
               tabPanel(
                 "Co-authors",
                 visNetworkOutput("networkPlot", height = "60vh"),
+
+                tags$i(
+                  "The connections in this graph represent the weighed sum of co-authored papers.",
+                  "The more recent the paper, the heigher its weight"
+                ),
+                tags$hr(),
                 value = "tab_coAuth"
               ),
               tabPanel(
@@ -597,15 +603,14 @@ server <- function(input, output, session) {
       filter(id %in% c(coPub()$edges$from, coPub()$edges$to))
 
     edges <- coPub()$edges |>
-      # group_by(id, from, to) |>
-      # summarise(width = n(), label = as.character(n()), .groups = "drop") |>
       mutate(
         width = weight,
-        label = as.character(weight),
+        label = as.character(round(weight, 1)),
         color = case_when(
-          width == 1 ~ "#ffcc33",
-          width == 2 ~ "#ee6600",
-          width > 2 ~ "#990000",
+          width >= 2 ~ "#990000",
+          width >= 1 ~ "#ee6600",
+          width >= 0.5 ~ "#ffcc33",
+          TRUE ~ "#0000ff"
         )
       )
 
@@ -625,7 +630,7 @@ server <- function(input, output, session) {
           # Optional: adjust spring length
           # springConstant = 0.01,          # Optional: adjust spring constant
           # damping = 0.4,                  # Optional: adjust damping
-          repulsion = 1000 # Increased repulsion value
+          repulsion = 500 # Increased repulsion value
         )
       ) |>
       visEvents(
@@ -842,11 +847,12 @@ server <- function(input, output, session) {
     edges <- networkanalysis()$graphElements$edges |>
       mutate(
         width = weight,
-        label = as.character(weight),
+        label = as.character(round(weight, 1)),
         color = case_when(
-          width == 1 ~ "#ffcc33",
-          width == 2 ~ "#ee6600",
-          width > 2 ~ "#990000",
+          width >= 2 ~ "#990000",
+          width >= 1 ~ "#ee6600",
+          width >= 0.5 ~ "#ffcc33",
+          TRUE ~ "#0000ff"
         )
       )
 
@@ -866,29 +872,13 @@ server <- function(input, output, session) {
           # Optional: adjust spring length
           # springConstant = 0.01,          # Optional: adjust spring constant
           # damping = 0.4,                  # Optional: adjust damping
-          repulsion = 1000 # Increased repulsion value
+          repulsion = 500 # Increased repulsion value
         )
       )
   })
 
   output$summaryStats <- renderUI({
     x <- networkanalysis()$graphStats
-    # average distance, ignoring unconnected
-    # dis_avg <- x$distances[upper.tri(x$dis)]
-    # dis_avg <- dis_avg[!is.infinite(dis_avg)]
-    # dis_avg <- ifelse(length(dis_avg) == 0, 0, mean(dis_avg))
-
-    # addSpaces <- function(int, max) {
-    #   sapply(int, function(x) {
-    #     if (x == 0) {
-    #       return(" ")
-    #     }
-    #     paste(
-    #       rep("&nbsp;", floor(log10(max)) - floor(log10(x)) + 1),
-    #       collapse = ""
-    #     )
-    #   })
-    # }
 
     authorStats <- x$authorStats |>
       left_join(
@@ -901,13 +891,15 @@ server <- function(input, output, session) {
           "%i (%.2f%%)",
           nCopubs,
           colabPerc
-        )
+        ),
+        weightTotal = round(weightTotal, 1)
       ) |>
-      arrange(desc(degree), desc(nCopubs)) |>
+      arrange(desc(degree), desc(weightTotal)) |>
       select(
         name,
         connections = degree,
         `papers (% total)` = papers,
+        `total weight` = weightTotal,
         nCopubs,
         group = membership,
         betweenness,
@@ -924,8 +916,8 @@ server <- function(input, output, session) {
           pageLength = 5,
           # Order papers column by hidden nCopubs (0-index!)
           columnDefs = list(
-            list(targets = 2, orderData = 3),
-            list(targets = 3, visible = F)
+            list(targets = 2, orderData = 4),
+            list(targets = 4, visible = F)
           )
         ),
         escape = F

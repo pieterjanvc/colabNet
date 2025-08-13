@@ -51,7 +51,7 @@ copubGraphElements <- function(articleInfo) {
     )
   ## Get the edges
   edgeArticles <- articleInfo |>
-    select(auID, arID) |>
+    select(auID, arID, year, month) |>
     group_by(arID) |>
     filter(n() > 1)
 
@@ -70,8 +70,17 @@ copubGraphElements <- function(articleInfo) {
       weight = integer()
     )
   } else {
+    # Get the current year + fractional month
+    curYear <- Sys.Date()
+    curYear <- as.numeric(format(curYear, "%Y")) +
+      (as.numeric(format(curYear, "%m")) - 1) / 12
+
     edgeArticles <- edgeArticles |>
-      reframe(as.data.frame(combn(auID, 2) |> t())) |>
+      reframe(
+        as.data.frame(combn(auID, 2) |> t()),
+        # The older the article, the lower the weight
+        weight = 1 / (1 + curYear - (year[1] + (month[1] - 1) / 12))
+      ) |>
       rename(au1 = V1, au2 = V2) |>
       group_by(au1, au2) |>
       mutate(edgeID = cur_group_id()) |>
@@ -79,7 +88,7 @@ copubGraphElements <- function(articleInfo) {
 
     edges <- edgeArticles |>
       group_by(id = edgeID, from = au1, to = au2) |>
-      summarise(weight = n(), .groups = "drop")
+      summarise(weight = sum(weight), n = n(), .groups = "drop")
   }
 
   return(list(nodes = nodes, edges = edges, edgeArticles = edgeArticles))
@@ -103,6 +112,7 @@ copubGraphStats <- function(graphElements) {
       authorStats = data.frame(
         auID = integer(),
         nCopubs = integer(),
+        weightTotal = numeric(),
         colabPerc = numeric(),
         degree = integer(),
         membership = integer(),
@@ -146,17 +156,21 @@ copubGraphStats <- function(graphElements) {
 
   # Collaborations per author
   colabs <- rbind(
-    graphElements$edges |> select(from, to, weight),
-    graphElements$edges |> select(from = to, to = from, weight)
+    graphElements$edges |> select(from, to, weight, n),
+    graphElements$edges |> select(from = to, to = from, weight, n)
   ) |>
     group_by(auID = from) |>
-    summarise(nCopubs = sum(weight), .groups = "drop")
+    summarise(nCopubs = sum(n), weightTotal = sum(weight), .groups = "drop")
 
   # Add authors without colabs
   if (length(auIDs[!auIDs %in% colabs$auID]) > 0) {
     colabs <- rbind(
       colabs,
-      data.frame(auID = auIDs[!auIDs %in% colabs$auID], nCopubs = 0)
+      data.frame(
+        auID = auIDs[!auIDs %in% colabs$auID],
+        nCopubs = 0,
+        weightTotal = 0
+      )
     )
   }
 
