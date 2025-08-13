@@ -155,10 +155,13 @@ generateProdFolder <- function(folder, localDBs, overwrite = T) {
     stop("ColabNet folder is not empty and overwrite = FALSE")
   }
 
-  # Copy app file
+  # Copy app and lock files
   x <- dir.create(folder, showWarnings = F)
   x <- file.copy(
-    system.file("app.R", package = "colabNet"),
+    c(
+      system.file("app.R", package = "colabNet"),
+      system.file("renv.lock", package = "colabNet")
+    ),
     folder,
     overwrite = T
   )
@@ -191,5 +194,12 @@ generateProdFolder <- function(folder, localDBs, overwrite = T) {
   if (!missing(localDBs)) {
     x <- dir.create(file.path(folder, "localDB"), showWarnings = F)
     x <- file.copy(localDBs, file.path(folder, "localDB"), overwrite = T)
+  }
+
+  # Check the environment
+  check <- capture.output(renv::status(project = folder)$synchronized)[2]
+  if (check != "[1] TRUE") {
+    invisible(capture.output(renv::install(project = folder, prompt = F)))
+    invisible(capture.output(renv::snapshot(project = folder, prompt = F)))
   }
 }
