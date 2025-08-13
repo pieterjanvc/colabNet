@@ -207,7 +207,7 @@ ui <- fluidPage(
 
                 tags$i(
                   "The connections in this graph represent the weighed sum of co-authored papers.",
-                  "The more recent the paper, the heigher its weight"
+                  "The more recent the paper, the higher its weight"
                 ),
                 tags$hr(),
                 value = "tab_coAuth"
