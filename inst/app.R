@@ -8,7 +8,7 @@ if (!exists("envInfo")) {
 
   if (mode == "dev") {
     # Add any code here to use for dev (running the file in IDE)
-    devtools::load_all()
+    # devtools::load_all()
     message("DEV TEST")
 
     file.copy("../data/dbmi.db", "../local/dev.db", overwrite = T)
@@ -207,7 +207,7 @@ ui <- fluidPage(
 
                 tags$i(
                   "The connections in this graph represent the weighed sum of co-authored papers.",
-                  "The more recent the paper, the heigher its weight"
+                  "The more recent the paper, the higher its weight"
                 ),
                 tags$hr(),
                 value = "tab_coAuth"

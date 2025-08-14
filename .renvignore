@@ -1,0 +1,16 @@
+renv.lock
+.Rproj
+.Rproj.user/
+.vscode/
+colabNet.Rproj
+LICENSE.md
+backup/
+data/
+dev/
+docs/
+local/
+man/
+prod/
+renv/
+temp/
+tests/
