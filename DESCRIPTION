@@ -15,7 +15,9 @@ Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.2
 Suggests: 
     testthat (>= 3.0.0),
-    devtools
+    devtools,
+    profvis,
+    roxygen2
 Config/testthat/edition: 3
 Depends: 
     R (>= 4.00)
@@ -27,9 +29,9 @@ Imports:
     ggplot2,
     htmlwidgets,
     igraph,
+    pkgload,
     plotly,
     pool,
-    profvis,
     purrr,
     rentrez,
     rlang,

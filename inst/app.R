@@ -8,7 +8,7 @@ if (!exists("envInfo")) {
 
   if (mode == "dev") {
     # Add any code here to use for dev (running the file in IDE)
-    devtools::load_all()
+    # devtools::load_all()
     message("DEV TEST")
 
     file.copy("../data/dbmi.db", "../local/dev.db", overwrite = T)

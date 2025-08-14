@@ -155,16 +155,29 @@ generateProdFolder <- function(folder, localDBs, overwrite = T) {
     stop("ColabNet folder is not empty and overwrite = FALSE")
   }
 
+  # Files
+  if (pkgload::is_dev_package("colabNet")) {
+    appFile <- "inst/app.R"
+    lockFile <- "renv.lock"
+    wwwFolder <- "inst/www"
+    print(file.exists(appFile))
+  } else {
+    appFile <- system.file("app.R", package = "colabNet")
+    lockFile <- NULL
+    wwwFolder <- system.file("www", package = "colabNet")
+  }
+
+  # Make sure the renv cache is found
+  if (Sys.getenv("RENV_PATHS_CACHE") != "") {
+    writeLines(
+      sprintf("RENV_PATHS_CACHE=%s", Sys.getenv("RENV_PATHS_CACHE")),
+      file.path(folder, ".Renviron")
+    )
+  }
+
   # Copy app and lock files
   x <- dir.create(folder, showWarnings = F)
-  x <- file.copy(
-    c(
-      system.file("app.R", package = "colabNet"),
-      system.file("renv.lock", package = "colabNet")
-    ),
-    folder,
-    overwrite = T
-  )
+  x <- file.copy(c(appFile, lockFile), folder, overwrite = T)
 
   # Change the app to production mode
   app <- readLines(file.path(folder, "app.R"))
@@ -176,12 +189,14 @@ generateProdFolder <- function(folder, localDBs, overwrite = T) {
     )
   }
   app[1:10] <- gsub("mode <- \"dev\"", "mode <- \"prod\"", app[1:10])
+  app[1:10] <- gsub("devtools::load_all()", "# devtools::load_all()", app[1:10])
+
   writeLines(app, file.path(folder, "app.R"))
 
   # Copy www folder
   x <- dir.create(file.path(folder, "www"), showWarnings = F)
   x <- file.copy(
-    list.files(system.file("www", package = "colabNet"), full.names = T),
+    list.files(wwwFolder, full.names = T),
     file.path(folder, "www"),
     overwrite = T
   )
@@ -196,10 +211,28 @@ generateProdFolder <- function(folder, localDBs, overwrite = T) {
     x <- file.copy(localDBs, file.path(folder, "localDB"), overwrite = T)
   }
 
-  # Check the environment
-  check <- capture.output(renv::status(project = folder)$synchronized)[2]
-  if (check != "[1] TRUE") {
-    invisible(capture.output(renv::install(project = folder, prompt = F)))
-    invisible(capture.output(renv::snapshot(project = folder, prompt = F)))
-  }
+  renv::restore(project = folder, prompt = F)
+  renv::install(
+    c("https://github.com/pieterjanvc/colabNet", "rsconnect"),
+    project = folder,
+    prompt = F
+  )
+  renv::snapshot(project = folder, exclude = "rsconnect", prompt = F)
+
+  # invisible(capture.output())
+
+  # # Check the environment
+  # check <- capture.output(renv::status(project = folder)$synchronized)[2]
+  # if (check != "[1] TRUE") {
+  #   renv::init(project = folder, load = F, restart = F)
+  #
+  #   invisible(capture.output(renv::install(project = folder, prompt = F)))
+  #   invisible(capture.output(renv::install(
+  #     "https://github.com/pieterjanvc/colabNet",
+  #     project = folder,
+  #     prompt = F
+  #   )))
+  #   invisible(capture.output(renv::snapshot(project = folder, prompt = F)))
+  #   invisible(capture.output(renv::clean(project = folder, prompt = F)))
+  # }
 }
