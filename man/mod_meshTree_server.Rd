@@ -4,10 +4,12 @@
 \alias{mod_meshTree_server}
 \title{MeSH Tree Shiny Module - Server}
 \usage{
-mod_meshTree_server(id, papermeshtree)
+mod_meshTree_server(id, papermeshtree, pool)
 }
 \arguments{
 \item{id}{ID for the module}
+
+\item{pool}{A reactive pool object as DB connection}
 
 \item{plotData}{A MeshTree plot data data frame}
 }

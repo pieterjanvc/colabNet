@@ -8,7 +8,7 @@ if (!exists("envInfo")) {
 
   if (mode == "dev") {
     # Add any code here to use for dev (running the file in IDE)
-    # devtools::load_all()
+    devtools::load_all()
     message("DEV TEST")
 
     file.copy("../data/PGG_dev.db", "../local/dev.db", overwrite = T)
@@ -657,7 +657,8 @@ server <- function(input, output, session) {
 
   mtOverviewSelected <- mod_meshTree_server(
     "meshTree_overview",
-    papermeshtree = reactive(preCompData()$papermeshtree)
+    papermeshtree = reactive(preCompData()$papermeshtree),
+    pool = pool
   )
 
   observeEvent(mtOverviewSelected(), {
@@ -803,7 +804,8 @@ server <- function(input, output, session) {
   # MeSH tree for two author comparison
   mtComparisonSelected <- mod_meshTree_server(
     "meshTree_comparison",
-    papermeshtree = treemapcomp
+    papermeshtree = treemapcomp,
+    pool = pool
   )
 
   # Get articles in part of the author comparison MeSH tree branch selected

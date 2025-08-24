@@ -27,7 +27,8 @@ mod_meshTree_ui <- function(
             c(0, limits),
             c("All", as.character(limits))
           )
-        )
+        ),
+        mod_meshFilter_ui(NS(id, "meshfilter"))
       ),
       column(
         6,
@@ -42,6 +43,7 @@ mod_meshTree_ui <- function(
 #'
 #' @param id ID for the module
 #' @param plotData A MeshTree plot data data frame
+#' @param pool A reactive pool object as DB connection
 #'
 #' @returns Server function for MeSH Tree. The output will return a reactive list:
 #' - mtrIDs: the mtrIDs currently in the treemap (based on filtering),
@@ -52,7 +54,7 @@ mod_meshTree_ui <- function(
 #'
 #' @export
 #'
-mod_meshTree_server <- function(id, papermeshtree) {
+mod_meshTree_server <- function(id, papermeshtree, pool) {
   # Filter treemap plot data based on limits
   plotDataFilter <- function(plotData, n) {
     n = as.integer(n)
@@ -80,14 +82,94 @@ mod_meshTree_server <- function(id, papermeshtree) {
     # Keep track of which branch is being viewed (also returned)
     selectedBranch <- reactiveVal()
 
+    meshfilter <- mod_meshFilter_server("meshfilter", pool)
+
     data <- reactive({
-      auIDs <- papermeshtree()$auID |> unique()
+      # Apply mesh filter if needed
+      if (length(meshfilter()) > 0) {
+        # Annotate all MeSH terms and children in the selection
+        # filterlvl 2: MeSH term or child
+        # filterlvl 1: Branches above selected needed to go to root
+        # filterlvl 0: not in selection
+        pmt <- papermeshtree() |>
+          select(-c(branchID, parentBranchID, treemapVal)) |>
+          mutate(
+            filterlvl = str_detect(
+              treenum,
+              sprintf("^(%s)", paste(meshfilter()$treenum, collapse = "|"))
+            ),
+            filterlvl = ifelse(filterlvl == 1, 2, 0),
+            filterlvl = ifelse(
+              treenum %in%
+                missingTreeNums(
+                  meshfilter()$treenum,
+                  includeRoots = T,
+                  includeOriginal = T
+                ) &
+                filterlvl == 0,
+              1,
+              filterlvl
+            )
+          ) |>
+          filter(filterlvl > 0)
+
+        pmt <- pmt |>
+          mutate(
+            auID = ifelse(filterlvl == 1, 0, auID),
+            nPapers = ifelse(filterlvl == 1, 0, nPapers),
+            name = ifelse(filterlvl == 1, "", name)
+          ) |>
+          distinct() |>
+          select(-c(filterlvl))
+
+        # Recalculate the branch and parent branch IDs(to collapse later)
+        # TODO Consider parsing this function out later as it's used in treemap generator too
+        newBranches <- branchID(
+          pmt$mtrID[pmt$level > 1],
+          pmt$parent[pmt$level > 1]
+        )
+
+        pmt <- pmt |>
+          left_join(
+            data.frame(
+              mtrID = as.integer(names(newBranches$branchID)),
+              branchID = as.integer(unname(newBranches$branchID)),
+              treemapVal = unname(newBranches$treemapVal)
+            ),
+            by = "mtrID"
+          )
+
+        pmt <- pmt |>
+          arrange(treenum) |>
+          group_by(branchID) |>
+          mutate(link = parent[1]) |>
+          ungroup() |>
+          left_join(
+            pmt |>
+              select(link = mtrID, parentBranchID = branchID) |>
+              distinct(),
+            by = "link"
+          ) |>
+          select(-link) |>
+          mutate(
+            parentBranchID = ifelse(
+              branchID == parentBranchID,
+              NA,
+              parentBranchID
+            )
+          )
+      } else {
+        pmt <- papermeshtree()
+      }
+
+      # Get the author IDs
+      auIDs <- pmt$auID |> unique()
       auIDs <- auIDs[auIDs != 0]
 
       list(
         auIDs = auIDs,
-        plotData = treemapData(papermeshtree()),
-        branchInfo = papermeshtree() |> select(branchID, mtrID) |> distinct()
+        plotData = treemapData(pmt),
+        branchInfo = pmt |> select(branchID, mtrID) |> distinct()
       )
     })
 
