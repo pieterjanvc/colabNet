@@ -82,7 +82,7 @@ CREATE TABLE "mesh_article" (
 
 CREATE TABLE "updateData" (
   "uID" INTEGER PRIMARY KEY AUTOINCREMENT,
-  "timestamp" TEXT NOT NULL DEFAULT datetime('now', 'localtime'),
+  "timestamp" TEXT NOT NULL,
   "action" INTEGER
 );
 
@@ -142,5 +142,4 @@ INSERT INTO meshTerm ("meshui", "meshterm") VALUES
   ('R000015', 'Publication Characteristics'),
   ('R000016', 'Geographicals');
 
-INSERT INTO updateData ("timestamp", "action") VALUES
-  (datetime('now', 'localtime'), 0);
+INSERT INTO updateData ("action") VALUES (datetime('now', 'localtime'), 0);

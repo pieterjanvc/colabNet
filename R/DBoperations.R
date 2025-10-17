@@ -516,7 +516,12 @@ dbAddAuthorPublications <- function(
         #   params = list(auID)
         # )
 
-        . <- tbl_insert(data.frame(action = 1), conn, "updateData", commit = F)
+        action <- data.frame(
+          timestamp = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
+          action = as.integer(1)
+        )
+
+        . <- tbl_insert(action, conn, "updateData", commit = F)
 
         # q <- dbExecute(
         #   conn,
