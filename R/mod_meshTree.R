@@ -124,9 +124,12 @@ mod_meshTree_server <- function(id, papermeshtree, pool) {
 
         # Recalculate the branch and parent branch IDs(to collapse later)
         # TODO Consider parsing this function out later as it's used in treemap generator too
+
+        # In case there is only one tree, we don't need the first level
+        x <- ifelse(sum(pmt$parent == 0) > 1, 0, 1)
         newBranches <- branchID(
-          pmt$mtrID[pmt$level > 1],
-          pmt$parent[pmt$level > 1]
+          pmt$mtrID[pmt$level > x],
+          pmt$parent[pmt$level > x]
         )
 
         pmt <- pmt |>
