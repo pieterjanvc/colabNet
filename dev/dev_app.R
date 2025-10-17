@@ -3,25 +3,10 @@
 # library(pool)
 # library(RSQLite)
 
-mod_test_ui <- function(id) {
-  tagList(
-    mod_meshFilter_ui(NS(id, "mf"))
-  )
-}
-
-mod_test_server <- function(id, pool) {
-  moduleServer(
-    id,
-    function(input, output, session) {
-      filter <- mod_meshFilter_server("mf", pool = pool)
-
-      return(filter)
-    }
-  )
-}
+library(sqlife)
 
 ui <- fluidPage(
-  mod_test_ui("test")
+  sqlife::mod_dbSetup_ui("cnDB")
 )
 
 server <- function(input, output, session) {
@@ -33,9 +18,16 @@ server <- function(input, output, session) {
     })
   })
 
-  mod <- mod_test_server("test", pool)
+  connInfo <- sqlife::mod_dbSetup_server(
+    id = "cnDB",
+    localFolder = "../data/",
+    tempFolder = "../temp/",
+    schema = system.file("create_colabNetDB.sql", package = "colabNet"),
+    useDB = NULL
+  )
+
   observe({
-    print(mod())
+    connInfo() |> print()
   })
 }
 

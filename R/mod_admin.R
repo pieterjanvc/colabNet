@@ -565,15 +565,15 @@ mod_admin_server <- function(id, pool) {
         tryCatch(
           {
             data <- read.csv(input$bulkImportAuthor$datapath)
-            missing <- setdiff(
+            missingAuth <- setdiff(
               c("lastName", "firstName", "affiliation"),
               colnames(data)
             )
 
-            if (length(missing) > 0) {
+            if (length(missingAuth) > 0) {
               stop(
                 "The following columns are missing: ",
-                paste(missing, collapse = ", ")
+                paste(missingAuth, collapse = ", ")
               )
             }
 

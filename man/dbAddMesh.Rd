@@ -12,6 +12,8 @@ dbAddMesh(values, type, dbInfo)
 \item{type}{The type needs to be 'meshui' (MeSH ui), 'treenum' (tree number) or 'uid' (MeSH Entrez uid)}
 
 \item{dbInfo}{Connection to a Colabnet database}
+
+\item{commmit}{(Default = TRUE). Commit changes to the database automatically}
 }
 \value{
 data frame with all uid and meshui inserted into the database (including intermediate tree nodes)

@@ -50,7 +50,7 @@ mod_dbSetup_ui <- function(id, download = "button") {
 #'
 #' @export
 #'
-mod_dbSetup_server <- function(
+mod_dbSetup_server_old <- function(
   id,
   localFolder,
   tempFolder,

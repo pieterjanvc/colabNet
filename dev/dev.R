@@ -1,9 +1,10 @@
 file.copy("data/dbmi.db", "local/dev.db", overwrite = T)
 colabNetDB <- "local/dev.db"
 
-# colabNetDB <- "D:/Desktop/dev.db"
-# file.remove(colabNetDB)
+devtools::install_github("pieterjanvc/sqlife", ref = "v0.1.0")
+colabNetDB <- "D:/Desktop/newCN.db"
+file.remove(colabNetDB)
 
-dbSetup(colabNetDB, checkSchema = T)
+sqlife::dbSetup(colabNetDB, schema = "inst/create_colabNetDB.sql")
 
-pool <- dbGetConn()
+sqlife::dbNewFromSchema(colabNetDB, schema = "inst/create_colabNetDB.sql")

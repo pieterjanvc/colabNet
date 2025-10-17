@@ -1,201 +1,19 @@
-#' Setup the ColabNet database for the current session
-#'
-#' @param path Path to a database. If DB does not exist it will be created from the schema
-#' @param schema An SQLite database schema (.sql file)
-#' @param checkSchema (Default, FALSE) Check the schema of an existing database against the reference
-#' @param returnConn (Default, FALSE) By default this function will save the connection to the database
-#' internally to be used by other functions. If set to TRUE, a connection object is returned
-#' and needs to be closed manually using dbDisconnect()
-#' @param setDBSession (Default, FALSE) Set the dbInfo for the global session so it does not
-#' have to be provided for all other DB functions. Don't use this in Shiny!
-#' @param createNew Default = TRUE. Create a new database if the file does not
-#' exist, otherwise return fail.
-#'
-#' @import RSQLite
-#' @importFrom stringr str_remove
-#'
-#' @return A list with 4 elements
-#' - success: T/F whether the connection to the database was succesful
-#' - statusCode: 0,1,2 are success, others are failures
-#' - msg: The message for each status code
-#' - conn: a connection object if returnConn = T
-#' @export
-#'
-dbSetup <- function(
-  path,
-  schema,
-  checkSchema = F,
-  returnConn = F,
-  setDBSession = F,
-  createNew = T
-) {
-  # Path check
-  if (
-    missing(path) ||
-      !dir.exists(dirname(path)) ||
-      !str_detect(basename(path), "^[\\w-]+\\.db$")
-  ) {
-    return(list(
-      success = F,
-      statusCode = 4,
-      msg = paste("Provide a valid path to a database file ending in .db"),
-      conn = NULL
-    ))
-  }
-
-  if (!createNew & !file.exists(path)) {
-    return(list(
-      success = F,
-      statusCode = 5,
-      msg = sprintf("createNew = FALSE and no database found at %s", path),
-      conn = NULL
-    ))
-  }
-
-  # Start with empty connection
-  myConn <- NULL
-  # Get the reference schema
-  sqlFile <- readLines(schema) |>
-    paste(collapse = "") |>
-    str_remove(";\\s*$")
-
-  if (!file.exists(path)) {
-    # Create a new database
-    tables <- strsplit(sqlFile, ";") |> unlist()
-    myConn <- dbConnect(SQLite(), path)
-    q <- sapply(tables, function(sql) {
-      q <- dbExecute(myConn, sql)
-    })
-
-    msg <- "A new database was created"
-    statusCode <- 0
-  } else if (checkSchema) {
-    myConn <- dbConnect(SQLite(), path)
-    # Extract the schema from the database to compare to the reference
-    dbSchema <- dbGetQuery(
-      myConn,
-      paste(
-        'SELECT sql FROM sqlite_master WHERE type IN ("table", "index")',
-        ' AND "sql" NOT NULL AND name != \'sqlite_sequence\''
-      )
-    ) |>
-      unlist() |>
-      paste(collapse = ";")
-
-    # Remove any INSERT statements as they are not part of the schema
-    sqlFile <- str_remove(sqlFile, ";INSERT.*")
-
-    if (dbSchema != sqlFile) {
-      msg <- paste(
-        sprintf("The schema of %s is not valid.\n", path),
-        "- Create a blank database by providing a new path\n",
-        "- Edit the schema of the existing database to match the requirements"
-      )
-      statusCode <- 3
-    } else {
-      msg <- "Successful connection to existing database; schema validated"
-      statusCode <- 2
-    }
-  } else {
-    myConn <- dbConnect(SQLite(), path)
-    msg <- "Successful connection to existing database; schema not validated"
-    statusCode <- 1
-  }
-
-  # When not to return the connection
-  if ((!is.null(myConn) & !returnConn) | statusCode == 3) {
-    dbDisconnect(myConn)
-    myConn <- NULL
-  }
-
-  # Save the connection info for the session
-  if (setDBSession) {
-    options(dbPath = path)
-  }
-
-  return(list(
-    success = statusCode %in% c(0, 1, 2),
-    statusCode = statusCode,
-    msg = msg,
-    conn = myConn
-  ))
-}
-
-#' Get a ColabNet database connection
-#'
-#' @param dbInfo Connection to a Colabnet database
-#'
-#' @import RSQLite
-#'
-#' @return Connection to the ColabNet database
-#' @export
-#'
-dbGetConn <- function(dbInfo) {
-  if (missing(dbInfo)) {
-    # getOption("dbInfo") has  database info in global environment
-    if (is.null(getOption("dbInfo", default = NULL))) {
-      stop("There is no database set up, please run dbSetup() first")
-    }
-
-    conn <- dbConnect(SQLite(), getOption("dbInfo"))
-    # Keep track of whether an existing connection was passed into the function
-    attr(conn, "existing") <- F
-  } else if (inherits(dbInfo, "DBIConnection")) {
-    conn <- dbInfo
-    attr(conn, "existing") <- T
-  } else if ("Pool" %in% class(dbInfo)) {
-    conn <- pool::localCheckout(dbInfo)
-    attr(conn, "existing") <- F
-  } else {
-    stop("You must provide a database connection or Pool object")
-    # conn <- dbSetup(dbInfo, returnConn = T)
-    # attr(conn, "existing") <- F
-  }
-
-  # Make sure that foreign key constraints and cascading are enforced
-  q <- dbExecute(conn, "PRAGMA foreign_keys = ON")
-
-  return(conn)
-}
-
-#' Finish the current DB operation and disconnect if needed
-#'
-#' @param conn A database connection
-#'
-#' @returns Nothing
-#' @export
-#'
-dbFinish <- function(conn) {
-  #Pool will auto disconnect with localCheckout, and existing needs to be kept open
-  if (
-    !"pool_metadata" %in% names(attributes(conn)) && !attr(conn, "existing")
-  ) {
-    dbDisconnect(conn)
-  }
-}
-
 #' Add authors to the database
 #'
 #' @param authors The coAuthors data frame generated by ncbi_authorPublications
 #' @param dbInfo Connection to a Colabnet database
+#' @param commmit (Default = TRUE). Commit changes to the database automatically
 #'
-#' @import RSQLite
+#' @import sqlife
 #' @import dplyr
 #'
 #' @return Data frame with new, updated and existing author info
 #' @export
 #'
-dbAddAuthors <- function(authors, dbInfo) {
+dbAddAuthors <- function(authors, dbInfo, commmit = T) {
   tryCatch(
     {
-      conn <- dbGetConn(dbInfo)
-
-      if (sqliteIsTransacting(conn)) {
-        endTransaction <- F
-      } else {
-        dbBegin(conn)
-        endTransaction <- T
-      }
+      conn <- dbGetConn(dbInfo, startTransaction = T)
 
       # Get all distinct author names, but assume same author is last name and initials are the same
       authors <- authors |>
@@ -237,19 +55,21 @@ dbAddAuthors <- function(authors, dbInfo) {
           mutate(auID = min(auID, na.rm = T)) |>
           ungroup() |>
           filter(is.na(anID))
-        updated <- dbGetQuery(
-          conn,
-          "INSERT INTO authorName(auID,lastName,firstName,initials,collectiveName)
-        VALUES (?,?,?,?,?) RETURNING *",
-          params = list(
-            updated$auID,
-            updated$lastName,
-            updated$firstName,
-            updated$initials,
-            updated$collectiveName
-          )
-        ) |>
+        updated <- tbl_update(updated, conn, "authorName", commit = F) |>
           mutate(status = "updated")
+        # updated <- dbGetQuery(
+        #   conn,
+        #   "INSERT INTO authorName(auID,lastName,firstName,initials,collectiveName)
+        # VALUES (?,?,?,?,?) RETURNING *",
+        #   params = list(
+        #     updated$auID,
+        #     updated$lastName,
+        #     updated$firstName,
+        #     updated$initials,
+        #     updated$collectiveName
+        #   )
+        # ) |>
+        #   mutate(status = "updated")
 
         q <- dbExecute(
           conn,
@@ -270,45 +90,45 @@ dbAddAuthors <- function(authors, dbInfo) {
 
       if (nrow(new) > 0) {
         # Create new author IDs
-        auID <- dbGetQuery(
-          conn,
-          "INSERT INTO author(modified) VALUES (?) RETURNING auID",
-          params = list(rep(timeStamp(), new$tempId |> n_distinct()))
+        auID <- data.frame(
+          modified = rep(timeStamp(), new$tempId |> n_distinct())
         )
+        auID <- tbl_insert(auID, dbInfo, "author", commit = F) |> select(auID)
+
+        # auID <- dbGetQuery(
+        #   conn,
+        #   "INSERT INTO author(modified) VALUES (?) RETURNING auID",
+        #   params = list(rep(timeStamp(), new$tempId |> n_distinct()))
+        # )
         auID$tempId <- unique(new$tempId)
         new <- new |> left_join(auID, by = "tempId")
 
         # Add author names
-        new <- dbGetQuery(
-          conn,
-          "INSERT INTO authorName(auID,\"default\",lastName,firstName,initials,collectiveName)
-        VALUES (?,?,?,?,?,?) RETURNING *",
-          params = list(
-            new$auID,
-            new$def,
-            new$lastName,
-            new$firstName,
-            new$initials,
-            new$collectiveName
-          )
-        ) |>
+        new <- tbl_insert(new, dbInfo, "authorName", commit = F) |>
           mutate(status = "new")
+
+        # new <- dbGetQuery(
+        #   conn,
+        #   "INSERT INTO authorName(auID,\"default\",lastName,firstName,initials,collectiveName)
+        # VALUES (?,?,?,?,?,?) RETURNING *",
+        #   params = list(
+        #     new$auID,
+        #     new$def,
+        #     new$lastName,
+        #     new$firstName,
+        #     new$initials,
+        #     new$collectiveName
+        #   )
+        # ) |>
+        #   mutate(status = "new")
       }
 
-      if (endTransaction) {
-        dbCommit(conn)
-        dbFinish(conn)
-      }
+      . <- dbFinish(conn, commit = commit)
 
       return(bind_rows(new, updated, existing) |> select(-tempId))
     },
     error = function(e) {
-      # If an error occurs, rollback the current transaction
-      if (sqliteIsTransacting(conn)) {
-        dbRollback(conn)
-      }
-      dbFinish(conn)
-      stop(e)
+      dbFinish(conn, error = e)
     }
   )
 }
@@ -318,23 +138,17 @@ dbAddAuthors <- function(authors, dbInfo) {
 #' @param auIDs auIDs to remove. Co-authors who are not and authorOfInterest and
 #' do not appear in other non-removed articles, are removed too
 #' @param dbInfo Connection to a Colabnet database
+#' @param commmit (Default = TRUE). Commit changes to the database automatically
 #'
 #' @import dplyr
 #'
 #' @return data frame with all auID and arID that were removed
 #' @export
 #'
-dbDeleteAuthors <- function(auIDs, dbInfo) {
+dbDeleteAuthors <- function(auIDs, dbInfo, commit = T) {
   tryCatch(
     {
-      conn <- dbGetConn(dbInfo)
-
-      if (sqliteIsTransacting(conn)) {
-        endTransaction <- F
-      } else {
-        dbBegin(conn)
-        endTransaction <- T
-      }
+      conn <- dbGetConn(dbInfo, startTransaction = T)
 
       # Get all articles and authors to remove
       toRemove <- tbl(conn, "coAuthor") |>
@@ -366,37 +180,41 @@ dbDeleteAuthors <- function(auIDs, dbInfo) {
       toRemove <- toRemove |> filter(!auID %in% toKeep)
 
       # Delete authors
-      q <- dbExecute(
+      . <- tbl_delete(
+        toRemove |> select(auID) |> distinct(),
         conn,
-        sprintf(
-          "DELETE FROM author WHERE auID IN (%s)",
-          paste(unique(toRemove$auID), collapse = ",")
-        )
+        "author",
+        commit = F
       )
+      # q <- dbExecute(
+      #   conn,
+      #   sprintf(
+      #     "DELETE FROM author WHERE auID IN (%s)",
+      #     paste(unique(toRemove$auID), collapse = ",")
+      #   )
+      # )
 
       # Delete articles
-      q <- dbExecute(
+      . <- tbl_delete(
+        toRemove |> select(arID) |> distinct(),
         conn,
-        sprintf(
-          "DELETE FROM article WHERE arID IN (%s)",
-          paste(unique(toRemove$arID), collapse = ",")
-        )
+        "article",
+        commit = F
       )
+      # q <- dbExecute(
+      #   conn,
+      #   sprintf(
+      #     "DELETE FROM article WHERE arID IN (%s)",
+      #     paste(unique(toRemove$arID), collapse = ",")
+      #   )
+      # )
 
-      if (endTransaction) {
-        dbCommit(conn)
-        dbFinish(conn)
-      }
+      . <- dbFinish(conn, commit = commit)
 
       return(toRemove)
     },
     error = function(e) {
-      # If an error occurs, rollback the current transaction
-      if (sqliteIsTransacting(conn)) {
-        dbRollback(conn)
-      }
-      dbFinish(conn)
-      stop(e)
+      dbFinish(conn, error = e)
     }
   )
 }
@@ -406,6 +224,7 @@ dbDeleteAuthors <- function(auIDs, dbInfo) {
 #' @param values vector of MeSH values to search for
 #' @param type The type needs to be 'meshui' (MeSH ui), 'treenum' (tree number) or 'uid' (MeSH Entrez uid)
 #' @param dbInfo Connection to a Colabnet database
+#' @param commmit (Default = TRUE). Commit changes to the database automatically
 #'
 #' @import dplyr
 #'
@@ -415,14 +234,7 @@ dbDeleteAuthors <- function(auIDs, dbInfo) {
 dbAddMesh <- function(values, type, dbInfo) {
   tryCatch(
     {
-      conn <- dbGetConn(dbInfo)
-
-      if (sqliteIsTransacting(conn)) {
-        endTransaction <- F
-      } else {
-        dbBegin(conn)
-        endTransaction <- T
-      }
+      conn <- dbGetConn(dbInfo, startTransaction = T)
 
       meshInfo <- ncbi_meshInfo(values, type)
 
@@ -477,39 +289,59 @@ dbAddMesh <- function(values, type, dbInfo) {
         new <- meshLinks |> filter(!uid %in% existing$uid)
 
         # Insert new MeSH links
-        q <- dbExecute(
+        . <- tbl_insert(
+          new |> select(uid, meshui),
           conn,
-          "INSERT INTO meshLink(uid, meshui) VALUES(?,?)",
-          params = list(new$uid, new$meshui)
+          "meshLink",
+          commit = F
         )
+        # q <- dbExecute(
+        #   conn,
+        #   "INSERT INTO meshLink(uid, meshui) VALUES(?,?)",
+        #   params = list(new$uid, new$meshui)
+        # )
 
         # Insert new MeSH Terms
         meshTerms <- meshInfo$meshTerms |>
           select(meshui, meshterm) |>
           distinct()
         meshTerms <- meshTerms |> filter(!meshui %in% existing$meshui)
-        q <- dbExecute(
+
+        . <- tbl_insert(
+          meshTerms |> select(meshui, meshterm),
           conn,
-          "INSERT INTO meshTerm(meshui, meshterm) VALUES(?,?)",
-          params = list(meshTerms$meshui, meshTerms$meshterm)
+          "meshTerm",
+          commit = F
         )
+
+        # q <- dbExecute(
+        #   conn,
+        #   "INSERT INTO meshTerm(meshui, meshterm) VALUES(?,?)",
+        #   params = list(meshTerms$meshui, meshTerms$meshterm)
+        # )
 
         # Insert new MeSH Tree branches
         meshTree <- meshInfo$meshTree |>
           select(uid, treenum) |>
           distinct()
+
         meshTree <- meshTree |> filter(!uid %in% existing$uid)
-        q <- dbExecute(
+
+        . <- tbl_insert(
+          meshTree |> select(uid, treenum),
           conn,
-          "INSERT INTO meshTree(uid, treenum) VALUES(?,?)",
-          params = list(meshTree$uid, meshTree$treenum)
+          "meshTree",
+          commit = F
         )
+
+        # q <- dbExecute(
+        #   conn,
+        #   "INSERT INTO meshTree(uid, treenum) VALUES(?,?)",
+        #   params = list(meshTree$uid, meshTree$treenum)
+        # )
       }
 
-      if (endTransaction) {
-        dbCommit(conn)
-        dbFinish(conn)
-      }
+      . <- dbFinish(conn, commit = commit)
 
       return(bind_rows(
         new |> mutate(status = "new"),
@@ -517,12 +349,7 @@ dbAddMesh <- function(values, type, dbInfo) {
       ))
     },
     error = function(e) {
-      # If an error occurs, rollback the current transaction
-      if (sqliteIsTransacting(conn)) {
-        dbRollback(conn)
-      }
-      dbFinish(conn)
-      stop(e)
+      dbFinish(error = e)
     }
   )
 }
@@ -534,50 +361,43 @@ dbAddMesh <- function(values, type, dbInfo) {
 #'  - 1 = add data
 #'  - 2 = delete data
 #' @param dbInfo Connection to a Colabnet database
+#' @param commmit (Default = TRUE). Commit changes to the database automatically
 #'
 #' @import RSQLite
 #'
-#' @return Bool to indicate success
+#' @return The uID from inserted row into updateData
 #' @export
 #'
-dbFlagUpdate <- function(action, dbInfo) {
+dbFlagUpdate <- function(action, dbInfo, commit = T) {
   tryCatch(
     {
-      action <- as.integer(action)
+      action <- data.frame(
+        timestamp = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
+        action = as.integer(action)
+      )
 
-      if (!action %in% 1:3) {
+      if (!action$action %in% 0:2) {
         stop("The action value must be an integer between 0 - 2")
       }
 
-      conn <- dbGetConn(dbInfo)
+      conn <- dbGetConn(dbInfo, startTransaction = T)
 
-      if (sqliteIsTransacting(conn)) {
-        endTransaction <- F
-      } else {
-        dbBegin(conn)
-        endTransaction <- T
-      }
+      uID <- tbl_insert(action, conn, "updateData", commit = F) |> pull(uID)
 
-      q <- dbExecute(
-        conn,
-        sprintf(
-          "INSERT INTO updateData (\"timestamp\", \"action\") VALUES (datetime('now', 'localtime'), %i)",
-          action
-        )
-      )
+      # q <- dbExecute(
+      #   conn,
+      #   sprintf(
+      #     "INSERT INTO updateData (\"timestamp\", \"action\") VALUES (datetime('now', 'localtime'), %i)",
+      #     action
+      #   )
+      # )
 
-      if (endTransaction) {
-        dbCommit(conn)
-        dbFinish(conn)
-      }
+      . <- dbFinish(conn, commit = commit)
+
+      return(uID)
     },
     error = function(e) {
-      # If an error occurs, rollback the current transaction
-      if (sqliteIsTransacting(conn)) {
-        dbRollback(conn)
-      }
-      dbFinish(conn)
-      stop(e)
+      dbFinish(conn, error = e)
     }
   )
 }
@@ -587,6 +407,7 @@ dbFlagUpdate <- function(action, dbInfo) {
 #' @param authorPublications List of data frames geneated by ncbi_publicationDetails()
 #' @param flagUpdate Default= T, set an update flag in the DB so the app will refresh once completed
 #' @param dbInfo Connection to a Colabnet database
+#' @param commmit (Default = TRUE). Commit changes to the database automatically
 #'
 #' @import RSQLite
 #' @import dplyr
@@ -598,7 +419,8 @@ dbAddAuthorPublications <- function(
   authorPublications,
   matchOnFirst = F,
   flagUpdate = T,
-  dbInfo
+  dbInfo,
+  commit = T
 ) {
   tryCatch(
     {
@@ -610,14 +432,7 @@ dbAddAuthorPublications <- function(
         ))
       }
 
-      conn <- dbGetConn(dbInfo)
-
-      if (sqliteIsTransacting(conn)) {
-        endTransaction <- F
-      } else {
-        dbBegin(conn)
-        endTransaction <- T
-      }
+      conn <- dbGetConn(dbInfo, startTransaction = T)
 
       ### ADD ARTICLES
       articles <- authorPublications$articles
@@ -628,23 +443,28 @@ dbAddAuthorPublications <- function(
         select(arID, PMID) |>
         collect() |>
         mutate(status = "existing")
+
       new <- articles |> filter(!PMID %in% existing$PMID)
 
       if (nrow(new) > 0) {
-        new <- dbGetQuery(
-          conn,
-          "INSERT INTO article(PMID,title,journal,year,month,day)
-        VALUES (?,?,?,?,?,?) RETURNING arID, PMID",
-          params = list(
-            new$PMID,
-            new$title,
-            new$journal,
-            new$year,
-            new$month,
-            new$day
-          )
-        ) |>
+        new <- tbl_insert(new, conn, "article", commit = F) |>
+          select(arID, PMID) |>
           mutate(status = "new")
+
+        # new <- dbGetQuery(
+        #   conn,
+        #   "INSERT INTO article(PMID,title,journal,year,month,day)
+        # VALUES (?,?,?,?,?,?) RETURNING arID, PMID",
+        #   params = list(
+        #     new$PMID,
+        #     new$title,
+        #     new$journal,
+        #     new$year,
+        #     new$month,
+        #     new$day
+        #   )
+        # ) |>
+        #   mutate(status = "new")
       } else {
         new <- data.frame()
       }
@@ -673,32 +493,37 @@ dbAddAuthorPublications <- function(
         }
 
         if (length(auID) != 1) {
-          if (sqliteIsTransacting(conn)) {
-            dbRollback(conn)
-          }
-          dbFinish(conn)
-          stop(ifelse(
-            length(auID) > 1,
-            "Ambiguous author of interest",
-            "No match on author first and last name"
-          ))
+          dbFinish(
+            conn,
+            error = ifelse(
+              length(auID) > 1,
+              "Ambiguous author of interest",
+              "No match on author first and last name"
+            )
+          )
         }
 
-        q <- dbExecute(
+        . <- tbl_update(
+          data.frame(auID = auID, authorOfInterest = 1),
           conn,
-          "UPDATE author SET authorOfInterest = 1 WHERE auID = ?",
-          params = list(auID)
+          "author",
+          commit = F
         )
 
-        q <- dbExecute(
-          conn,
-          "INSERT INTO updateData (\"timestamp\", \"action\") VALUES (datetime('now', 'localtime'), 1)"
-        )
+        # q <- dbExecute(
+        #   conn,
+        #   "UPDATE author SET authorOfInterest = 1 WHERE auID = ?",
+        #   params = list(auID)
+        # )
 
-        if (endTransaction) {
-          dbCommit(conn)
-          dbFinish(conn)
-        }
+        . <- tbl_insert(data.frame(action = 1), conn, "updateData", commit = F)
+
+        # q <- dbExecute(
+        #   conn,
+        #   "INSERT INTO updateData (\"timestamp\", \"action\") VALUES (datetime('now', 'localtime'), 1)"
+        # )
+
+        . <- dbFinish(conn, commit = commit)
 
         return(arInfo %>% mutate(auID = {{ auID }}))
       }
@@ -707,7 +532,11 @@ dbAddAuthorPublications <- function(
       authorPublications <- filter_PMID(authorPublications, PMIDs = new$PMID)
 
       ### ADD (CO)AUTHOR INFO
-      auInfo <- dbAddAuthors(authorPublications$coAuthors, dbInfo = conn)
+      auInfo <- dbAddAuthors(
+        authorPublications$coAuthors,
+        dbInfo = conn,
+        commit = F
+      )
 
       # Set authorOfInterest to TRUE to distinguish from co-authors
       auID <- auInfo |>
@@ -731,22 +560,28 @@ dbAddAuthorPublications <- function(
       }
 
       if (length(auID) != 1) {
-        if (sqliteIsTransacting(conn)) {
-          dbRollback(conn)
-        }
-        dbFinish(conn)
-        stop(ifelse(
-          length(auID) > 1,
-          "Ambiguous author of interest",
-          "No match on author first and last name"
-        ))
+        . <- dbFinish(
+          conn,
+          error = ifelse(
+            length(auID) > 1,
+            "Ambiguous author of interest",
+            "No match on author first and last name"
+          )
+        )
       }
 
-      q <- dbExecute(
+      . <- tbl_update(
+        data.frame(auID = auID, authorOfInterest = 1),
         conn,
-        "UPDATE author SET authorOfInterest = 1 WHERE auID = ?",
-        params = list(auID)
+        "author",
+        commit = F
       )
+
+      # q <- dbExecute(
+      #   conn,
+      #   "UPDATE author SET authorOfInterest = 1 WHERE auID = ?",
+      #   params = list(auID)
+      # )
 
       # ADD AFFILIATIONS
       affiliations <- authorPublications$affiliations
@@ -759,12 +594,18 @@ dbAddAuthorPublications <- function(
         distinct() |>
         filter(!affiliation %in% existing$affiliation)
       if (nrow(new) > 0) {
-        new <- dbGetQuery(
+        new <- tbl_insert(
+          new |> select(affiliation),
           conn,
-          "INSERT INTO affiliation(affiliation)
-        VALUES (?) RETURNING *",
-          params = list(new$affiliation)
+          "affiliation",
+          commit = F
         )
+        # new <- dbGetQuery(
+        #   conn,
+        #   "INSERT INTO affiliation(affiliation)
+        # VALUES (?) RETURNING *",
+        #   params = list(new$affiliation)
+        # )
       }
 
       afInfo <- bind_rows(new, existing)
@@ -786,28 +627,32 @@ dbAddAuthorPublications <- function(
       # Filter out articles that are already in the database (via other author of interest)
       coAuthors <- arAuAf |>
         select(arID, auID, authorOrder, anID) |>
-        distinct()
-      q <- dbExecute(
-        conn,
-        "INSERT INTO coAuthor(arID, auID, authorOrder, anID) VALUES(?,?,?,?)",
-        params = list(
-          coAuthors$arID,
-          coAuthors$auID,
-          coAuthors$authorOrder,
-          coAuthors$anID
-        )
-      )
+        distinct() |>
+        tbl_insert(conn, "coAuthor", commit = F)
+
+      # q <- dbExecute(
+      #   conn,
+      #   "INSERT INTO coAuthor(arID, auID, authorOrder, anID) VALUES(?,?,?,?)",
+      #   params = list(
+      #     coAuthors$arID,
+      #     coAuthors$auID,
+      #     coAuthors$authorOrder,
+      #     coAuthors$anID
+      #   )
+      # )
 
       # Sometimes affiliations are not provided so remove the empty ones
       affiliations <- arAuAf |>
         select(arID, auID, afID) |>
         distinct() |>
-        filter(!is.na(afID))
-      q <- dbExecute(
-        conn,
-        "INSERT INTO author_affiliation(arID, auID, afID) VALUES(?,?,?)",
-        params = list(affiliations$arID, affiliations$auID, affiliations$afID)
-      )
+        filter(!is.na(afID)) |>
+        tbl_insert(conn, "author_affiliation", commit = F)
+
+      # q <- dbExecute(
+      #   conn,
+      #   "INSERT INTO author_affiliation(arID, auID, afID) VALUES(?,?,?)",
+      #   params = list(affiliations$arID, affiliations$auID, affiliations$afID)
+      # )
 
       # ADD MESH INFO
       # First make sure the MeSH tree is complete for any new terms
@@ -825,7 +670,7 @@ dbAddAuthorPublications <- function(
 
         # Add nymissing MeSH terms / Tree branches to the database
         if (length(meshui) > 0) {
-          result <- dbAddMesh(meshui, "meshui", dbInfo = conn)
+          result <- dbAddMesh(meshui, "meshui", dbInfo = conn, commit = F)
         }
 
         # Remove any mesh descriptors that were not added to the database
@@ -840,40 +685,37 @@ dbAddAuthorPublications <- function(
 
         # Insert new meshUI from papers
         meshArticle <- meshDescriptors |>
-          select(arID, PMID, DescriptorUI, DescriptorMajor) |>
-          filter(!DescriptorUI %in% c(notAdded, "D008297", "D005260")) |>
+          select(
+            arID,
+            meshui = DescriptorUI,
+            descriptorMajor = DescriptorMajor
+          ) |>
+          filter(!meshui %in% c(notAdded, "D008297", "D005260")) |>
           distinct() |>
-          mutate(DescriptorMajor = ifelse(DescriptorMajor == "Y", 1, 0))
+          mutate(descriptorMajor = ifelse(descriptorMajor == "Y", 1, 0)) |>
+          tbl_insert(conn, "mesh_article", commit = F)
 
-        q <- dbExecute(
-          conn,
-          "INSERT INTO mesh_article(arID, meshui, descriptorMajor) VALUES(?,?,?)",
-          params = list(
-            meshArticle$arID,
-            meshArticle$DescriptorUI,
-            meshArticle$DescriptorMajor
-          )
-        )
+        # q <- dbExecute(
+        #   conn,
+        #   "INSERT INTO mesh_article(arID, meshui, descriptorMajor) VALUES(?,?,?)",
+        #   params = list(
+        #     meshArticle$arID,
+        #     meshArticle$DescriptorUI,
+        #     meshArticle$DescriptorMajor
+        #   )
+        # )
       }
 
       if (flagUpdate) {
-        dbFlagUpdate(1, dbInfo = conn)
+        . <- dbFlagUpdate(1, dbInfo = conn, commit = F)
       }
 
-      if (endTransaction) {
-        dbCommit(conn)
-        dbFinish(conn)
-      }
+      . <- dbFinish(conn, commit = commit)
 
       return(arInfo %>% mutate(auID = {{ auID }}))
     },
     error = function(e) {
-      # If an error occurs, rollback the current transaction
-      if (sqliteIsTransacting(conn)) {
-        dbRollback(conn)
-      }
-      dbFinish(conn)
-      stop(e)
+      dbFinish(conn, error = e)
     }
   )
 }
@@ -884,6 +726,7 @@ dbAddAuthorPublications <- function(
 #'
 #' @param arIDs Vector of arIDs to delete (as found in article table)
 #' @param dbInfo Connection to a Colabnet database
+#' @param commmit (Default = TRUE). Commit changes to the database automatically
 #'
 #' @import RSQLite
 #' @import dplyr
@@ -891,17 +734,10 @@ dbAddAuthorPublications <- function(
 #' @return Dataframe of articles and authors/author names that have been deleted
 #' @export
 #'
-dbDeleteArticle <- function(arIDs, dbInfo) {
+dbDeleteArticle <- function(arIDs, dbInfo, commit = T) {
   tryCatch(
     {
-      conn <- dbGetConn(dbInfo)
-
-      if (sqliteIsTransacting(conn)) {
-        endTransaction <- F
-      } else {
-        dbBegin(conn)
-        endTransaction <- T
-      }
+      conn <- dbGetConn(dbInfo, startTransaction = T)
 
       # Get all articles and authors to remove
       toRemove <- tbl(conn, "coAuthor") |>
@@ -942,54 +778,52 @@ dbDeleteArticle <- function(arIDs, dbInfo) {
         filter(!is.na(auID2))
 
       # Delete authors
-      delAuID <- removeAuth |>
+      . <- removeAuth |>
         filter(action == "deleteAuthor") |>
-        pull(auID) |>
-        unique()
-      q <- dbExecute(
-        conn,
-        sprintf(
-          "DELETE FROM author WHERE auID IN (%s)",
-          paste(delAuID, collapse = ",")
-        )
-      )
+        select(auID) |>
+        unique() |>
+        tbl_delete(conn, "author", commit = F)
+
+      # q <- dbExecute(
+      #   conn,
+      #   sprintf(
+      #     "DELETE FROM author WHERE auID IN (%s)",
+      #     paste(delAuID, collapse = ",")
+      #   )
+      # )
 
       # Delete incorrect names
-      delAnID <- removeAuth |>
+      . <- removeAuth |>
         filter(action == "deleteName") |>
-        pull(anID) |>
-        unique()
-      q <- dbExecute(
-        conn,
-        sprintf(
-          "DELETE FROM authorName WHERE anID IN (%s)",
-          paste(delAnID, collapse = ",")
-        )
-      )
+        seect(anID) |>
+        unique() |>
+        tbl_delete(conn, "authorName", commit = F)
+
+      # q <- dbExecute(
+      #   conn,
+      #   sprintf(
+      #     "DELETE FROM authorName WHERE anID IN (%s)",
+      #     paste(delAnID, collapse = ",")
+      #   )
+      # )
 
       # Delete articles
-      q <- dbExecute(
-        conn,
-        sprintf(
-          "DELETE FROM article WHERE arID IN (%s)",
-          paste(arIDs, collapse = ",")
-        )
-      )
+      . <- tbl_delete(data.frame(arID = arIDs), conn, "article", commit = F)
 
-      if (endTransaction) {
-        dbCommit(conn)
-        dbFinish(conn)
-      }
+      # q <- dbExecute(
+      #   conn,
+      #   sprintf(
+      #     "DELETE FROM article WHERE arID IN (%s)",
+      #     paste(arIDs, collapse = ",")
+      #   )
+      # )
+
+      . <- dbFinish(conn, commit = commit)
 
       return(removeAuth)
     },
     error = function(e) {
-      # If an error occurs, rollback the current transaction
-      if (sqliteIsTransacting(conn)) {
-        dbRollback(conn)
-      }
-      dbFinish(conn)
-      stop(e)
+      dbFinish(conn, error = e)
     }
   )
 }

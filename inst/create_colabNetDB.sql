@@ -67,7 +67,7 @@ CREATE TABLE "meshTerm" (
 CREATE TABLE "meshTree" (
  "mtrID" INTEGER PRIMARY KEY AUTOINCREMENT,
  "uid" INTEGER,
- "treenum" TEXT UNIQUE, 
+ "treenum" TEXT UNIQUE,
  FOREIGN KEY("uid") REFERENCES "meshLink"("uid") ON DELETE CASCADE
 );
 
@@ -82,7 +82,7 @@ CREATE TABLE "mesh_article" (
 
 CREATE TABLE "updateData" (
   "uID" INTEGER PRIMARY KEY AUTOINCREMENT,
-  "timestamp" TEXT NOT NULL,
+  "timestamp" TEXT NOT NULL DEFAULT datetime('now', 'localtime'),
   "action" INTEGER
 );
 

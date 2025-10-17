@@ -8,7 +8,8 @@ dbAddAuthorPublications(
   authorPublications,
   matchOnFirst = F,
   flagUpdate = T,
-  dbInfo
+  dbInfo,
+  commit = T
 )
 }
 \arguments{
@@ -17,6 +18,8 @@ dbAddAuthorPublications(
 \item{flagUpdate}{Default= T, set an update flag in the DB so the app will refresh once completed}
 
 \item{dbInfo}{Connection to a Colabnet database}
+
+\item{commmit}{(Default = TRUE). Commit changes to the database automatically}
 }
 \value{
 Data is inserted into the DB returning a list the author's aritcles (arID and PMID)

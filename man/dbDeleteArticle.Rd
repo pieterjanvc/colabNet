@@ -6,12 +6,14 @@
 Useful when an article has been incorrectly associated with an author for
 example because of name overlap}
 \usage{
-dbDeleteArticle(arIDs, dbInfo)
+dbDeleteArticle(arIDs, dbInfo, commit = T)
 }
 \arguments{
 \item{arIDs}{Vector of arIDs to delete (as found in article table)}
 
 \item{dbInfo}{Connection to a Colabnet database}
+
+\item{commmit}{(Default = TRUE). Commit changes to the database automatically}
 }
 \value{
 Dataframe of articles and authors/author names that have been deleted

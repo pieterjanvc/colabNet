@@ -15,7 +15,7 @@ if (!exists("envInfo")) {
     testDB <- "../local/dev.db"
     # testDB <- "C:/Users/pj/Desktop/sz.db"
     # testDB <- "../data/dbmi.db"
-    # testDB <- NULL
+    testDB <- NULL
 
     envInfo = list(
       mode = mode,
@@ -186,7 +186,7 @@ ui <- fluidPage(
     "background-color:#40928A75; color: white;}"
   )))),
   div(
-    mod_dbSetup_ui("cnDB")
+    sqlife::mod_dbSetup_ui("cnDB")
   ),
   fluidRow(column(
     12,
@@ -318,7 +318,7 @@ server <- function(input, output, session) {
   # ///////////////
 
   # Setup the DB
-  connInfo <- mod_dbSetup_server(
+  connInfo <- sqlife::mod_dbSetup_server(
     id = "cnDB",
     localFolder = envInfo$localFolder,
     tempFolder = envInfo$tempFolder,

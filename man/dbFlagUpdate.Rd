@@ -4,7 +4,7 @@
 \alias{dbFlagUpdate}
 \title{Tell the colabNet app an update has been made and it needs to refresh}
 \usage{
-dbFlagUpdate(action, dbInfo)
+dbFlagUpdate(action, dbInfo, commit = T)
 }
 \arguments{
 \item{action}{(Integer) The code of the action
@@ -15,9 +15,11 @@ dbFlagUpdate(action, dbInfo)
 }}
 
 \item{dbInfo}{Connection to a Colabnet database}
+
+\item{commmit}{(Default = TRUE). Commit changes to the database automatically}
 }
 \value{
-Bool to indicate success
+The uID from inserted row into updateData
 }
 \description{
 Tell the colabNet app an update has been made and it needs to refresh
