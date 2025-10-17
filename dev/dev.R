@@ -7,12 +7,3 @@ colabNetDB <- "local/dev.db"
 dbSetup(colabNetDB, checkSchema = T)
 
 pool <- dbGetConn()
-
-author <- ncbi_author("Cai", "Tianxi")
-
-test <- ncbi_publicationDetails(
-  PMIDs = "39755324",
-  lastName = author$lastName,
-  firstName = author$firstName,
-  initials = author$initials
-)

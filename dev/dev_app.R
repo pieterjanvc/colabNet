@@ -1,35 +1,42 @@
-library(shiny)
+# library(shiny)
+# library(DT)
+# library(pool)
+# library(RSQLite)
 
-nameUI <- function(id) {
+mod_test_ui <- function(id) {
   tagList(
-    downloadButton(NS(id, "down"), "Download")
+    mod_meshFilter_ui(NS(id, "mf"))
   )
 }
 
-nameServer <- function(id) {
+mod_test_server <- function(id, pool) {
   moduleServer(
     id,
     function(input, output, session) {
-      output$down <- downloadHandler(
-        filename = function() {
-          x <- paste0("test", ".db")
-          print(x)
-          x
-        },
-        content = function(file) {
-          file.copy("C:/Users/pj/Desktop/test.db", file)
-        }
-      )
+      filter <- mod_meshFilter_server("mf", pool = pool)
+
+      return(filter)
     }
   )
 }
 
 ui <- fluidPage(
-  nameUI("test")
+  mod_test_ui("test")
 )
 
 server <- function(input, output, session) {
-  nameServer("test")
+  pool <- reactive(dbPool(SQLite(), dbname = "../data/PGG_dev.db"))
+
+  onSessionEnded(function() {
+    isolate({
+      poolClose(pool())
+    })
+  })
+
+  mod <- mod_test_server("test", pool)
+  observe({
+    print(mod())
+  })
 }
 
 shinyApp(ui, server)
