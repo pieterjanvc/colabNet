@@ -22,7 +22,6 @@ Depends:
     R (>= 4.00)
 LazyData: true
 Imports:
-    dbplyr,
     dplyr,
     DT,
     ggplot2,
@@ -34,11 +33,11 @@ Imports:
     purrr,
     rentrez,
     rlang,
-    RSQLite,
     shiny,
     shinyjs,
     stringi,
     stringr,
+    sqlife,
     tidyr,
     visNetwork,
     xml2

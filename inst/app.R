@@ -352,12 +352,14 @@ server <- function(input, output, session) {
   })
 
   # pool for the current DB
-  pool <- eventReactive(connInfo(), {
-    dbPool(SQLite(), dbname = connInfo()$dbPath)
+  conn <- eventReactive(connInfo(), {
+    # dbPool(SQLite(), dbname = connInfo()$dbPath)
+    dbGetConn(connInfo()$dbPath)
   })
 
   onSessionEnded(function() {
-    isolate(poolClose(pool()))
+    # isolate(poolClose(conn()))
+    isolate(dbFinish(conn(), commit = F, closeExisting = T))
   })
 
   # Precompute data
@@ -369,7 +371,7 @@ server <- function(input, output, session) {
         return(NULL)
       }
       # Check the database for new updates
-      tbl(pool(), "updateData") |>
+      tbl(conn(), "updateData") |>
         arrange(desc(uID)) |>
         head(1) |>
         pull(uID)
@@ -383,10 +385,10 @@ server <- function(input, output, session) {
         id = "precalc"
       )
 
-      authors <- tbl(pool(), "author") |>
+      authors <- tbl(conn(), "author") |>
         filter(authorOfInterest == 1) |>
         left_join(
-          tbl(pool(), "authorName") |>
+          tbl(conn(), "authorName") |>
             group_by(auID) |>
             filter(default) |>
             ungroup(),
@@ -404,10 +406,10 @@ server <- function(input, output, session) {
         ))
       }
 
-      allArticles <- tbl(pool(), "coAuthor") |>
+      allArticles <- tbl(conn(), "coAuthor") |>
         filter(auID %in% local(authors$auID)) |>
         distinct() |>
-        left_join(tbl(pool(), "article"), by = "arID") |>
+        left_join(tbl(conn(), "article"), by = "arID") |>
         collect() |>
         left_join(authors, by = "auID") |>
         select(
@@ -433,16 +435,16 @@ server <- function(input, output, session) {
           month = as.integer(month)
         )
 
-      papermesh <- dbPaperMesh(authors$auID, dbInfo = pool())
-      meshtree <- dbMeshTree(papermesh, dbInfo = pool())
+      papermesh <- dbPaperMesh(authors$auID, dbInfo = conn())
+      meshtree <- dbMeshTree(papermesh, dbInfo = conn())
       papermeshtree <- paperMeshTree(papermesh, meshtree)
 
       # Add author names
-      au <- tbl(pool(), "author") |>
+      au <- tbl(conn(), "author") |>
         filter(auID %in% local(unique(papermeshtree$auID))) |>
         select(auID) |>
         left_join(
-          tbl(pool(), "authorName") |> filter(default == 1),
+          tbl(conn(), "authorName") |> filter(default == 1),
           by = "auID"
         ) |>
         collect() |>
@@ -474,10 +476,10 @@ server <- function(input, output, session) {
     req(nrow(preCompData()$authors) > 0)
 
     # Update the tree root categories as filter options for the comparison tree
-    roots <- tbl(pool(), "meshTree") |>
+    roots <- tbl(conn(), "meshTree") |>
       filter(treenum %in% local(unique(preCompData()$overlapscore$tree))) |>
-      left_join(tbl(pool(), "meshLink"), by = "uid") |>
-      left_join(tbl(pool(), "meshTerm"), by = "meshui") |>
+      left_join(tbl(conn(), "meshLink"), by = "uid") |>
+      left_join(tbl(conn(), "meshTerm"), by = "meshui") |>
       collect() |>
       arrange(meshterm)
 
@@ -682,23 +684,23 @@ server <- function(input, output, session) {
 
     # Only filter the full table for limited tree but at root (branchID = NULL)
     if (branchID == 0 & length(mtrIDs) > 0) {
-      result <- tbl(pool(), "meshTree") |>
+      result <- tbl(conn(), "meshTree") |>
         filter(mtrID %in% local(mtrIDs)) |>
-        left_join(tbl(pool(), "meshLink"), by = "uid") |>
-        left_join(tbl(pool(), "meshTerm"), by = "meshui") |>
-        left_join(tbl(pool(), "mesh_article"), by = "meshui") |>
+        left_join(tbl(conn(), "meshLink"), by = "uid") |>
+        left_join(tbl(conn(), "meshTerm"), by = "meshui") |>
+        left_join(tbl(conn(), "mesh_article"), by = "meshui") |>
         pull(arID) |>
         unique()
       return(result)
     }
 
     # Case where a brac has been selected
-    children <- tbl(pool(), "meshTree") |>
+    children <- tbl(conn(), "meshTree") |>
       filter(mtrID == as.integer(branchID)) |>
       pull(treenum)
 
     children <- paste0(children[1], "%")
-    result <- tbl(pool(), "meshTree") |>
+    result <- tbl(conn(), "meshTree") |>
       filter(str_like(treenum, local({{ children }})))
     #Filter in case the tree is limited by mtPlotLimit input
     if (length(mtrIDs) > 0) {
@@ -706,9 +708,9 @@ server <- function(input, output, session) {
     }
 
     result |>
-      left_join(tbl(pool(), "meshLink"), by = "uid") |>
-      left_join(tbl(pool(), "meshTerm"), by = "meshui") |>
-      left_join(tbl(pool(), "mesh_article"), by = "meshui") |>
+      left_join(tbl(conn(), "meshLink"), by = "uid") |>
+      left_join(tbl(conn(), "meshTerm"), by = "meshui") |>
+      left_join(tbl(conn(), "mesh_article"), by = "meshui") |>
       pull(arID) |>
       unique()
   }
@@ -787,12 +789,12 @@ server <- function(input, output, session) {
 
     # Get the treemap for the two authors
     if (length(input$overlapCat) == 0) {
-      tmComp <- papermeshtreeFromAuIDs(c(auIDs[1], auIDs[2]), dbInfo = pool())
+      tmComp <- papermeshtreeFromAuIDs(c(auIDs[1], auIDs[2]), dbInfo = conn())
     } else {
       tmComp <- papermeshtreeFromAuIDs(
         c(auIDs[1], auIDs[2]),
         roots = input$overlapCat,
-        dbInfo = pool()
+        dbInfo = conn()
       )
       #TODO make sure the table filters with arIDs only found in the selected subtrees
     }
