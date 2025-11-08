@@ -4,12 +4,12 @@
 \alias{mod_admin_server}
 \title{Admin module for Colabnet  - Server}
 \usage{
-mod_admin_server(id, pool)
+mod_admin_server(id, conn)
 }
 \arguments{
 \item{id}{ID for the module (match with UI)}
 
-\item{pool}{A reactive pool object connected to the database}
+\item{conn}{A reactive conn object connected to the database}
 }
 \value{
 Nothing

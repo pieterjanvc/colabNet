@@ -73,13 +73,13 @@ mod_admin_ui <- function(id) {
 #' Admin module for Colabnet  - Server
 #'
 #' @param id ID for the module (match with UI)
-#' @param pool A reactive pool object connected to the database
+#' @param conn A reactive conn object connected to the database
 #'
 #' @returns Nothing
 #'
 #' @export
 #'
-mod_admin_server <- function(id, pool) {
+mod_admin_server <- function(id, conn) {
   # Function to extract relevant authors (first, last and of interest) from list
   relevantAuthors <- function(authors, lastName) {
     lastName <- unique(lastName)
@@ -106,14 +106,14 @@ mod_admin_server <- function(id, pool) {
   }
 
   # Function to convert the articlesInDB() df into a table for authorInDB display
-  authorInDBTable <- function(auID, articlesInDB, pool) {
-    lastName <- tbl(pool, "author") |>
+  authorInDBTable <- function(auID, articlesInDB, conn) {
+    lastName <- tbl(conn, "author") |>
       filter(
         authorOfInterest == 1,
         auID == local(as.integer(auID))
       ) |>
       left_join(
-        tbl(pool, "authorName") |> filter(default == 1),
+        tbl(conn, "authorName") |> filter(default == 1),
         by = "auID"
       ) |>
       pull(lastName)
@@ -139,11 +139,11 @@ mod_admin_server <- function(id, pool) {
     # ---- Existing authors ----
     authorList <- reactiveVal()
 
-    observeEvent(pool(), {
-      authors <- tbl(isolate(pool()), "author") |>
+    observeEvent(conn(), {
+      authors <- tbl(isolate(conn()), "author") |>
         filter(authorOfInterest == 1) |>
         left_join(
-          tbl(pool(), "authorName") |>
+          tbl(conn(), "authorName") |>
             group_by(auID) |>
             filter(default) |>
             ungroup(),
@@ -174,7 +174,7 @@ mod_admin_server <- function(id, pool) {
 
     # Show alternative author names
     output$alternativeNames <- renderUI({
-      auNames <- tbl(pool(), "authorName") |>
+      auNames <- tbl(conn(), "authorName") |>
         filter(auID == local(input$auID)) |>
         collect()
 
@@ -214,7 +214,7 @@ mod_admin_server <- function(id, pool) {
             emptyTable
           } else {
             # Other case
-            authorInDBTable(input$auID, articlesInDB(), pool())
+            authorInDBTable(input$auID, articlesInDB(), conn())
           }
         })
       },
@@ -229,12 +229,12 @@ mod_admin_server <- function(id, pool) {
     observeEvent(
       input$auID,
       {
-        authors <- tbl(pool(), "coAuthor") |>
+        authors <- tbl(conn(), "coAuthor") |>
           group_by(arID) |>
           filter(any(auID == local(as.integer(input$auID)))) |>
           ungroup() |>
           left_join(
-            tbl(pool(), "authorName") |>
+            tbl(conn(), "authorName") |>
               filter(default) |>
               select(auID, lastName, initials),
             by = "auID"
@@ -249,7 +249,7 @@ mod_admin_server <- function(id, pool) {
             .groups = "drop"
           )
 
-        df <- tbl(pool(), "article") |>
+        df <- tbl(conn(), "article") |>
           filter(arID %in% local(authors$arID)) |>
           collect() |>
           left_join(authors, by = "arID")
@@ -268,7 +268,7 @@ mod_admin_server <- function(id, pool) {
           return()
         }
 
-        newData <- authorInDBTable(input$auID, articlesInDB(), pool())
+        newData <- authorInDBTable(input$auID, articlesInDB(), conn())
 
         replaceData(authorInDB_proxy, newData, rownames = F)
       },
@@ -316,7 +316,7 @@ mod_admin_server <- function(id, pool) {
         disable("pubmedByAuthor")
 
         # If the author is not in the database, set to unknown
-        inDB <- tbl(pool(), "authorName") |>
+        inDB <- tbl(conn(), "authorName") |>
           collect() |>
           filter(
             simpleText(lastName) %in% simpleText(input$lastName),
@@ -324,7 +324,6 @@ mod_admin_server <- function(id, pool) {
               simpleText(input$firstName) |
               simpleText(initials) %in% simpleText(input$firstName)
           )
-
         # Get info from Pubmed
         author <- ncbi_author(
           input$lastName,
@@ -411,7 +410,7 @@ mod_admin_server <- function(id, pool) {
           pubDetails <- NULL
         }
 
-        existing <- tbl(pool(), "article") |>
+        existing <- tbl(conn(), "article") |>
           filter(PMID %in% local(df$PMID)) |>
           pull(PMID)
 
@@ -507,7 +506,7 @@ mod_admin_server <- function(id, pool) {
         new <- filter_PMID(searchResults()$pubDetails, PMIDs)
       }
 
-      new <- dbAddAuthorPublications(new, dbInfo = localCheckout(pool()))
+      new <- dbAddAuthorPublications(new, dbInfo = conn())
 
       # Remove added articles from search results
       searchResults(
@@ -519,9 +518,9 @@ mod_admin_server <- function(id, pool) {
 
       # Because of lazy eval we have to make a switch of inputs to update the table
       authorList({
-        tbl(pool(), "author") |>
+        tbl(conn(), "author") |>
           filter(authorOfInterest == 1) |>
-          left_join(tbl(pool(), "authorName"), by = "auID") |>
+          left_join(tbl(conn(), "authorName"), by = "auID") |>
           collect() |>
           arrange(lastName, firstName)
       })
@@ -546,9 +545,9 @@ mod_admin_server <- function(id, pool) {
       req(nrow(toDelete) > 0)
       disable("artDel")
 
-      deleted <- dbDeleteArticle(toDelete$arID, dbInfo = pool())
+      deleted <- dbDeleteArticle(toDelete$arID, dbInfo = conn())
       articlesInDB(articlesInDB() |> filter(!arID %in% toDelete$arID))
-      dbFlagUpdate(action = 2, dbInfo = pool())
+      dbFlagUpdate(action = 2, dbInfo = conn())
       enable("artDel")
     }) |>
       bindEvent(input$artDel)
@@ -790,11 +789,7 @@ mod_admin_server <- function(id, pool) {
           ) |>
             filter_affiliation(data$affiliation)
 
-          new <- dbAddAuthorPublications(
-            new,
-            dbInfo = localCheckout(pool()),
-            flagUpdate = F
-          )
+          new <- dbAddAuthorPublications(new, dbInfo = conn(), flagUpdate = F)
 
           nImported <- bind_rows(
             nImported,
@@ -807,7 +802,7 @@ mod_admin_server <- function(id, pool) {
         }
       })
 
-      dbFlagUpdate(1, dbInfo = localCheckout(pool()))
+      dbFlagUpdate(1, dbInfo = conn())
 
       nImported <- nImported |>
         mutate(

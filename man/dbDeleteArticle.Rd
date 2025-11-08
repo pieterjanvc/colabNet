@@ -13,7 +13,7 @@ dbDeleteArticle(arIDs, dbInfo, commit = T)
 
 \item{dbInfo}{Connection to a Colabnet database}
 
-\item{commmit}{(Default = TRUE). Commit changes to the database automatically}
+\item{commit}{(Default = TRUE). Commit changes to the database automatically}
 }
 \value{
 Dataframe of articles and authors/author names that have been deleted

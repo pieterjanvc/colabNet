@@ -19,7 +19,7 @@ dbAddAuthorPublications(
 
 \item{dbInfo}{Connection to a Colabnet database}
 
-\item{commmit}{(Default = TRUE). Commit changes to the database automatically}
+\item{commit}{(Default = TRUE). Commit changes to the database automatically}
 }
 \value{
 Data is inserted into the DB returning a list the author's aritcles (arID and PMID)

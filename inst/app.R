@@ -15,7 +15,8 @@ if (!exists("envInfo")) {
     testDB <- "../local/dev.db"
     # testDB <- "C:/Users/pj/Desktop/sz.db"
     # testDB <- "../data/dbmi.db"
-    testDB <- NULL
+    testDB <- "../temp/1762520425_AVW2_test.db.db"
+    # testDB <- NULL
 
     envInfo = list(
       mode = mode,
@@ -318,6 +319,7 @@ server <- function(input, output, session) {
   # ///////////////
 
   # Setup the DB
+  # connInfo <- reactiveVal()
   connInfo <- sqlife::mod_dbSetup_server(
     id = "cnDB",
     localFolder = envInfo$localFolder,
@@ -325,6 +327,10 @@ server <- function(input, output, session) {
     schema = system.file("create_colabNetDB.sql", package = "colabNet"),
     useDB = envInfo$dbPath
   )
+
+  observe({
+    print(connInfo())
+  })
 
   #Only show that admin / download modules for databases that are not local
   output$adminTab <- renderUI({
@@ -340,7 +346,7 @@ server <- function(input, output, session) {
       # Admin module UI
       newUI <- mod_admin_ui("admin")
       # Admin module server
-      admin <- mod_admin_server("admin", pool)
+      admin <- mod_admin_server("admin", conn)
     } else {
       newUI <- wellPanel(
         "This database is locked. Please provide the password",
@@ -353,14 +359,14 @@ server <- function(input, output, session) {
 
   # pool for the current DB
   conn <- eventReactive(connInfo(), {
-    # dbPool(SQLite(), dbname = connInfo()$dbPath)
-    dbGetConn(connInfo()$dbPath)
+    conn <- dbGetConn(connInfo()$dbPath, session = session)
+    conn
   })
 
-  onSessionEnded(function() {
-    # isolate(poolClose(conn()))
-    isolate(dbFinish(conn(), commit = F, closeExisting = T))
-  })
+  # onSessionEnded(function() {
+  #   # isolate(poolClose(conn()))
+  #   isolate(dbFinish(conn(), commit = F, closeExisting = T))
+  # })
 
   # Precompute data
   preCompData <- reactivePoll(
@@ -397,7 +403,7 @@ server <- function(input, output, session) {
         select(auID, lastName, firstName, initials) |>
         collect()
 
-      if (length(nrow(authors)) == 0) {
+      if (nrow(authors) == 0) {
         return(list(
           authors = NULL,
           plotData = NULL,
@@ -660,7 +666,7 @@ server <- function(input, output, session) {
   mtOverviewSelected <- mod_meshTree_server(
     "meshTree_overview",
     papermeshtree = reactive(preCompData()$papermeshtree),
-    pool = pool
+    pool = conn
   )
 
   observeEvent(mtOverviewSelected(), {
@@ -807,7 +813,7 @@ server <- function(input, output, session) {
   mtComparisonSelected <- mod_meshTree_server(
     "meshTree_comparison",
     papermeshtree = treemapcomp,
-    pool = pool
+    pool = conn
   )
 
   # Get articles in part of the author comparison MeSH tree branch selected

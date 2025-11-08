@@ -189,11 +189,14 @@ dbTreeFromMesh <- function(uids, roots, dbInfo) {
 
   treenums <- missingTreeNums(treenums, includeOriginal = T, includeRoots = T)
 
-  tbl(conn, "meshTree") |>
+  result <- tbl(conn, "meshTree") |>
     filter(treenum %in% local(treenums)) |>
     left_join(tbl(conn, "meshLink"), by = "uid") |>
     collect() |>
     select(mtrID, uid, meshui, treenum)
+
+  dbFinish(conn)
+  return(result)
 }
 
 #' Get all of the MeSH terms from papers by a set of authors
@@ -243,6 +246,8 @@ dbPaperMesh <- function(auIDs, roots, dbInfo) {
   }
 
   papermesh |> collect()
+
+  dbFinish(conn)
 }
 
 #' Build a full MeSH tree from a papermesh data frame
@@ -348,6 +353,8 @@ dbMeshTree <- function(papermesh, roots, dbInfo) {
     ) |>
     mutate(root = str_extract(treenum, "^[^\\.\\s]+")) |>
     select(-link)
+
+  dbFinish(conn)
 
   return(
     tree |>

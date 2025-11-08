@@ -1,3 +1,75 @@
+#' Temp wrapper around entrez_search because of errors in fetching data
+#'
+#' @param ... All function params
+#' @param tries (Default = 3) Times to try the API  call
+#'
+#' @returns entrez_search output
+entrezSearch <- function(..., tries = 5) {
+  for (i in 1:tries) {
+    tryCatch(
+      {
+        result <- entrez_search(...)
+        break
+      },
+      error = function(e) {
+        print(sprintf("Rentrez search error %i: try again", i))
+        Sys.sleep(1)
+        result <- NULL
+      }
+    )
+  }
+
+  return(result)
+}
+
+#' Temp wrapper around entrez_fetch because of errors in fetching data
+#'
+#' @param ... All function params
+#' @param tries (Default = 3) Times to try the API  call
+#'
+#' @returns entrez_fetch output
+entrezFetch <- function(..., tries = 5) {
+  for (i in 1:tries) {
+    tryCatch(
+      {
+        result <- entrez_fetch(...)
+        break
+      },
+      error = function(e) {
+        print(sprintf("Rentrez fetch error %i: try again", i))
+        Sys.sleep(1)
+        result <- NULL
+      }
+    )
+  }
+
+  return(result)
+}
+
+#' Temp wrapper around entrez_summary because of errors in fetching data
+#'
+#' @param ... All function params
+#' @param tries (Default = 3) Times to try the API  call
+#'
+#' @returns entrez_summary output
+entrezSummary <- function(..., tries = 10) {
+  for (i in 1:tries) {
+    tryCatch(
+      {
+        result <- entrez_summary(...)
+        break
+      },
+      error = function(e) {
+        print(sprintf("Rentrez summary error %i: try again", i))
+        Sys.sleep(1)
+        result <- NULL
+      }
+    )
+  }
+
+  return(result)
+}
+
 #' Get the best matching Pubmed author name
 #'
 #' @param lastName Last name
@@ -23,8 +95,8 @@ ncbi_author <- function(
   showWarnings = T
 ) {
   # Find the top hit for the provided author name
-  result <- entrez_search(
-    "pubmed",
+  result <- entrezSearch(
+    db = "pubmed",
     term = sprintf(
       '"%s %s"[Author]',
       lastName,
@@ -32,6 +104,10 @@ ncbi_author <- function(
     ),
     retmax = samples
   )
+
+  if (is.null(result)) {
+    stop("Rentrez fail")
+  }
 
   if (length(result$ids) == 0) {
     if (showWarnings) {
@@ -46,7 +122,11 @@ ncbi_author <- function(
   }
 
   # Get article details
-  authorList <- read_xml(entrez_fetch("pubmed", result$ids, rettype = "xml"))
+  authorList <- read_xml(entrezFetch(
+    db = "pubmed",
+    id = result$ids,
+    rettype = "xml"
+  ))
 
   # Extract the author list from the article and keep the one of interest
   authorList <- xml_find_all(authorList, "//MedlineCitation/Article/AuthorList")
@@ -136,7 +216,7 @@ ncbi_authorArticleList <- function(
   }
 
   # Search on Pubmed for author
-  searchResult <- entrez_search(
+  searchResult <- entrezSearch(
     "pubmed",
     term = sprintf(
       '("%s %s"[Author])%s',
@@ -184,8 +264,8 @@ ncbi_authorArticleList <- function(
     # NCBI allows only chunks of 500 articles at once
     for (start in seq(0, searchResult$count - 1, by = 500)) {
       Sys.sleep(0.5) # Don't burden API
-      nextChunk <- entrez_summary(
-        "pubmed",
+      nextChunk <- entrezSummary(
+        db = "pubmed",
         web_history = history,
         always_return_list = T,
         retstart = start,
@@ -194,7 +274,7 @@ ncbi_authorArticleList <- function(
       result <- append(result, nextChunk)
     }
   } else {
-    result <- entrez_summary("pubmed", PMID, always_return_list = T)
+    result <- entrezSummary(db = "pubmed", id = PMID, always_return_list = T)
   }
 
   articles <- data.frame(
@@ -256,10 +336,15 @@ ncbi_publicationDetails <- function(
 
   # Fetch all paper details
   if (all(is.na(history))) {
-    info <- read_xml(entrez_fetch("pubmed", PMIDs, rettype = "xml", retmax = n))
+    info <- read_xml(entrezFetch(
+      db = "pubmed",
+      id = PMIDs,
+      rettype = "xml",
+      retmax = n
+    ))
   } else {
-    info <- read_xml(entrez_fetch(
-      "pubmed",
+    info <- read_xml(entrezFetch(
+      db = "pubmed",
       web_history = history,
       rettype = "xml",
       retmax = n
@@ -589,7 +674,7 @@ ncbi_meshInfo <- function(values, type = c("meshui", "treenum", "uid")) {
 
     # Search the mesh database for the uid of each term
     uid <- lapply(seq(1, max(group)), function(i) {
-      entrez_search(
+      entrezSearch(
         "mesh",
         paste(
           paste0(values[group == i], sprintf("[%s]", type)),
@@ -605,7 +690,7 @@ ncbi_meshInfo <- function(values, type = c("meshui", "treenum", "uid")) {
   # Get the MeSH data from NCBI
   meshInfo <- lapply(seq(1, length(uid), by = 250), function(i) {
     getui <- uid[i:min(i + 249, length(uid))]
-    entrez_summary("mesh", id = getui, always_return_list = T)
+    entrezSummary(db = "mesh", id = getui, always_return_list = T)
   })
 
   meshInfo <- do.call(c, meshInfo)

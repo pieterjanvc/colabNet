@@ -16,7 +16,7 @@ dbFlagUpdate(action, dbInfo, commit = T)
 
 \item{dbInfo}{Connection to a Colabnet database}
 
-\item{commmit}{(Default = TRUE). Commit changes to the database automatically}
+\item{commit}{(Default = TRUE). Commit changes to the database automatically}
 }
 \value{
 The uID from inserted row into updateData

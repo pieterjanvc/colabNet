@@ -142,4 +142,5 @@ INSERT INTO meshTerm ("meshui", "meshterm") VALUES
   ('R000015', 'Publication Characteristics'),
   ('R000016', 'Geographicals');
 
-INSERT INTO updateData ("action") VALUES (datetime('now', 'localtime'), 0);
+INSERT INTO updateData ("timestamp", "action") VALUES
+  (datetime('now', 'localtime'), 0);

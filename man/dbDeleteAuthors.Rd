@@ -12,7 +12,7 @@ do not appear in other non-removed articles, are removed too}
 
 \item{dbInfo}{Connection to a Colabnet database}
 
-\item{commmit}{(Default = TRUE). Commit changes to the database automatically}
+\item{commit}{(Default = TRUE). Commit changes to the database automatically}
 }
 \value{
 data frame with all auID and arID that were removed
