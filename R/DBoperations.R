@@ -11,126 +11,95 @@
 #' @export
 #'
 dbAddAuthors <- function(authors, dbInfo, commit = T) {
-  tryCatch(
-    {
-      conn <- dbGetConn(dbInfo, inherit = !commit)
+  conn <- dbGetConn(dbInfo, inherit = !commit)
+  # Get all distinct author names, but assume same author is last name and initials are the same
+  authors <- authors |>
+    select(
+      lastName,
+      firstName,
+      initials,
+      collectiveName,
+      tempId,
+      def = default
+    ) |>
+    distinct()
 
-      # Get all distinct author names, but assume same author is last name and initials are the same
-      authors <- authors |>
-        select(
-          lastName,
-          firstName,
-          initials,
-          collectiveName,
-          tempId,
-          def = default
-        ) |>
-        distinct()
+  authors <- authors |>
+    left_join(
+      tbl(conn, "authorName"),
+      by = c("lastName", "firstName", "initials", "collectiveName"),
+      copy = TRUE
+    ) |>
+    collect()
 
-      authors <- authors |>
-        left_join(
-          tbl(conn, "authorName"),
-          by = c("lastName", "firstName", "initials", "collectiveName"),
-          copy = TRUE
-        ) |>
-        collect()
+  # Check which authors already exist in the DB (nothing to do)
+  existing <- authors |>
+    group_by(tempId) |>
+    filter(!is.na(anID)) |>
+    ungroup() |>
+    mutate(status = "existing")
 
-      # Check which authors already exist in the DB (nothing to do)
-      existing <- authors |>
-        group_by(tempId) |>
-        filter(!is.na(anID)) |>
-        ungroup() |>
-        mutate(status = "existing")
+  # Check authors that are already in the DB, but an alternative version of the name popped up
+  updated <- authors |>
+    group_by(tempId) |>
+    filter(!sum(is.na(anID)) %in% c(0, n())) |>
+    ungroup()
 
-      # Check authors that are already in the DB, but an alternative version of the name popped up
-      updated <- authors |>
-        group_by(tempId) |>
-        filter(!sum(is.na(anID)) %in% c(0, n())) |>
-        ungroup()
+  # Add those alternative names to the DB with same author ID
+  if (nrow(updated) > 0) {
+    updated <- updated |>
+      group_by(tempId) |>
+      mutate(auID = min(auID, na.rm = T)) |>
+      ungroup() |>
+      filter(is.na(anID))
 
-      # Add those alternative names to the DB with same author ID
-      if (nrow(updated) > 0) {
-        updated <- updated |>
-          group_by(tempId) |>
-          mutate(auID = min(auID, na.rm = T)) |>
-          ungroup() |>
-          filter(is.na(anID))
-        updated <- tbl_update(updated, conn, "authorName") |>
-          mutate(status = "updated")
-        # updated <- dbGetQuery(
-        #   conn,
-        #   "INSERT INTO authorName(auID,lastName,firstName,initials,collectiveName)
-        # VALUES (?,?,?,?,?) RETURNING *",
-        #   params = list(
-        #     updated$auID,
-        #     updated$lastName,
-        #     updated$firstName,
-        #     updated$initials,
-        #     updated$collectiveName
-        #   )
-        # ) |>
-        #   mutate(status = "updated")
+    updated <- tbl_update(updated, conn, "authorName") |>
+      mutate(status = "updated")
 
-        q <- dbExecute(
-          conn,
-          sprintf(
-            "UPDATE author SET modified = '%s' WHERE auID IN (%s)",
-            timeStamp(),
-            paste(unique(updated$auID), collapse = ",")
-          )
-        )
-      }
+    q <- dbExecute(
+      conn,
+      sprintf(
+        "UPDATE author SET modified = '%s' WHERE auID IN (%s)",
+        timeStamp(),
+        paste(unique(updated$auID), collapse = ",")
+      )
+    )
+  }
 
-      # Add authors who are not yet in the DB
-      new <- authors |>
-        group_by(tempId) |>
-        filter(all(is.na(anID))) |>
-        ungroup() |>
-        select(-auID)
+  # Add authors who are not yet in the DB
+  new <- authors |>
+    group_by(tempId) |>
+    filter(all(is.na(anID))) |>
+    ungroup() |>
+    select(-auID)
 
-      if (nrow(new) > 0) {
-        # Create new author IDs
-        auID <- data.frame(
-          modified = rep(timeStamp(), new$tempId |> n_distinct())
-        )
-        auID <- tbl_insert(auID, conn, "author") |> select(auID)
+  if (nrow(new) > 0) {
+    # Create new author IDs
+    auID <- data.frame(
+      modified = rep(timeStamp(), new$tempId |> n_distinct())
+    )
+    auID <- tbl_insert(auID, conn, "author") |> select(auID)
 
-        # auID <- dbGetQuery(
-        #   conn,
-        #   "INSERT INTO author(modified) VALUES (?) RETURNING auID",
-        #   params = list(rep(timeStamp(), new$tempId |> n_distinct()))
-        # )
-        auID$tempId <- unique(new$tempId)
-        new <- new |> left_join(auID, by = "tempId")
+    auID$tempId <- unique(new$tempId)
+    new <- new |>
+      left_join(auID, by = "tempId") |>
+      select(
+        auID,
+        default = def,
+        lastName,
+        firstName,
+        initials,
+        collectiveName
+      )
 
-        # Add author names
-        new <- tbl_insert(new, conn, "authorName") |>
-          mutate(status = "new")
+    # Add author names
+    new <- tbl_insert(new, conn, "authorName") |>
+      mutate(status = "new")
+  }
 
-        # new <- dbGetQuery(
-        #   conn,
-        #   "INSERT INTO authorName(auID,\"default\",lastName,firstName,initials,collectiveName)
-        # VALUES (?,?,?,?,?,?) RETURNING *",
-        #   params = list(
-        #     new$auID,
-        #     new$def,
-        #     new$lastName,
-        #     new$firstName,
-        #     new$initials,
-        #     new$collectiveName
-        #   )
-        # ) |>
-        #   mutate(status = "new")
-      }
+  dbFinish(conn)
 
-      dbFinish(conn)
-
-      return(bind_rows(new, updated, existing) |> select(-tempId))
-    },
-    error = function(e) {
-      dbFinish(conn, error = e)
-    }
-  )
+  return(bind_rows(new, updated, existing) |> select(-tempId))
 }
 
 #' Remove authors and their articles from the database
@@ -146,67 +115,56 @@ dbAddAuthors <- function(authors, dbInfo, commit = T) {
 #' @export
 #'
 dbDeleteAuthors <- function(auIDs, dbInfo, commit = T) {
-  tryCatch(
-    {
-      conn <- dbGetConn(dbInfo, inherit = !commit)
+  conn <- dbGetConn(dbInfo, inherit = !commit)
 
-      # Get all articles and authors to remove
-      toRemove <- tbl(conn, "coAuthor") |>
-        select(arID, auID1 = auID) |>
-        left_join(
-          tbl(conn, "author") |> select(auID1 = auID, authorOfInterest),
-          by = "auID1"
-        ) |>
-        left_join(
-          tbl(conn, "coAuthor") |> select(arID, auID2 = auID),
-          by = "arID"
-        ) |>
-        filter(
-          auID2 %in% local(auIDs),
-          auID1 %in% local(auIDs) | authorOfInterest == 0
-        ) |>
-        select(auID = auID1, arID) |>
-        collect()
+  # Get all articles and authors to remove
+  toRemove <- tbl(conn, "coAuthor") |>
+    select(arID, auID1 = auID) |>
+    left_join(
+      tbl(conn, "author") |> select(auID1 = auID, authorOfInterest),
+      by = "auID1"
+    ) |>
+    left_join(
+      tbl(conn, "coAuthor") |> select(arID, auID2 = auID),
+      by = "arID"
+    ) |>
+    filter(
+      auID2 %in% local(auIDs),
+      auID1 %in% local(auIDs) | authorOfInterest == 0
+    ) |>
+    select(auID = auID1, arID) |>
+    collect()
 
-      # Make sure not to remove co-authors who apprear in articles that are not being deleted
-      toKeep <- tbl(conn, "coAuthor") |>
-        filter(
-          !arID %in% local(toRemove$arID),
-          auID %in% local(toRemove$auID)
-        ) |>
-        pull(auID) |>
-        unique()
+  # Make sure not to remove co-authors who apprear in articles that are not being deleted
+  toKeep <- tbl(conn, "coAuthor") |>
+    filter(
+      !arID %in% local(toRemove$arID),
+      auID %in% local(toRemove$auID)
+    ) |>
+    pull(auID) |>
+    unique()
 
-      toRemove <- toRemove |> filter(!auID %in% toKeep)
+  toRemove <- toRemove |> filter(!auID %in% toKeep)
 
-      # Delete authors
-      . <- tbl_delete(toRemove |> select(auID) |> distinct(), conn, "author")
-      # q <- dbExecute(
-      #   conn,
-      #   sprintf(
-      #     "DELETE FROM author WHERE auID IN (%s)",
-      #     paste(unique(toRemove$auID), collapse = ",")
-      #   )
-      # )
-
-      # Delete articles
-      . <- tbl_delete(toRemove |> select(arID) |> distinct(), conn, "article")
-      # q <- dbExecute(
-      #   conn,
-      #   sprintf(
-      #     "DELETE FROM article WHERE arID IN (%s)",
-      #     paste(unique(toRemove$arID), collapse = ",")
-      #   )
-      # )
-
-      dbFinish(conn)
-
-      return(toRemove)
-    },
-    error = function(e) {
-      dbFinish(conn, error = e)
-    }
+  # Delete authors
+  tbl_delete(
+    toRemove |> select(auID) |> distinct(),
+    conn,
+    "author",
+    returnData = F
   )
+
+  # Delete articles
+  tbl_delete(
+    toRemove |> select(arID) |> distinct(),
+    conn,
+    "article",
+    returnData = F
+  )
+
+  dbFinish(conn)
+
+  return(toRemove)
 }
 
 #' Insert MeSH info into the ColabNet database
@@ -222,123 +180,90 @@ dbDeleteAuthors <- function(auIDs, dbInfo, commit = T) {
 #' @export
 #'
 dbAddMesh <- function(values, type, dbInfo, commit = T) {
-  tryCatch(
-    {
-      conn <- dbGetConn(dbInfo, inherit = !commit)
+  conn <- dbGetConn(dbInfo, inherit = !commit)
 
-      meshInfo <- ncbi_meshInfo(values, type)
+  meshInfo <- ncbi_meshInfo(values, type)
 
-      # Check with intermediate tree nodes (treenum) are missing to get to root
-      missingNodes <- missingTreeNums(meshInfo$meshTree$treenum)
+  # Check with intermediate tree nodes (treenum) are missing to get to root
+  missingNodes <- missingTreeNums(meshInfo$meshTree$treenum)
 
-      # Check DB which missing treenums (intermediate nodes) are already in the DB
-      knownTreenums <- tbl(conn, "meshTree") |>
+  # Check DB which missing treenums (intermediate nodes) are already in the DB
+  knownTreenums <- tbl(conn, "meshTree") |>
+    filter(treenum %in% local(missingNodes)) |>
+    pull(treenum)
+
+  # Get info on remaining missing nodes
+  missingNodes <- setdiff(missingNodes, knownTreenums)
+
+  # Iteratively add missing nodes
+  #  Iteration needed because some IDs have multple treenums
+  while (length(missingNodes) > 0) {
+    # Seach NCBI and add results
+    newNodes <- ncbi_meshInfo(missingNodes, type = "treenum")
+    meshInfo$meshTerms <- rbind(meshInfo$meshTerms, newNodes$meshTerms)
+    meshInfo$meshTree <- rbind(meshInfo$meshTree, newNodes$meshTree)
+
+    # Again check if there are missing links in the new nodes
+    missingNodes <- missingTreeNums(meshInfo$meshTree$treenum)
+    knownTreenums <- c(
+      knownTreenums,
+      tbl(conn, "meshTree") |>
         filter(treenum %in% local(missingNodes)) |>
         pull(treenum)
+    )
 
-      # Get info on remaining missing nodes
-      missingNodes <- setdiff(missingNodes, knownTreenums)
+    missingNodes <- setdiff(missingNodes, knownTreenums)
+  }
 
-      # Iteratively add missing nodes
-      #  Iteration needed because some IDs have multple treenums
-      while (length(missingNodes) > 0) {
-        # Seach NCBI and add results
-        newNodes <- ncbi_meshInfo(missingNodes, type = "treenum")
-        meshInfo$meshTerms <- rbind(meshInfo$meshTerms, newNodes$meshTerms)
-        meshInfo$meshTree <- rbind(meshInfo$meshTree, newNodes$meshTree)
+  toAdd <- setdiff(meshInfo$meshTree$treenum, knownTreenums)
 
-        # Again check if there are missing links in the new nodes
-        missingNodes <- missingTreeNums(meshInfo$meshTree$treenum)
-        knownTreenums <- c(
-          knownTreenums,
-          tbl(conn, "meshTree") |>
-            filter(treenum %in% local(missingNodes)) |>
-            pull(treenum)
-        )
+  if (length(toAdd) > 0) {
+    # Only add new tree data
+    meshInfo$meshTree <- meshInfo$meshTree |> filter(treenum %in% toAdd)
+    meshInfo$meshTerms <- meshInfo$meshTerms |>
+      filter(meshui %in% meshInfo$meshTree$meshui)
 
-        missingNodes <- setdiff(missingNodes, knownTreenums)
-      }
+    # Find new and existing
+    meshLinks <- meshInfo$meshTree |>
+      select(uid, meshui) |>
+      distinct() |>
+      mutate(uid = as.integer(uid))
+    existing <- tbl(conn, "meshLink") |>
+      filter(uid %in% local(meshLinks$uid)) |>
+      select(uid, meshui) |>
+      collect()
+    new <- meshLinks |> filter(!uid %in% existing$uid)
 
-      toAdd <- setdiff(meshInfo$meshTree$treenum, knownTreenums)
+    # Insert new MeSH links
+    tbl_insert(new |> select(uid, meshui), conn, "meshLink", returnData = F)
 
-      if (length(toAdd) > 0) {
-        # Only add new tree data
-        meshInfo$meshTree <- meshInfo$meshTree |> filter(treenum %in% toAdd)
-        meshInfo$meshTerms <- meshInfo$meshTerms |>
-          filter(meshui %in% meshInfo$meshTree$meshui)
+    # Insert new MeSH Terms
+    meshTerms <- meshInfo$meshTerms |>
+      select(meshui, meshterm) |>
+      distinct() |>
+      filter(!meshui %in% existing$meshui) |>
+      select(meshui, meshterm)
 
-        # Find new and existing
-        meshLinks <- meshInfo$meshTree |>
-          select(uid, meshui) |>
-          distinct() |>
-          mutate(uid = as.integer(uid))
-        existing <- tbl(conn, "meshLink") |>
-          filter(uid %in% local(meshLinks$uid)) |>
-          select(uid, meshui) |>
-          collect()
-        new <- meshLinks |> filter(!uid %in% existing$uid)
+    tbl_insert(meshTerms, conn, "meshTerm", returnData = F)
 
-        # Insert new MeSH links
-        . <- tbl_insert(
-          new |> select(uid, meshui),
-          conn,
-          "meshLink"
-        )
-        # q <- dbExecute(
-        #   conn,
-        #   "INSERT INTO meshLink(uid, meshui) VALUES(?,?)",
-        #   params = list(new$uid, new$meshui)
-        # )
+    # Insert new MeSH Tree branches
+    meshTree <- meshInfo$meshTree |>
+      select(uid, treenum) |>
+      distinct()
 
-        # Insert new MeSH Terms
-        meshTerms <- meshInfo$meshTerms |>
-          select(meshui, meshterm) |>
-          distinct()
-        meshTerms <- meshTerms |> filter(!meshui %in% existing$meshui)
+    meshTree <- meshTree |>
+      filter(!uid %in% existing$uid) |>
+      select(uid, treenum)
 
-        . <- tbl_insert(
-          meshTerms |> select(meshui, meshterm),
-          conn,
-          "meshTerm"
-        )
+    tbl_insert(meshTree, conn, "meshTree", returnData = F)
+  }
 
-        # q <- dbExecute(
-        #   conn,
-        #   "INSERT INTO meshTerm(meshui, meshterm) VALUES(?,?)",
-        #   params = list(meshTerms$meshui, meshTerms$meshterm)
-        # )
+  dbFinish(conn)
 
-        # Insert new MeSH Tree branches
-        meshTree <- meshInfo$meshTree |>
-          select(uid, treenum) |>
-          distinct()
-
-        meshTree <- meshTree |> filter(!uid %in% existing$uid)
-
-        . <- tbl_insert(
-          meshTree |> select(uid, treenum),
-          conn,
-          "meshTree"
-        )
-
-        # q <- dbExecute(
-        #   conn,
-        #   "INSERT INTO meshTree(uid, treenum) VALUES(?,?)",
-        #   params = list(meshTree$uid, meshTree$treenum)
-        # )
-      }
-
-      dbFinish(conn)
-
-      return(bind_rows(
-        new |> mutate(status = "new"),
-        existing |> mutate(status = "existing")
-      ))
-    },
-    error = function(e) {
-      dbFinish(error = e)
-    }
-  )
+  return(bind_rows(
+    new |> mutate(status = "new"),
+    existing |> mutate(status = "existing")
+  ))
 }
 
 #' Tell the colabNet app an update has been made and it needs to refresh
@@ -356,37 +281,30 @@ dbAddMesh <- function(values, type, dbInfo, commit = T) {
 #' @export
 #'
 dbFlagUpdate <- function(action, dbInfo, commit = T) {
-  tryCatch(
-    {
-      action <- data.frame(
-        timestamp = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
-        action = as.integer(action)
-      )
-
-      if (!action$action %in% 0:2) {
-        stop("The action value must be an integer between 0 - 2")
-      }
-
-      conn <- dbGetConn(dbInfo, inherit = !commit)
-
-      uID <- tbl_insert(action, conn, "updateData") |> pull(uID)
-
-      # q <- dbExecute(
-      #   conn,
-      #   sprintf(
-      #     "INSERT INTO updateData (\"timestamp\", \"action\") VALUES (datetime('now', 'localtime'), %i)",
-      #     action
-      #   )
-      # )
-
-      dbFinish(conn)
-
-      return(uID)
-    },
-    error = function(e) {
-      dbFinish(conn, error = e)
-    }
+  action <- data.frame(
+    timestamp = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
+    action = as.integer(action)
   )
+
+  if (!action$action %in% 0:2) {
+    stop("The action value must be an integer between 0 - 2")
+  }
+
+  conn <- dbGetConn(dbInfo, inherit = !commit)
+
+  uID <- tbl_insert(action, conn, "updateData") |> pull(uID)
+
+  # q <- dbExecute(
+  #   conn,
+  #   sprintf(
+  #     "INSERT INTO updateData (\"timestamp\", \"action\") VALUES (datetime('now', 'localtime'), %i)",
+  #     action
+  #   )
+  # )
+
+  dbFinish(conn)
+
+  return(uID)
 }
 
 #' Add authors to the database
@@ -409,305 +327,297 @@ dbAddAuthorPublications <- function(
   dbInfo,
   commit = T
 ) {
-  tryCatch(
-    {
-      if (nrow(authorPublications$articles) == 0) {
-        return(data.frame(
-          arID = integer(),
-          PMID = integer(),
-          status = character()
-        ))
-      }
+  if (nrow(authorPublications$articles) == 0) {
+    return(data.frame(
+      arID = integer(),
+      PMID = integer(),
+      status = character()
+    ))
+  }
 
-      conn <- dbGetConn(dbInfo, inherit = !commit)
+  conn <- dbGetConn(dbInfo, inherit = !commit)
 
-      ### ADD ARTICLES
-      articles <- authorPublications$articles
+  ### ADD ARTICLES
+  articles <- authorPublications$articles
 
-      # Check which articles are already in the database
-      existing <- tbl(conn, "article") |>
-        filter(PMID %in% local(articles$PMID)) |>
-        select(arID, PMID) |>
-        collect() |>
-        mutate(status = "existing")
+  # Check which articles are already in the database
+  existing <- tbl(conn, "article") |>
+    filter(PMID %in% local(articles$PMID)) |>
+    select(arID, PMID) |>
+    collect() |>
+    mutate(status = "existing")
 
-      new <- articles |> filter(!PMID %in% existing$PMID)
+  new <- articles |> filter(!PMID %in% existing$PMID)
 
-      if (nrow(new) > 0) {
-        new <- tbl_insert(new, conn, "article") |>
-          select(arID, PMID) |>
-          mutate(status = "new")
+  if (nrow(new) > 0) {
+    new <- tbl_insert(new, conn, "article") |>
+      select(arID, PMID) |>
+      mutate(status = "new")
 
-        # new <- dbGetQuery(
-        #   conn,
-        #   "INSERT INTO article(PMID,title,journal,year,month,day)
-        # VALUES (?,?,?,?,?,?) RETURNING arID, PMID",
-        #   params = list(
-        #     new$PMID,
-        #     new$title,
-        #     new$journal,
-        #     new$year,
-        #     new$month,
-        #     new$day
-        #   )
-        # ) |>
-        #   mutate(status = "new")
-      } else {
-        new <- data.frame()
-      }
+    # new <- dbGetQuery(
+    #   conn,
+    #   "INSERT INTO article(PMID,title,journal,year,month,day)
+    # VALUES (?,?,?,?,?,?) RETURNING arID, PMID",
+    #   params = list(
+    #     new$PMID,
+    #     new$title,
+    #     new$journal,
+    #     new$year,
+    #     new$month,
+    #     new$day
+    #   )
+    # ) |>
+    #   mutate(status = "new")
+  } else {
+    new <- data.frame()
+  }
 
-      arInfo <- bind_rows(new, existing)
+  arInfo <- bind_rows(new, existing)
 
-      # Stop if no new articles were found
-      if (all(arInfo$status == "existing")) {
-        # Check if the author was already marked as one of interest
-        if (matchOnFirst) {
-          auID <- tbl(conn, "authorName") |>
-            filter(
-              lastName %in% local(authorPublications$author$lastName),
-              firstName %in% local(authorPublications$author$firstName)
-            ) |>
-            pull(auID) |>
-            unique()
-        } else {
-          auID <- tbl(conn, "authorName") |>
-            filter(
-              lastName %in% local(authorPublications$author$lastName),
-              initials %in% local(authorPublications$author$initials)
-            ) |>
-            pull(auID) |>
-            unique()
-        }
-
-        if (length(auID) != 1) {
-          dbFinish(
-            conn,
-            error = ifelse(
-              length(auID) > 1,
-              "Ambiguous author of interest",
-              "No match on author first and last name"
-            )
-          )
-        }
-
-        . <- tbl_update(
-          data.frame(auID = auID, authorOfInterest = 1),
-          conn,
-          "author"
-        )
-
-        # q <- dbExecute(
-        #   conn,
-        #   "UPDATE author SET authorOfInterest = 1 WHERE auID = ?",
-        #   params = list(auID)
-        # )
-
-        action <- data.frame(
-          timestamp = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
-          action = as.integer(1)
-        )
-
-        . <- tbl_insert(action, conn, "updateData")
-
-        # q <- dbExecute(
-        #   conn,
-        #   "INSERT INTO updateData (\"timestamp\", \"action\") VALUES (datetime('now', 'localtime'), 1)"
-        # )
-
-        dbFinish(conn)
-
-        return(arInfo %>% mutate(auID = {{ auID }}))
-      }
-
-      # Only continue with new article data from authorPublications
-      authorPublications <- filter_PMID(authorPublications, PMIDs = new$PMID)
-
-      browser()
-      ### ADD (CO)AUTHOR INFO
-      auInfo <- dbAddAuthors(
-        authorPublications$coAuthors,
-        dbInfo = conn,
-        commit = F
-      )
-
-      # Set authorOfInterest to TRUE to distinguish from co-authors
-      auID <- auInfo |>
+  # Stop if no new articles were found
+  if (all(arInfo$status == "existing")) {
+    # Check if the author was already marked as one of interest
+    if (matchOnFirst) {
+      auID <- tbl(conn, "authorName") |>
         filter(
-          lastName %in% authorPublications$author$lastName,
-          initials %in% authorPublications$author$initials
+          lastName %in% local(authorPublications$author$lastName),
+          firstName %in% local(authorPublications$author$firstName)
         ) |>
         pull(auID) |>
         unique()
-
-      # TODO This is a bit of a hack if length(auID) > 1
-      # IN this case the author has a conflict with last name + initials with another
-      if (matchOnFirst | length(auID) > 1) {
-        auID <- auInfo |>
-          filter(
-            lastName %in% authorPublications$author$lastName,
-            firstName %in% authorPublications$author$firstName
-          ) |>
-          pull(auID) |>
-          unique()
-      }
-
-      if (length(auID) != 1) {
-        dbFinish(
-          conn,
-          error = ifelse(
-            length(auID) > 1,
-            "Ambiguous author of interest",
-            "No match on author first and last name"
-          )
-        )
-      }
-
-      . <- tbl_update(
-        data.frame(auID = auID, authorOfInterest = 1),
-        conn,
-        "author"
-      )
-
-      # q <- dbExecute(
-      #   conn,
-      #   "UPDATE author SET authorOfInterest = 1 WHERE auID = ?",
-      #   params = list(auID)
-      # )
-
-      # ADD AFFILIATIONS
-      affiliations <- authorPublications$affiliations
-
-      existing <- tbl(conn, "affiliation") |>
-        filter(affiliation %in% local(unique(affiliations$affiliation))) |>
-        collect()
-      new <- affiliations |>
-        select(affiliation) |>
-        distinct() |>
-        filter(!affiliation %in% existing$affiliation)
-      if (nrow(new) > 0) {
-        new <- tbl_insert(
-          new |> select(affiliation),
-          conn,
-          "affiliation"
-        )
-        # new <- dbGetQuery(
-        #   conn,
-        #   "INSERT INTO affiliation(affiliation)
-        # VALUES (?) RETURNING *",
-        #   params = list(new$affiliation)
-        # )
-      }
-
-      afInfo <- bind_rows(new, existing)
-
-      # ADD ARTICLE (CO)AUTHOR INFO AND AFFILIATIONS
-      arAuAf <- authorPublications$coAuthors |>
-        left_join(
-          auInfo,
-          by = c("lastName", "firstName", "initials", "collectiveName"),
-          na_matches = "na"
+    } else {
+      auID <- tbl(conn, "authorName") |>
+        filter(
+          lastName %in% local(authorPublications$author$lastName),
+          initials %in% local(authorPublications$author$initials)
         ) |>
-        left_join(
-          authorPublications$affiliations,
-          by = c("PMID", "authorOrder")
-        ) |>
-        left_join(afInfo, by = "affiliation") |>
-        left_join(arInfo, by = "PMID")
-
-      # Filter out articles that are already in the database (via other author of interest)
-      coAuthors <- arAuAf |>
-        select(arID, auID, authorOrder, anID) |>
-        distinct() |>
-        tbl_insert(conn, "coAuthor")
-
-      # q <- dbExecute(
-      #   conn,
-      #   "INSERT INTO coAuthor(arID, auID, authorOrder, anID) VALUES(?,?,?,?)",
-      #   params = list(
-      #     coAuthors$arID,
-      #     coAuthors$auID,
-      #     coAuthors$authorOrder,
-      #     coAuthors$anID
-      #   )
-      # )
-
-      # Sometimes affiliations are not provided so remove the empty ones
-      affiliations <- arAuAf |>
-        select(arID, auID, afID) |>
-        distinct() |>
-        filter(!is.na(afID)) |>
-        tbl_insert(conn, "author_affiliation")
-
-      # q <- dbExecute(
-      #   conn,
-      #   "INSERT INTO author_affiliation(arID, auID, afID) VALUES(?,?,?)",
-      #   params = list(affiliations$arID, affiliations$auID, affiliations$afID)
-      # )
-
-      # ADD MESH INFO
-      # First make sure the MeSH tree is complete for any new terms
-      meshDescriptors <- authorPublications$meshDescriptors |>
-        left_join(arInfo, by = "PMID") |>
-        filter(status == "new")
-
-      if (nrow(meshDescriptors) > 0) {
-        meshui <- unique(meshDescriptors$DescriptorUI)
-
-        # The check tags male (D008297) and female (D005260) will be ignored as they
-        #  are not part of the MeSH Tree
-        #  https://www.nlm.nih.gov/tsd/cataloging/MeSH_CatPractices.html
-        meshui <- meshui[!meshui %in% c("D008297", "D005260")]
-
-        # Add nymissing MeSH terms / Tree branches to the database
-        if (length(meshui) > 0) {
-          result <- dbAddMesh(meshui, "meshui", dbInfo = conn, commit = F)
-        }
-
-        # Remove any mesh descriptors that were not added to the database
-        notAdded <- meshui[!meshui %in% result$meshui]
-
-        if (length(notAdded) > 0) {
-          warning(
-            "The following meshui were not found are are ignored: ",
-            paste(notAdded, collapse = ", ")
-          )
-        }
-
-        # Insert new meshUI from papers
-        meshArticle <- meshDescriptors |>
-          select(
-            arID,
-            meshui = DescriptorUI,
-            descriptorMajor = DescriptorMajor
-          ) |>
-          filter(!meshui %in% c(notAdded, "D008297", "D005260")) |>
-          distinct() |>
-          mutate(descriptorMajor = ifelse(descriptorMajor == "Y", 1, 0)) |>
-          tbl_insert(conn, "mesh_article")
-
-        # q <- dbExecute(
-        #   conn,
-        #   "INSERT INTO mesh_article(arID, meshui, descriptorMajor) VALUES(?,?,?)",
-        #   params = list(
-        #     meshArticle$arID,
-        #     meshArticle$DescriptorUI,
-        #     meshArticle$DescriptorMajor
-        #   )
-        # )
-      }
-
-      if (flagUpdate) {
-        . <- dbFlagUpdate(1, dbInfo = conn, commit = F)
-      }
-
-      dbFinish(conn)
-
-      return(arInfo %>% mutate(auID = {{ auID }}))
-    },
-    error = function(e) {
-      dbFinish(conn, error = e)
+        pull(auID) |>
+        unique()
     }
+
+    if (length(auID) != 1) {
+      dbFinish(
+        conn,
+        error = ifelse(
+          length(auID) > 1,
+          "Ambiguous author of interest",
+          "No match on author first and last name"
+        )
+      )
+    }
+
+    . <- tbl_update(
+      data.frame(auID = auID, authorOfInterest = 1),
+      conn,
+      "author"
+    )
+
+    # q <- dbExecute(
+    #   conn,
+    #   "UPDATE author SET authorOfInterest = 1 WHERE auID = ?",
+    #   params = list(auID)
+    # )
+
+    action <- data.frame(
+      timestamp = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
+      action = as.integer(1)
+    )
+
+    . <- tbl_insert(action, conn, "updateData")
+
+    # q <- dbExecute(
+    #   conn,
+    #   "INSERT INTO updateData (\"timestamp\", \"action\") VALUES (datetime('now', 'localtime'), 1)"
+    # )
+
+    dbFinish(conn)
+
+    return(arInfo %>% mutate(auID = {{ auID }}))
+  }
+
+  # Only continue with new article data from authorPublications
+  authorPublications <- filter_PMID(authorPublications, PMIDs = new$PMID)
+
+  ### ADD (CO)AUTHOR INFO
+  auInfo <- dbAddAuthors(
+    authorPublications$coAuthors,
+    dbInfo = conn,
+    commit = F
   )
+
+  # Set authorOfInterest to TRUE to distinguish from co-authors
+  auID <- auInfo |>
+    filter(
+      lastName %in% authorPublications$author$lastName,
+      initials %in% authorPublications$author$initials
+    ) |>
+    pull(auID) |>
+    unique()
+
+  # TODO This is a bit of a hack if length(auID) > 1
+  # IN this case the author has a conflict with last name + initials with another
+  if (matchOnFirst | length(auID) > 1) {
+    auID <- auInfo |>
+      filter(
+        lastName %in% authorPublications$author$lastName,
+        firstName %in% authorPublications$author$firstName
+      ) |>
+      pull(auID) |>
+      unique()
+  }
+
+  if (length(auID) != 1) {
+    dbFinish(
+      conn,
+      error = ifelse(
+        length(auID) > 1,
+        "Ambiguous author of interest",
+        "No match on author first and last name"
+      )
+    )
+  }
+
+  . <- tbl_update(
+    data.frame(auID = auID, authorOfInterest = 1),
+    conn,
+    "author"
+  )
+
+  # q <- dbExecute(
+  #   conn,
+  #   "UPDATE author SET authorOfInterest = 1 WHERE auID = ?",
+  #   params = list(auID)
+  # )
+
+  # ADD AFFILIATIONS
+  affiliations <- authorPublications$affiliations
+
+  existing <- tbl(conn, "affiliation") |>
+    filter(affiliation %in% local(unique(affiliations$affiliation))) |>
+    collect()
+  new <- affiliations |>
+    select(affiliation) |>
+    distinct() |>
+    filter(!affiliation %in% existing$affiliation)
+  if (nrow(new) > 0) {
+    new <- tbl_insert(
+      new |> select(affiliation),
+      conn,
+      "affiliation"
+    )
+    # new <- dbGetQuery(
+    #   conn,
+    #   "INSERT INTO affiliation(affiliation)
+    # VALUES (?) RETURNING *",
+    #   params = list(new$affiliation)
+    # )
+  }
+
+  afInfo <- bind_rows(new, existing)
+
+  # ADD ARTICLE (CO)AUTHOR INFO AND AFFILIATIONS
+  arAuAf <- authorPublications$coAuthors |>
+    left_join(
+      auInfo,
+      by = c("lastName", "firstName", "initials", "collectiveName"),
+      na_matches = "na"
+    ) |>
+    left_join(
+      authorPublications$affiliations,
+      by = c("PMID", "authorOrder")
+    ) |>
+    left_join(afInfo, by = "affiliation") |>
+    left_join(arInfo, by = "PMID")
+
+  # Filter out articles that are already in the database (via other author of interest)
+  coAuthors <- arAuAf |>
+    select(arID, auID, authorOrder, anID) |>
+    distinct() |>
+    tbl_insert(conn, "coAuthor")
+
+  # q <- dbExecute(
+  #   conn,
+  #   "INSERT INTO coAuthor(arID, auID, authorOrder, anID) VALUES(?,?,?,?)",
+  #   params = list(
+  #     coAuthors$arID,
+  #     coAuthors$auID,
+  #     coAuthors$authorOrder,
+  #     coAuthors$anID
+  #   )
+  # )
+
+  # Sometimes affiliations are not provided so remove the empty ones
+  affiliations <- arAuAf |>
+    select(arID, auID, afID) |>
+    distinct() |>
+    filter(!is.na(afID)) |>
+    tbl_insert(conn, "author_affiliation")
+
+  # q <- dbExecute(
+  #   conn,
+  #   "INSERT INTO author_affiliation(arID, auID, afID) VALUES(?,?,?)",
+  #   params = list(affiliations$arID, affiliations$auID, affiliations$afID)
+  # )
+
+  # ADD MESH INFO
+  # First make sure the MeSH tree is complete for any new terms
+  meshDescriptors <- authorPublications$meshDescriptors |>
+    left_join(arInfo, by = "PMID") |>
+    filter(status == "new")
+
+  if (nrow(meshDescriptors) > 0) {
+    meshui <- unique(meshDescriptors$DescriptorUI)
+
+    # The check tags male (D008297) and female (D005260) will be ignored as they
+    #  are not part of the MeSH Tree
+    #  https://www.nlm.nih.gov/tsd/cataloging/MeSH_CatPractices.html
+    meshui <- meshui[!meshui %in% c("D008297", "D005260")]
+
+    # Add nymissing MeSH terms / Tree branches to the database
+    if (length(meshui) > 0) {
+      result <- dbAddMesh(meshui, "meshui", dbInfo = conn, commit = F)
+    }
+
+    # Remove any mesh descriptors that were not added to the database
+    notAdded <- meshui[!meshui %in% result$meshui]
+
+    if (length(notAdded) > 0) {
+      warning(
+        "The following meshui were not found are are ignored: ",
+        paste(notAdded, collapse = ", ")
+      )
+    }
+
+    # Insert new meshUI from papers
+    meshArticle <- meshDescriptors |>
+      select(
+        arID,
+        meshui = DescriptorUI,
+        descriptorMajor = DescriptorMajor
+      ) |>
+      filter(!meshui %in% c(notAdded, "D008297", "D005260")) |>
+      distinct() |>
+      mutate(descriptorMajor = ifelse(descriptorMajor == "Y", 1, 0)) |>
+      tbl_insert(conn, "mesh_article")
+
+    # q <- dbExecute(
+    #   conn,
+    #   "INSERT INTO mesh_article(arID, meshui, descriptorMajor) VALUES(?,?,?)",
+    #   params = list(
+    #     meshArticle$arID,
+    #     meshArticle$DescriptorUI,
+    #     meshArticle$DescriptorMajor
+    #   )
+    # )
+  }
+
+  if (flagUpdate) {
+    . <- dbFlagUpdate(1, dbInfo = conn, commit = F)
+  }
+
+  dbFinish(conn)
+
+  return(arInfo %>% mutate(auID = {{ auID }}))
 }
 
 #' Delete specified articles and any associated authors / author names
@@ -725,95 +635,88 @@ dbAddAuthorPublications <- function(
 #' @export
 #'
 dbDeleteArticle <- function(arIDs, dbInfo, commit = T) {
-  tryCatch(
-    {
-      conn <- dbGetConn(dbInfo, inherit = !commit)
+  conn <- dbGetConn(dbInfo, inherit = !commit)
 
-      # Get all articles and authors to remove
-      toRemove <- tbl(conn, "coAuthor") |>
-        filter(arID %in% local(arIDs)) |>
-        collect()
+  # Get all articles and authors to remove
+  toRemove <- tbl(conn, "coAuthor") |>
+    filter(arID %in% local(arIDs)) |>
+    collect()
 
-      # Keep author names that are in other articles not being removed
-      toKeep <- tbl(conn, "coAuthor") |>
-        filter(
-          anID %in% local(unique(toRemove$anID)),
-          !arID %in% local(unique(toRemove$arID))
-        ) |>
-        select(anID) |>
-        distinct() |>
-        pull(anID)
+  # Keep author names that are in other articles not being removed
+  toKeep <- tbl(conn, "coAuthor") |>
+    filter(
+      anID %in% local(unique(toRemove$anID)),
+      !arID %in% local(unique(toRemove$arID))
+    ) |>
+    select(anID) |>
+    distinct() |>
+    pull(anID)
 
-      toRemove <- toRemove |> filter(!anID %in% toKeep)
+  toRemove <- toRemove |> filter(!anID %in% toKeep)
 
-      # Authors with action deleteAuthor will be removed completely,
-      #  authors with action deleteName only have a specific alternative/incorrect name removed
-      removeAuth <- tbl(conn, "authorName") |>
-        filter(auID %in% local(toRemove$auID)) |>
-        distinct() |>
-        collect() |>
-        left_join(
-          toRemove |> select(auID2 = auID, anID) |> distinct(),
-          by = "anID"
-        ) |>
-        group_by(auID) |>
-        mutate(
-          action = ifelse(
-            any(is.na(auID2)),
-            "deleteName",
-            "deleteAuthor"
-          )
-        ) |>
-        ungroup() |>
-        filter(!is.na(auID2))
+  # Authors with action deleteAuthor will be removed completely,
+  #  authors with action deleteName only have a specific alternative/incorrect name removed
+  removeAuth <- tbl(conn, "authorName") |>
+    filter(auID %in% local(toRemove$auID)) |>
+    distinct() |>
+    collect() |>
+    left_join(
+      toRemove |> select(auID2 = auID, anID) |> distinct(),
+      by = "anID"
+    ) |>
+    group_by(auID) |>
+    mutate(
+      action = ifelse(
+        any(is.na(auID2)),
+        "deleteName",
+        "deleteAuthor"
+      )
+    ) |>
+    ungroup() |>
+    filter(!is.na(auID2))
 
-      # Delete authors
-      . <- removeAuth |>
-        filter(action == "deleteAuthor") |>
-        select(auID) |>
-        unique() |>
-        tbl_delete(conn, "author")
+  # Delete authors
+  . <- removeAuth |>
+    filter(action == "deleteAuthor") |>
+    select(auID) |>
+    unique() |>
+    tbl_delete(conn, "author")
 
-      # q <- dbExecute(
-      #   conn,
-      #   sprintf(
-      #     "DELETE FROM author WHERE auID IN (%s)",
-      #     paste(delAuID, collapse = ",")
-      #   )
-      # )
+  # q <- dbExecute(
+  #   conn,
+  #   sprintf(
+  #     "DELETE FROM author WHERE auID IN (%s)",
+  #     paste(delAuID, collapse = ",")
+  #   )
+  # )
 
-      # Delete incorrect names
-      . <- removeAuth |>
-        filter(action == "deleteName") |>
-        seect(anID) |>
-        unique() |>
-        tbl_delete(conn, "authorName")
+  # Delete incorrect names
+  . <- removeAuth |>
+    filter(action == "deleteName") |>
+    seect(anID) |>
+    unique() |>
+    tbl_delete(conn, "authorName")
 
-      # q <- dbExecute(
-      #   conn,
-      #   sprintf(
-      #     "DELETE FROM authorName WHERE anID IN (%s)",
-      #     paste(delAnID, collapse = ",")
-      #   )
-      # )
+  # q <- dbExecute(
+  #   conn,
+  #   sprintf(
+  #     "DELETE FROM authorName WHERE anID IN (%s)",
+  #     paste(delAnID, collapse = ",")
+  #   )
+  # )
 
-      # Delete articles
-      . <- tbl_delete(data.frame(arID = arIDs), conn, "article")
+  # Delete articles
+  . <- tbl_delete(data.frame(arID = arIDs), conn, "article")
 
-      # q <- dbExecute(
-      #   conn,
-      #   sprintf(
-      #     "DELETE FROM article WHERE arID IN (%s)",
-      #     paste(arIDs, collapse = ",")
-      #   )
-      # )
+  # q <- dbExecute(
+  #   conn,
+  #   sprintf(
+  #     "DELETE FROM article WHERE arID IN (%s)",
+  #     paste(arIDs, collapse = ",")
+  #   )
+  # )
 
-      dbFinish(conn)
+  dbFinish(conn)
 
-      return(removeAuth)
-    },
-    error = function(e) {
-      dbFinish(conn, error = e)
-    }
-  )
+  return(removeAuth)
 }
