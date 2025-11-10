@@ -15,7 +15,7 @@ if (!exists("envInfo")) {
     testDB <- "../local/dev.db"
     # testDB <- "C:/Users/pj/Desktop/sz.db"
     # testDB <- "../data/dbmi.db"
-    testDB <- "../temp/1762520425_AVW2_test.db.db"
+    testDB <- "../temp/1762737134_UMyS_te.db.db"
     # testDB <- NULL
 
     envInfo = list(
@@ -362,11 +362,6 @@ server <- function(input, output, session) {
     conn <- dbGetConn(connInfo()$dbPath, session = session)
     conn
   })
-
-  # onSessionEnded(function() {
-  #   # isolate(poolClose(conn()))
-  #   isolate(dbFinish(conn(), commit = F, closeExisting = T))
-  # })
 
   # Precompute data
   preCompData <- reactivePoll(

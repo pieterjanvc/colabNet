@@ -291,17 +291,7 @@ dbFlagUpdate <- function(action, dbInfo, commit = T) {
   }
 
   conn <- dbGetConn(dbInfo, inherit = !commit)
-
   uID <- tbl_insert(action, conn, "updateData") |> pull(uID)
-
-  # q <- dbExecute(
-  #   conn,
-  #   sprintf(
-  #     "INSERT INTO updateData (\"timestamp\", \"action\") VALUES (datetime('now', 'localtime'), %i)",
-  #     action
-  #   )
-  # )
-
   dbFinish(conn)
 
   return(uID)
@@ -353,21 +343,6 @@ dbAddAuthorPublications <- function(
     new <- tbl_insert(new, conn, "article") |>
       select(arID, PMID) |>
       mutate(status = "new")
-
-    # new <- dbGetQuery(
-    #   conn,
-    #   "INSERT INTO article(PMID,title,journal,year,month,day)
-    # VALUES (?,?,?,?,?,?) RETURNING arID, PMID",
-    #   params = list(
-    #     new$PMID,
-    #     new$title,
-    #     new$journal,
-    #     new$year,
-    #     new$month,
-    #     new$day
-    #   )
-    # ) |>
-    #   mutate(status = "new")
   } else {
     new <- data.frame()
   }
@@ -412,23 +387,12 @@ dbAddAuthorPublications <- function(
       "author"
     )
 
-    # q <- dbExecute(
-    #   conn,
-    #   "UPDATE author SET authorOfInterest = 1 WHERE auID = ?",
-    #   params = list(auID)
-    # )
-
     action <- data.frame(
       timestamp = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
       action = as.integer(1)
     )
 
     . <- tbl_insert(action, conn, "updateData")
-
-    # q <- dbExecute(
-    #   conn,
-    #   "INSERT INTO updateData (\"timestamp\", \"action\") VALUES (datetime('now', 'localtime'), 1)"
-    # )
 
     dbFinish(conn)
 
@@ -483,12 +447,6 @@ dbAddAuthorPublications <- function(
     "author"
   )
 
-  # q <- dbExecute(
-  #   conn,
-  #   "UPDATE author SET authorOfInterest = 1 WHERE auID = ?",
-  #   params = list(auID)
-  # )
-
   # ADD AFFILIATIONS
   affiliations <- authorPublications$affiliations
 
@@ -499,18 +457,13 @@ dbAddAuthorPublications <- function(
     select(affiliation) |>
     distinct() |>
     filter(!affiliation %in% existing$affiliation)
+
   if (nrow(new) > 0) {
     new <- tbl_insert(
       new |> select(affiliation),
       conn,
       "affiliation"
     )
-    # new <- dbGetQuery(
-    #   conn,
-    #   "INSERT INTO affiliation(affiliation)
-    # VALUES (?) RETURNING *",
-    #   params = list(new$affiliation)
-    # )
   }
 
   afInfo <- bind_rows(new, existing)
@@ -535,29 +488,12 @@ dbAddAuthorPublications <- function(
     distinct() |>
     tbl_insert(conn, "coAuthor")
 
-  # q <- dbExecute(
-  #   conn,
-  #   "INSERT INTO coAuthor(arID, auID, authorOrder, anID) VALUES(?,?,?,?)",
-  #   params = list(
-  #     coAuthors$arID,
-  #     coAuthors$auID,
-  #     coAuthors$authorOrder,
-  #     coAuthors$anID
-  #   )
-  # )
-
   # Sometimes affiliations are not provided so remove the empty ones
   affiliations <- arAuAf |>
     select(arID, auID, afID) |>
     distinct() |>
     filter(!is.na(afID)) |>
     tbl_insert(conn, "author_affiliation")
-
-  # q <- dbExecute(
-  #   conn,
-  #   "INSERT INTO author_affiliation(arID, auID, afID) VALUES(?,?,?)",
-  #   params = list(affiliations$arID, affiliations$auID, affiliations$afID)
-  # )
 
   # ADD MESH INFO
   # First make sure the MeSH tree is complete for any new terms
@@ -599,16 +535,6 @@ dbAddAuthorPublications <- function(
       distinct() |>
       mutate(descriptorMajor = ifelse(descriptorMajor == "Y", 1, 0)) |>
       tbl_insert(conn, "mesh_article")
-
-    # q <- dbExecute(
-    #   conn,
-    #   "INSERT INTO mesh_article(arID, meshui, descriptorMajor) VALUES(?,?,?)",
-    #   params = list(
-    #     meshArticle$arID,
-    #     meshArticle$DescriptorUI,
-    #     meshArticle$DescriptorMajor
-    #   )
-    # )
   }
 
   if (flagUpdate) {

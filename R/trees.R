@@ -178,7 +178,7 @@ dbTreeFromMesh <- function(uids, roots, dbInfo) {
     roots <- toupper(roots)
 
     if (any(str_length(roots) > 1)) {
-      stop("Tree root categories are a single letter")
+      dbFinish(conn, error = "Tree root categories are a single letter")
     }
 
     treenums <- treenums |>
@@ -234,7 +234,7 @@ dbPaperMesh <- function(auIDs, roots, dbInfo) {
     roots <- toupper(roots)
 
     if (any(str_length(roots) > 1)) {
-      stop("Tree root categories are a single letter")
+      dbFinish(conn, error = "Tree root categories are a single letter")
     }
 
     papermesh <- papermesh |>
