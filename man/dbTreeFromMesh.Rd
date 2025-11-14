@@ -5,7 +5,7 @@
 \title{Build a MeSH Tree from a list of MeSH IDs
 Missing nodes will be filled in and the tree will be built until the root}
 \usage{
-dbTreeFromMesh(uids, roots, dbInfo)
+dbTreeFromMesh(uids, roots, conn)
 }
 \arguments{
 \item{uids}{Vector of Mesh uid to buidll the tree}
@@ -13,7 +13,7 @@ dbTreeFromMesh(uids, roots, dbInfo)
 \item{roots}{(Optional) Vector of single letter representing the tree roots
 to include. If not specified, all categories are returned}
 
-\item{dbInfo}{(optional if dbSetup() has been run)
+\item{conn}{(optional if dbSetup() has been run)
 Path to the ColabNet database or existing connection}
 }
 \value{

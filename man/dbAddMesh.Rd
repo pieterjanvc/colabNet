@@ -4,14 +4,14 @@
 \alias{dbAddMesh}
 \title{Insert MeSH info into the ColabNet database}
 \usage{
-dbAddMesh(values, type, dbInfo, commit = T)
+dbAddMesh(values, type, conn, commit = T)
 }
 \arguments{
 \item{values}{vector of MeSH values to search for}
 
 \item{type}{The type needs to be 'meshui' (MeSH ui), 'treenum' (tree number) or 'uid' (MeSH Entrez uid)}
 
-\item{dbInfo}{Connection to a Colabnet database}
+\item{conn}{Connection to a Colabnet database}
 
 \item{commit}{(Default = TRUE). Commit changes to the database automatically}
 }

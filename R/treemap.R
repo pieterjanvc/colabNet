@@ -246,18 +246,16 @@ treemapColour <- function(
 #' @param auIDs List of authors IDs
 #' @param roots (Optional) Vector of single letter representing the tree roots
 #' to include. If not specified, all categories are returned
-#' @param dbInfo Connection to a Colabnet database
+#' @param conn Connection to a Colabnet database
 #'
 #' @return List with two elements
 #'  - papermeshtree: Dataframe used to build a TreeMap
 #'  - authors: Data frame with default author name and ID
 #'
 #' @export
-papermeshtreeFromAuIDs <- function(auIDs, roots, dbInfo) {
-  conn <- dbGetConn(dbInfo)
-
-  papermesh <- dbPaperMesh(auIDs, roots = roots, dbInfo = conn)
-  meshtree <- dbMeshTree(papermesh, roots = roots, dbInfo = conn)
+papermeshtreeFromAuIDs <- function(auIDs, roots, conn) {
+  papermesh <- dbPaperMesh(auIDs, roots = roots, conn = conn)
+  meshtree <- dbMeshTree(papermesh, roots = roots, conn = conn)
   papermeshtree <- paperMeshTree(papermesh, meshtree)
 
   # Add author names
@@ -273,8 +271,6 @@ papermeshtreeFromAuIDs <- function(auIDs, roots, dbInfo) {
   papermeshtree <- papermeshtree |>
     left_join(au |> select(auID, name), by = "auID") |>
     mutate(name = ifelse(nPapers == 0, "", name))
-
-  dbFinish(conn)
 
   return(list(papermeshtree = papermeshtree, authors = au))
 }

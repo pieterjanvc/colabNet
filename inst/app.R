@@ -436,8 +436,8 @@ server <- function(input, output, session) {
           month = as.integer(month)
         )
 
-      papermesh <- dbPaperMesh(authors$auID, dbInfo = conn())
-      meshtree <- dbMeshTree(papermesh, dbInfo = conn())
+      papermesh <- dbPaperMesh(authors$auID, conn = conn())
+      meshtree <- dbMeshTree(papermesh, conn = conn())
       papermeshtree <- paperMeshTree(papermesh, meshtree)
 
       # Add author names
@@ -790,12 +790,12 @@ server <- function(input, output, session) {
 
     # Get the treemap for the two authors
     if (length(input$overlapCat) == 0) {
-      tmComp <- papermeshtreeFromAuIDs(c(auIDs[1], auIDs[2]), dbInfo = conn())
+      tmComp <- papermeshtreeFromAuIDs(c(auIDs[1], auIDs[2]), conn = conn())
     } else {
       tmComp <- papermeshtreeFromAuIDs(
         c(auIDs[1], auIDs[2]),
         roots = input$overlapCat,
-        dbInfo = conn()
+        conn = conn()
       )
       #TODO make sure the table filters with arIDs only found in the selected subtrees
     }

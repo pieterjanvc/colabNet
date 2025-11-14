@@ -4,7 +4,7 @@
 \alias{papermeshtreeFromAuIDs}
 \title{Generate a TreeMap from a list of author IDs}
 \usage{
-papermeshtreeFromAuIDs(auIDs, roots, dbInfo)
+papermeshtreeFromAuIDs(auIDs, roots, conn)
 }
 \arguments{
 \item{auIDs}{List of authors IDs}
@@ -12,7 +12,7 @@ papermeshtreeFromAuIDs(auIDs, roots, dbInfo)
 \item{roots}{(Optional) Vector of single letter representing the tree roots
 to include. If not specified, all categories are returned}
 
-\item{dbInfo}{Connection to a Colabnet database}
+\item{conn}{Connection to a Colabnet database}
 }
 \value{
 List with two elements

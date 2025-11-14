@@ -8,7 +8,7 @@ dbAddAuthorPublications(
   authorPublications,
   matchOnFirst = F,
   flagUpdate = T,
-  dbInfo,
+  conn,
   commit = T
 )
 }
@@ -17,7 +17,7 @@ dbAddAuthorPublications(
 
 \item{flagUpdate}{Default= T, set an update flag in the DB so the app will refresh once completed}
 
-\item{dbInfo}{Connection to a Colabnet database}
+\item{conn}{Connection to a Colabnet database}
 
 \item{commit}{(Default = TRUE). Commit changes to the database automatically}
 }

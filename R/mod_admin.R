@@ -506,7 +506,7 @@ mod_admin_server <- function(id, conn) {
         new <- filter_PMID(searchResults()$pubDetails, PMIDs)
       }
 
-      new <- dbAddAuthorPublications(new, dbInfo = conn())
+      new <- dbAddAuthorPublications(new, conn = conn())
 
       # Remove added articles from search results
       searchResults(
@@ -545,9 +545,9 @@ mod_admin_server <- function(id, conn) {
       req(nrow(toDelete) > 0)
       disable("artDel")
 
-      deleted <- dbDeleteArticle(toDelete$arID, dbInfo = conn())
+      deleted <- dbDeleteArticle(toDelete$arID, conn = conn())
       articlesInDB(articlesInDB() |> filter(!arID %in% toDelete$arID))
-      dbFlagUpdate(action = 2, dbInfo = conn())
+      dbFlagUpdate(action = 2, conn = conn())
       enable("artDel")
     }) |>
       bindEvent(input$artDel)
@@ -789,7 +789,7 @@ mod_admin_server <- function(id, conn) {
           ) |>
             filter_affiliation(data$affiliation)
 
-          new <- dbAddAuthorPublications(new, dbInfo = conn(), flagUpdate = F)
+          new <- dbAddAuthorPublications(new, conn = conn(), flagUpdate = F)
 
           nImported <- bind_rows(
             nImported,
@@ -802,7 +802,7 @@ mod_admin_server <- function(id, conn) {
         }
       })
 
-      dbFlagUpdate(1, dbInfo = conn())
+      dbFlagUpdate(1, conn = conn())
 
       nImported <- nImported |>
         mutate(

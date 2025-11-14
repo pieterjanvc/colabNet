@@ -4,13 +4,13 @@
 \alias{dbDeleteAuthors}
 \title{Remove authors and their articles from the database}
 \usage{
-dbDeleteAuthors(auIDs, dbInfo, commit = T)
+dbDeleteAuthors(auIDs, conn, commit = T)
 }
 \arguments{
 \item{auIDs}{auIDs to remove. Co-authors who are not and authorOfInterest and
 do not appear in other non-removed articles, are removed too}
 
-\item{dbInfo}{Connection to a Colabnet database}
+\item{conn}{Connection to a Colabnet database}
 
 \item{commit}{(Default = TRUE). Commit changes to the database automatically}
 }

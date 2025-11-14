@@ -67,7 +67,8 @@ copubGraphElements <- function(articleInfo) {
       id = integer(),
       from = integer(),
       to = integer(),
-      weight = integer()
+      weight = integer(),
+      n = integer()
     )
   } else {
     # Get the current year + fractional month

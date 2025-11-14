@@ -171,9 +171,9 @@ filter_PMID <- function(
   publicationDetails$author = publicationDetails$author |>
     inner_join(
       publicationDetails$coAuthors |>
-        select(lastName, firstName, initials) |>
+        select(lastName, initials) |>
         distinct(),
-      by = c("lastName", "firstName", "initials")
+      by = c("lastName", "initials")
     )
 
   publicationDetails
