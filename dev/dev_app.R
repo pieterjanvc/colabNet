@@ -1,6 +1,5 @@
 # library(shiny)
 # library(DT)
-# library(pool)
 # library(RSQLite)
 
 library(sqlife)

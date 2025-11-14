@@ -19,12 +19,12 @@ mod_meshFilter_ui <- function(id) {
 #' from the current database
 #'
 #' @param id Module id, needs to be the same as the UI function
-#' @param pool A reactive pool object as DB connection
+#' @param conn A reactive conn object as DB connection
 #'
 #' @returns Server of the module that returns a reactive dataframe of MeSH terms
 #' the user has selected
 #' @export
-mod_meshFilter_server <- function(id, pool) {
+mod_meshFilter_server <- function(id, conn) {
   moduleServer(
     id,
     function(input, output, session) {
@@ -71,10 +71,10 @@ mod_meshFilter_server <- function(id, pool) {
       })
 
       # Get tree root info
-      # treeRoots <- tbl(isolate(pool()), "meshTree") |>
+      # treeRoots <- tbl(isolate(conn()), "meshTree") |>
       #   filter(treenum %in% LETTERS) |>
-      #   left_join(tbl(pool(), "meshLink"), by = "uid") |>
-      #   left_join(tbl(pool(), "meshTerm"), by = "meshui") |>
+      #   left_join(tbl(conn(), "meshLink"), by = "uid") |>
+      #   left_join(tbl(conn(), "meshTerm"), by = "meshui") |>
       #   collect() |>
       #   rename(root = treenum)
 
@@ -106,7 +106,7 @@ mod_meshFilter_server <- function(id, pool) {
 
         # Get the matching terms and their unique tree numbers ffrom the DB
         q <- dbGetQuery(
-          pool(),
+          conn(),
           paste(
             "SELECT tr.treenum, mt.meshterm",
             "FROM meshTerm as mt, meshLink as ml, meshTree as tr",

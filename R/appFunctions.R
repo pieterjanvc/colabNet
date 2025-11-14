@@ -6,7 +6,7 @@
 #'
 #' If local and temp folders are not set, they will be created in the default temp
 #'
-#' @import shiny dplyr stringr tidyr purrr visNetwork pool plotly
+#' @import shiny dplyr stringr tidyr purrr visNetwork plotly
 #' @importFrom shinyjs useShinyjs enable disable
 #' @importFrom RSQLite SQLite
 #' @importFrom DT DTOutput renderDT datatable dataTableProxy replaceData

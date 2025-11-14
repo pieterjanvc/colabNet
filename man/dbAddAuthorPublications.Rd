@@ -15,6 +15,9 @@ dbAddAuthorPublications(
 \arguments{
 \item{authorPublications}{List of data frames geneated by ncbi_publicationDetails()}
 
+\item{matchOnFirst}{(Default= FALSE) Match on first name as well as
+initials (stricter)}
+
 \item{flagUpdate}{Default= T, set an update flag in the DB so the app will refresh once completed}
 
 \item{conn}{Connection to a Colabnet database}

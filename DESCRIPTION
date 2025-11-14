@@ -19,7 +19,7 @@ Suggests:
     roxygen2
 Config/testthat/edition: 3
 Depends: 
-    R (>= 4.00)
+    R (>= 4.1.0)
 LazyData: true
 Imports:
     dplyr,
@@ -29,10 +29,10 @@ Imports:
     igraph,
     pkgload,
     plotly,
-    pool,
     purrr,
     rentrez,
     rlang,
+    RSQLite,
     shiny,
     shinyjs,
     stringi,

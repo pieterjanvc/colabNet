@@ -4,9 +4,9 @@
 ^\.Rproj\.user$
 ^colabNet\.Rproj$
 ^LICENSE\.md$
-^data/
-^dev/
-^local/
-^prod/
-^backup/
-^temp/
+^backup$
+^data$
+^dev$
+^local$
+^prod$
+^temp$

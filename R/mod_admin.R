@@ -75,6 +75,8 @@ mod_admin_ui <- function(id) {
 #' @param id ID for the module (match with UI)
 #' @param conn A reactive conn object connected to the database
 #'
+#' @importFrom stats setNames
+#'
 #' @returns Nothing
 #'
 #' @export

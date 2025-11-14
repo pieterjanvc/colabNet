@@ -4,14 +4,14 @@
 \alias{mod_meshTree_server}
 \title{MeSH Tree Shiny Module - Server}
 \usage{
-mod_meshTree_server(id, papermeshtree, pool)
+mod_meshTree_server(id, papermeshtree, conn)
 }
 \arguments{
 \item{id}{ID for the module}
 
-\item{pool}{A reactive pool object as DB connection}
+\item{papermeshtree}{A papermeshtree data frame}
 
-\item{plotData}{A MeshTree plot data data frame}
+\item{conn}{A reactive conn object as DB connection}
 }
 \value{
 Server function for MeSH Tree. The output will return a reactive list:

@@ -31,7 +31,6 @@ if (!exists("envInfo")) {
     library(dbplyr)
     library(DT)
     library(RSQLite)
-    library(pool)
     library(shiny)
     library(shinyjs)
     library(stringr)
@@ -328,10 +327,6 @@ server <- function(input, output, session) {
     useDB = envInfo$dbPath
   )
 
-  observe({
-    print(connInfo())
-  })
-
   #Only show that admin / download modules for databases that are not local
   output$adminTab <- renderUI({
     adminPass <- isolate({
@@ -357,10 +352,10 @@ server <- function(input, output, session) {
     return(newUI)
   })
 
-  # pool for the current DB
+  # conn for the current DB
   conn <- eventReactive(connInfo(), {
-    conn <- dbGetConn(connInfo()$dbPath, session = session)
-    conn
+    newConn <- dbGetConn(connInfo()$dbPath, session = session)
+    newConn
   })
 
   # Precompute data
@@ -661,7 +656,7 @@ server <- function(input, output, session) {
   mtOverviewSelected <- mod_meshTree_server(
     "meshTree_overview",
     papermeshtree = reactive(preCompData()$papermeshtree),
-    pool = conn
+    conn = conn
   )
 
   observeEvent(mtOverviewSelected(), {
@@ -808,7 +803,7 @@ server <- function(input, output, session) {
   mtComparisonSelected <- mod_meshTree_server(
     "meshTree_comparison",
     papermeshtree = treemapcomp,
-    pool = conn
+    conn = conn
   )
 
   # Get articles in part of the author comparison MeSH tree branch selected

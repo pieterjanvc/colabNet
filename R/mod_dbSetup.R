@@ -41,6 +41,7 @@ mod_dbSetup_ui <- function(id, download = "button") {
 #'
 #' @import shiny
 #' @importFrom stringr str_remove str_detect
+#' @importFrom utils URLdecode URLencode
 #'
 #' @returns Reactive list variable with 4 items
 #' - dbPath: path to the database
@@ -152,7 +153,7 @@ mod_dbSetup_server_old <- function(
 
     # Check if the selected DB is valid
     dbPath <- file.path(localFolder, paste0(dbName, ".db"))
-    check <- dbSetup(path = dbPath, checkSchema = T, schema = schema)
+    check <- dbSetup(path = dbPath, validateSchema = T, schema = schema)
 
     if (!check$success) {
       return(list(
@@ -243,7 +244,7 @@ mod_dbSetup_server_old <- function(
     }
 
     # Check if the selected DB is still valid
-    check <- dbSetup(path = dbPath, checkSchema = T, schema = schema)
+    check <- dbSetup(path = dbPath, validateSchema = T, schema = schema)
 
     if (!check$success) {
       return(list(

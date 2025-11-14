@@ -1,7 +1,7 @@
 library(dplyr)
 
 # Connect to the database or setup a new one
-dbSetup("dev/PGG.db", checkSchema = T)
+dbSetup("dev/PGG.db", validateSchema = T)
 # Load faculty data
 faculty <- readxl::read_xlsx("data/PGG Faculties.xlsx")
 # Filter for articles where the author of interest has Harvard in their affiliations

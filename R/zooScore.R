@@ -186,6 +186,8 @@ zooScore_tree <- function(tree) {
 #' @param roots Optional. If set, a vector of roots in paperMeshTree to run the
 #' algorithm for, otherwise all roots (i.e. trees) are used
 #'
+#' @importFrom stats setNames
+#'
 #' @return A data frame with 3 columns
 #' - Cols 1 & 2 are all auID combinations
 #' - Col 3 is the zoo score

@@ -6,12 +6,12 @@
 This module allows the user to search and select specific MeSH terms
 from the current database}
 \usage{
-mod_meshFilter_server(id, pool)
+mod_meshFilter_server(id, conn)
 }
 \arguments{
 \item{id}{Module id, needs to be the same as the UI function}
 
-\item{pool}{A reactive pool object as DB connection}
+\item{conn}{A reactive conn object as DB connection}
 }
 \value{
 Server of the module that returns a reactive dataframe of MeSH terms

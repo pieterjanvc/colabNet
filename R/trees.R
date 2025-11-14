@@ -82,6 +82,8 @@ missingTreeNums <- function(treenums, includeOriginal = F, includeRoots = F) {
 #' @param node Vector of node IDs
 #' @param parent Vector of parent ID for each node above
 #'
+#' @importFrom stats setNames
+#'
 #' @return A list with two elements
 #'  - branchID: The new branch ID for each node
 #'  - treemapVal: The value used to scale a treemap and force all cells to

@@ -171,6 +171,7 @@ ncbi_author <- function(
 #' @param PMIDs (optional) If set limit the search to the PMIDs for the given author
 #' @param PMIDonly Return only valid PMID, not the data table
 #' @param returnHistory (Default = False). If true, will return rentrez web history object
+#' @param simpletext Match using simplified text (e.g. no accents)
 #' @param stopFetching (Default = 1000) If more than this number of articles are
 #' found, it is very likely that results for multiple authors with the same name are
 #' found. In this case is might be better to manually provide the PMID instead
@@ -191,8 +192,8 @@ ncbi_authorArticleList <- function(
   lastName,
   firstName,
   PMIDs,
-  returnHistory = F,
   PMIDonly = F,
+  returnHistory = F,
   simpletext = T,
   stopFetching = 1000
 ) {

@@ -8,8 +8,8 @@ ncbi_authorArticleList(
   lastName,
   firstName,
   PMIDs,
-  returnHistory = F,
   PMIDonly = F,
+  returnHistory = F,
   simpletext = T,
   stopFetching = 1000
 )
@@ -23,9 +23,11 @@ only supply initials e.g. 'Joseph E Murray' --> 'JE'.}
 
 \item{PMIDs}{(optional) If set limit the search to the PMIDs for the given author}
 
+\item{PMIDonly}{Return only valid PMID, not the data table}
+
 \item{returnHistory}{(Default = False). If true, will return rentrez web history object}
 
-\item{PMIDonly}{Return only valid PMID, not the data table}
+\item{simpletext}{Match using simplified text (e.g. no accents)}
 
 \item{stopFetching}{(Default = 1000) If more than this number of articles are
 found, it is very likely that results for multiple authors with the same name are

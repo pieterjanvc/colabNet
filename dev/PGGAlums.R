@@ -1,4 +1,4 @@
-dbSetup("data/alumni.db", checkSchema = T)
+dbSetup("data/alumni.db", validateSchema = T)
 
 # Load student data
 alumni <- readr::read_csv("data/PGG alumni.csv")

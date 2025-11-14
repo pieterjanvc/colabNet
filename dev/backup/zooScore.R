@@ -414,7 +414,7 @@ mergeTree <- function(tree) {
 
 ### TEST WITH ACTUAL DATA
 
-dbSetup(dbInfo = "data/PGG.db", checkSchema = T)
+dbSetup(dbInfo = "data/PGG.db", validateSchema = T)
 conn <- dbGetConn()
 auIDs <- tbl(conn, "author") |>
   filter(authorOfInterest == 1) |>
